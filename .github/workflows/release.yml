@@ -12,8 +12,51 @@ permissions:
   contents: write
 
 jobs:
+  build-web:
+    name: Build & Verify Web Assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci || npm install
+          else
+            npm install
+          fi
+
+      - name: Run verification checks (lint, typecheck, tests)
+        run: npm run check
+
+      - name: Build web static bundle
+        run: npm run build:web
+        env:
+          NO_BUMP: "true"
+
+      - name: Upload Web Bundle Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: testino-web-out
+          path: out
+          retention-days: 1
+
+      - name: Upload Version Meta
+        uses: actions/upload-artifact@v4
+        with:
+          name: testino-version-meta
+          path: public/version.json
+          retention-days: 1
+
   build-android:
     name: Build Android APK
+    needs: [build-web]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -41,13 +84,18 @@ jobs:
             npm install
           fi
 
-      - name: Run verification checks (lint, typecheck, tests)
-        run: npm run check
+      - name: Download Web Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: testino-web-out
+          path: out
 
-      - name: Build web assets
-        run: npm run build:web
-        env:
-          NO_BUMP: "true"
+      - name: Ensure Gradle Wrapper exists
+        run: |
+          mkdir -p android/gradle/wrapper
+          if [ ! -f android/gradle/wrapper/gradle-wrapper.jar ]; then
+            curl -sL https://raw.githubusercontent.com/gradle/gradle/v8.14.3/gradle/wrapper/gradle-wrapper.jar -o android/gradle/wrapper/gradle-wrapper.jar
+          fi
 
       - name: Sync Capacitor Android project
         run: npx cap sync android
@@ -64,14 +112,9 @@ jobs:
           name: testino-android-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload Version Meta
-        uses: actions/upload-artifact@v4
-        with:
-          name: testino-version-meta
-          path: public/version.json
-
   build-windows:
     name: Package Windows Desktop App
+    needs: [build-web]
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -91,10 +134,11 @@ jobs:
             npm install
           fi
 
-      - name: Build static web bundle
-        run: npm run build:web
-        env:
-          NO_BUMP: "true"
+      - name: Download Web Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: testino-web-out
+          path: out
 
       - name: Package Windows Portable & Executable
         run: node scripts/package-desktop.mjs
@@ -149,3 +193,4 @@ jobs:
             release-files/version.json
           draft: false
           prerelease: false
+
