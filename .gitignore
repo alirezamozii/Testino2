@@ -1,0 +1,21 @@
+node_modules/
+.next/
+out/
+dist/
+release/
+releases/
+artifacts/
+test-results/
+structure.txt
+.env.local
+.env
+
+# Android builds & caches
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+*.apk
+*.zip
+*.exe

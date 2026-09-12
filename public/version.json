@@ -1,0 +1,14 @@
+{
+  "version": "0.1.7",
+  "build": 67,
+  "releaseDate": "2026-09-12",
+  "changelog": [
+    "به‌روزرسانی عملکرد و همگام‌سازی هسته",
+    "بهینه‌سازی ذخیره‌سازی آفلاین و پاسخ‌دهی آزمون‌ها"
+  ],
+  "downloadUrls": {
+    "windows": "https://github.com/testino/testino/releases/latest/download/Testino-Windows-x64.zip",
+    "android": "https://github.com/testino/testino/releases/latest/download/app-debug.apk",
+    "web": "https://testino.app"
+  }
+}
