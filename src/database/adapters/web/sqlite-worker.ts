@@ -67,9 +67,6 @@ async function openDatabase(ownerKey = "default") {
     // Ignore lock errors
   }
 
-  (globalThis as typeof globalThis & { sqlite3ApiConfig?: unknown }).sqlite3ApiConfig = {
-    disable: { vfs: { opfs: true, "opfs-wl": true } },
-  };
   const { default: sqlite3InitModule } = await import("@sqlite.org/sqlite-wasm");
   const sqlite = await sqlite3InitModule();
 
@@ -78,16 +75,18 @@ async function openDatabase(ownerKey = "default") {
   // 1. Try OPFS SAHPool first (for persistent storage when allowed by browser/context)
   if (typeof navigator !== "undefined" && "storage" in navigator && typeof navigator.storage?.getDirectory === "function") {
     try {
-      const pool = await sqlite.installOpfsSAHPoolVfs({
-        name: `testino-sahpool-${ownerKey}`,
-        directory: `/testino-sahpool-${ownerKey}`,
-        initialCapacity: 6,
-      });
-      database = new pool.OpfsSAHPoolDb(`/testino-${ownerKey}.sqlite3`) as SqliteDb;
-      storageType = "opfs";
-      initialized = true;
+      if (typeof sqlite.installOpfsSAHPoolVfs === "function") {
+        const pool = await sqlite.installOpfsSAHPoolVfs({
+          name: `testino-sahpool-${ownerKey}`,
+          directory: `/testino-sahpool-${ownerKey}`,
+          initialCapacity: 6,
+        });
+        database = new pool.OpfsSAHPoolDb(`/testino-${ownerKey}.sqlite3`) as SqliteDb;
+        storageType = "opfs";
+        initialized = true;
+      }
     } catch (opfsErr) {
-      console.warn("OPFS SAHPool unavailable (e.g. iframe permissions policy), falling back to in-memory SQLite:", opfsErr);
+      console.warn("OPFS SAHPool unavailable (e.g. iframe permissions policy or cross-origin isolation), falling back to in-memory SQLite:", opfsErr);
     }
   }
 

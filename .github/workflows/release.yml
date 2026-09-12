@@ -11,9 +11,6 @@ on:
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   build-web:
     name: Build & Verify Web Assets
@@ -80,9 +77,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Install dependencies
         run: |
@@ -226,7 +220,6 @@ jobs:
           tag_name: ${{ steps.release_info.outputs.tag }}
           files: |
             release-files/Testino-Android.apk
-            release-files/app-debug.apk
             release-files/Testino-Setup-x64.exe
             release-files/Testino-Windows-x64.zip
             release-files/version.json

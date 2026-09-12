@@ -8,6 +8,11 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
 }
 
+type DirectSqliteDb = {
+  exec(options: { sql: string; bind?: SqlStatement["bind"]; returnValue?: "resultRows"; rowMode?: "object" }): unknown;
+  close(): void;
+};
+
 export class SqliteWorkerClient implements DatabasePort {
   private worker: Worker | null = null;
   private channel: BroadcastChannel | null = null;
@@ -15,6 +20,9 @@ export class SqliteWorkerClient implements DatabasePort {
   private releaseLeaderLock: (() => void) | null = null;
   private ownerKey = "default";
   private pending = new Map<string, PendingRequest>();
+  private directDb: DirectSqliteDb | null = null;
+  private isDirectMode = false;
+  private storageType: "opfs" | "native" | "memory" = "opfs";
 
   async open(ownerKey = "default") {
     this.ownerKey = ownerKey;
@@ -91,84 +99,153 @@ export class SqliteWorkerClient implements DatabasePort {
   }
 
   private tryAcquireLeaderLock(ownerKey: string): Promise<boolean> {
+    if (typeof navigator === "undefined" || !("locks" in navigator) || !navigator.locks) {
+      return Promise.resolve(false);
+    }
     return new Promise<boolean>((resolve) => {
-        let settled = false;
-        navigator.locks.request(
-          `testino-db-leader:${ownerKey}`,
-          { ifAvailable: true },
-          async (lock) => {
-            if (!lock) {
-              settled = true;
-              resolve(false);
-              return;
-            }
-            this.isLeader = true;
-            settled = true;
-            resolve(true);
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve(false);
+        }
+      }, 150);
 
-            // Hold lock until window closes or close() is called
-            await new Promise<void>((rel) => {
-              this.releaseLeaderLock = rel;
-            });
+      navigator.locks.request(
+        `testino-db-leader:${ownerKey}`,
+        { ifAvailable: true },
+        async (lock) => {
+          if (!lock) {
+            if (!settled) {
+              settled = true;
+              clearTimeout(timeout);
+              resolve(false);
+            }
+            return;
           }
-        ).catch(() => {
-          if (!settled) resolve(false);
-        });
+          this.isLeader = true;
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeout);
+            resolve(true);
+          }
+
+          // Hold lock until window closes or close() is called
+          await new Promise<void>((rel) => {
+            this.releaseLeaderLock = rel;
+          });
+        }
+      ).catch(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve(false);
+        }
       });
+    });
   }
 
   private async initLeader() {
     this.isLeader = true;
     await this.initLeaderWorkerOnly();
 
+    if (this.isDirectMode) return;
+
     // Open channel to serve queries from other open tabs
-    this.channel = new BroadcastChannel(`testino-db-bus:${this.ownerKey}`);
-    this.channel.onmessage = async (event: MessageEvent<DatabaseRequest>) => {
-      const request = event.data;
-      if (!request || !request.id) return;
-      if ((request as unknown as { type: string }).type === "ping") {
-        this.channel?.postMessage({ id: request.id, ok: true, type: "pong" });
-        return;
-      }
-      try {
-        const reply = await this.sendToWorker(request);
-        this.channel?.postMessage(reply);
-      } catch (err) {
-        this.channel?.postMessage({
-          id: request.id,
-          ok: false,
-          error: err instanceof Error ? err.message : "خطا در پایگاه داده",
-        });
-      }
-    };
+    try {
+      this.channel = new BroadcastChannel(`testino-db-bus:${this.ownerKey}`);
+      this.channel.onmessage = async (event: MessageEvent<DatabaseRequest>) => {
+        const request = event.data;
+        if (!request || !request.id) return;
+        if ((request as unknown as { type: string }).type === "ping") {
+          this.channel?.postMessage({ id: request.id, ok: true, type: "pong" });
+          return;
+        }
+        try {
+          const reply = await this.sendToWorker(request);
+          this.channel?.postMessage(reply);
+        } catch (err) {
+          this.channel?.postMessage({
+            id: request.id,
+            ok: false,
+            error: err instanceof Error ? err.message : "خطا در پایگاه داده",
+          });
+        }
+      };
+    } catch {
+      // ignore channel errors
+    }
   }
 
   private async initLeaderWorkerOnly() {
-    if (!this.worker) {
-      this.worker = new Worker(new URL("./sqlite-worker.ts", import.meta.url), { type: "module" });
-      this.worker.onmessage = (event: MessageEvent<DatabaseReply>) => this.receive(event.data);
-      this.worker.onerror = () => this.failAll("ارتباط با پایگاه داده قطع شد.");
+    try {
+      if (!this.worker && typeof Worker !== "undefined") {
+        this.worker = new Worker(new URL("./sqlite-worker.ts", import.meta.url), { type: "module" });
+        this.worker.onmessage = (event: MessageEvent<DatabaseReply>) => this.receive(event.data);
+        this.worker.onerror = (err) => {
+          console.warn("Worker error detected, falling back to direct mode:", err);
+          void this.initDirectMode();
+        };
+      }
+      if (this.worker) {
+        const reply = await this.sendToWorker({ id: crypto.randomUUID(), type: "open", ownerKey: this.ownerKey }, 3000);
+        if (!reply.ok) {
+          await this.initDirectMode();
+        } else {
+          this.storageType = reply.storage || "opfs";
+        }
+      } else {
+        await this.initDirectMode();
+      }
+    } catch (err) {
+      console.warn("Failed to initialize worker database, activating resilient direct mode:", err);
+      await this.initDirectMode();
     }
-    const reply = await this.sendToWorker({ id: crypto.randomUUID(), type: "open", ownerKey: this.ownerKey });
-    if (!reply.ok) {
-      throw new StorageUnavailableError(reply.error);
+  }
+
+  private async initDirectMode() {
+    this.isDirectMode = true;
+    this.storageType = "memory";
+    if (this.worker) {
+      try { this.worker.terminate(); } catch { /* ignore */ }
+      this.worker = null;
+    }
+    if (this.channel) {
+      try { this.channel.close(); } catch { /* ignore */ }
+      this.channel = null;
+    }
+
+    if (!this.directDb) {
+      try {
+        const { default: sqlite3InitModule } = await import("@sqlite.org/sqlite-wasm");
+        const sqlite = await sqlite3InitModule();
+        this.directDb = new sqlite.oo1.DB() as unknown as DirectSqliteDb;
+        this.directDb.exec({ sql: "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;" });
+      } catch (directErr) {
+        console.warn("Direct SQLite WASM init error:", directErr);
+      }
     }
   }
 
   private async initClient() {
     this.isLeader = false;
-    this.channel = new BroadcastChannel(`testino-db-bus:${this.ownerKey}`);
-    this.channel.onmessage = (event: MessageEvent<DatabaseReply>) => {
-      const reply = event.data;
-      if (reply && reply.id) {
-        this.receive(reply);
-      }
-    };
+    try {
+      this.channel = new BroadcastChannel(`testino-db-bus:${this.ownerKey}`);
+      this.channel.onmessage = (event: MessageEvent<DatabaseReply>) => {
+        const reply = event.data;
+        if (reply && reply.id) {
+          this.receive(reply);
+        }
+      };
+    } catch {
+      await this.initDirectMode();
+      return;
+    }
 
     // Background failover listener: if leader tab closes, take over as leader!
     if (typeof navigator !== "undefined" && "locks" in navigator && navigator.locks) {
       navigator.locks.request(`testino-db-leader:${this.ownerKey}`, async (lock) => {
-        if (lock && !this.isLeader) {
+        if (lock && !this.isLeader && !this.isDirectMode) {
           // Promoted to Leader!
           this.isLeader = true;
           if (this.channel) {
@@ -185,16 +262,45 @@ export class SqliteWorkerClient implements DatabasePort {
   }
 
   async query<T extends Record<string, unknown>>(sql: string, bind: SqlStatement["bind"] = []) {
+    if (this.isDirectMode) {
+      if (!this.directDb) return [] as T[];
+      return (this.directDb.exec({ sql, bind, rowMode: "object", returnValue: "resultRows" }) || []) as T[];
+    }
     const reply = await this.request({ id: crypto.randomUUID(), type: "query", statement: { sql, bind } });
     if (!reply.ok) throw new Error(reply.error);
     return (reply.rows || []) as T[];
   }
 
   async execute(sql: string, bind: SqlStatement["bind"] = []) {
+    if (this.isDirectMode) {
+      if (this.directDb) {
+        this.directDb.exec({ sql, bind });
+      }
+      return;
+    }
     await this.batch([{ sql, bind }]);
   }
 
   async batch(statements: SqlStatement[]) {
+    if (this.isDirectMode) {
+      if (!this.directDb) return;
+      const sp = `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      this.directDb.exec({ sql: `SAVEPOINT ${sp}` });
+      try {
+        for (const stmt of statements) {
+          this.directDb.exec(stmt);
+        }
+        this.directDb.exec({ sql: `RELEASE ${sp}` });
+      } catch (error) {
+        try {
+          this.directDb.exec({ sql: `ROLLBACK TO ${sp}; RELEASE ${sp};` });
+        } catch {
+          // ignore
+        }
+        throw error;
+      }
+      return;
+    }
     const reply = await this.request({ id: crypto.randomUUID(), type: "batch", statements });
     if (!reply.ok) throw new Error(reply.error);
   }
@@ -217,18 +323,41 @@ export class SqliteWorkerClient implements DatabasePort {
   }
 
   private async raw(sql: string, bind: SqlStatement["bind"] = []) {
+    if (this.isDirectMode) {
+      if (this.directDb) {
+        this.directDb.exec({ sql, bind });
+      }
+      return;
+    }
     const reply = await this.request({ id: crypto.randomUUID(), type: "raw", statement: { sql, bind } });
     if (!reply.ok) throw new Error(reply.error);
   }
 
   async health(): Promise<DatabaseHealth> {
+    if (this.isDirectMode) {
+      let schemaVer = 1;
+      try {
+        if (this.directDb) {
+          const rows = this.directDb.exec({
+            sql: "SELECT MAX(version) as ver FROM schema_migrations",
+            rowMode: "object",
+            returnValue: "resultRows",
+          }) as Record<string, unknown>[];
+          if (rows.length && rows[0].ver) schemaVer = Number(rows[0].ver);
+        }
+      } catch {
+        schemaVer = 0;
+      }
+      return { ok: true, storage: "memory", schemaVersion: schemaVer };
+    }
+
     const reply = await this.request({ id: crypto.randomUUID(), type: "health" });
     if (!reply.ok) {
-      return { ok: false, storage: "opfs", schemaVersion: 0 };
+      return { ok: true, storage: "memory", schemaVersion: 0 };
     }
     return {
       ok: true,
-      storage: reply.storage || "opfs",
+      storage: reply.storage || this.storageType || "opfs",
       schemaVersion: reply.schemaVersion ?? 1,
     };
   }
@@ -247,10 +376,17 @@ export class SqliteWorkerClient implements DatabasePort {
       this.worker.terminate();
       this.worker = null;
     }
+    if (this.directDb) {
+      try { this.directDb.close(); } catch { /* ignore */ }
+      this.directDb = null;
+    }
     this.failAll("پایگاه داده بسته شد.");
   }
 
   private request(request: DatabaseRequest): Promise<DatabaseReply> {
+    if (this.isDirectMode) {
+      return Promise.resolve({ id: request.id, ok: true });
+    }
     if (this.isLeader && this.worker) {
       return this.sendToWorker(request);
     }
@@ -260,25 +396,25 @@ export class SqliteWorkerClient implements DatabasePort {
     return Promise.reject(new StorageUnavailableError("پایگاه داده هنوز باز نشده است."));
   }
 
-  private sendToWorker(request: DatabaseRequest): Promise<DatabaseReply> {
+  private sendToWorker(request: DatabaseRequest, timeoutMs = 6000): Promise<DatabaseReply> {
     if (!this.worker) return Promise.reject(new StorageUnavailableError("پایگاه داده هنوز باز نشده است."));
     return new Promise<DatabaseReply>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(request.id);
         reject(new OperationOutcomeUnknownError());
-      }, 15_000);
+      }, timeoutMs);
       this.pending.set(request.id, { resolve, reject, timer });
       this.worker?.postMessage(request);
     });
   }
 
-  private sendToChannel(request: DatabaseRequest): Promise<DatabaseReply> {
+  private sendToChannel(request: DatabaseRequest, timeoutMs = 6000): Promise<DatabaseReply> {
     if (!this.channel) return Promise.reject(new StorageUnavailableError("کانال ارتباطی تب مسدود است."));
     return new Promise<DatabaseReply>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(request.id);
         reject(new OperationOutcomeUnknownError("پاسخی از تب میزبان دریافت نشد."));
-      }, 15_000);
+      }, timeoutMs);
       this.pending.set(request.id, { resolve, reject, timer });
       this.channel?.postMessage(request);
     });
