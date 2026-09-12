@@ -11,6 +11,28 @@ const distDir = path.join(rootDir, "dist");
 const outputAppDir = path.join(distDir, "Testino-win-x64");
 const electronDist = path.join(rootDir, "node_modules", "electron", "dist");
 
+// 0. Ensure Electron Windows binary exists
+if (!fs.existsSync(path.join(electronDist, "electron.exe"))) {
+  console.log("📥 در حال دریافت باینری‌های رسمی Electron برای ویندوز...");
+  try {
+    const versionFile = path.join(electronDist, "version");
+    if (fs.existsSync(versionFile)) {
+      fs.unlinkSync(versionFile);
+    }
+    execSync("node node_modules/electron/install.js", {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        ELECTRON_INSTALL_PLATFORM: "win32",
+        ELECTRON_INSTALL_ARCH: "x64",
+        force_no_cache: "true"
+      }
+    });
+  } catch (err) {
+    console.warn("تلاش برای دریافت باینری الکترون ویندوز:", err.message);
+  }
+}
+
 if (!fs.existsSync(path.join(electronDist, "electron.exe"))) {
   console.error("❌ باینری Electron در node_modules/electron/dist یافت نشد.");
   process.exit(1);
@@ -67,20 +89,55 @@ fs.cpSync(path.join(rootDir, "out"), path.join(appDir, "out"), { recursive: true
 // Copy public assets
 fs.cpSync(path.join(rootDir, "public"), path.join(appDir, "public"), { recursive: true });
 
-console.log("4️⃣ ایجاد فایل فشرده پرتابل Testino-Windows.zip...");
+console.log("4️⃣ ایجاد فایل فشرده پرتابل Testino-Windows-x64.zip...");
 const zipOutput = path.join(distDir, "Testino-Windows-x64.zip");
 if (fs.existsSync(zipOutput)) {
   fs.rmSync(zipOutput, { force: true });
 }
 
-try {
-  // Use pwsh Compress-Archive for reliable zip creation
-  execSync(`pwsh -NoProfile -Command "Compress-Archive -Path '${outputAppDir}' -DestinationPath '${zipOutput}' -Force"`, { stdio: "inherit" });
-  if (fs.existsSync(zipOutput)) {
-    console.log(`📦 فایل زیپ پرتابل آماده شد: ${zipOutput}`);
+let zipped = false;
+
+// Strategy A: PowerShell (Default on Windows CI runners)
+if (!zipped) {
+  try {
+    execSync(`powershell -NoProfile -Command "Compress-Archive -Path '${outputAppDir}' -DestinationPath '${zipOutput}' -Force"`, { stdio: "ignore" });
+    if (fs.existsSync(zipOutput) && fs.statSync(zipOutput).size > 1000000) {
+      zipped = true;
+      console.log(`📦 فایل زیپ پرتابل با PowerShell آماده شد: ${zipOutput}`);
+    }
+  } catch {
+    // try next strategy
   }
-} catch (e) {
-  console.warn("ایجاد فایل فشرده با خطا مواجه شد، اما پوشه اجرایی آماده است:", e.message);
+}
+
+// Strategy B: tar (Built-in on Windows 10/11 & Linux)
+if (!zipped) {
+  try {
+    execSync(`tar -a -c -f "${zipOutput}" -C "${distDir}" "Testino-win-x64"`, { stdio: "ignore" });
+    if (fs.existsSync(zipOutput) && fs.statSync(zipOutput).size > 1000000) {
+      zipped = true;
+      console.log(`📦 فایل زیپ پرتابل با tar آماده شد: ${zipOutput}`);
+    }
+  } catch {
+    // try next strategy
+  }
+}
+
+// Strategy C: PowerShell Core (pwsh)
+if (!zipped) {
+  try {
+    execSync(`pwsh -NoProfile -Command "Compress-Archive -Path '${outputAppDir}' -DestinationPath '${zipOutput}' -Force"`, { stdio: "ignore" });
+    if (fs.existsSync(zipOutput) && fs.statSync(zipOutput).size > 1000000) {
+      zipped = true;
+      console.log(`📦 فایل زیپ پرتابل با pwsh آماده شد: ${zipOutput}`);
+    }
+  } catch {
+    // try next strategy
+  }
+}
+
+if (!zipped) {
+  console.warn("⚠️ ایجاد فایل فشرده با موفقیت انجام نشد، اما پوشه اجرایی Testino-win-x64 آماده است.");
 }
 
 console.log("\n🎉 بیلد نسخه ویندوز دسکتاپ با موفقیت کامل انجام شد!");
