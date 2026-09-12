@@ -108,6 +108,13 @@ export default function SettingsPage() {
     setIsDeleting(true);
     try {
       await database.db.deleteAllData();
+      try {
+        localStorage.removeItem("testino_onboarding_completed");
+        localStorage.removeItem("testino_seen_splash");
+        sessionStorage.removeItem("testino_seen_splash");
+      } catch {
+        // ignore storage errors
+      }
       await queryClient.clear();
       router.push("/onboarding/");
     } catch (err) {
