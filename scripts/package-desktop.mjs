@@ -44,7 +44,7 @@ const icoPath = path.join(rootDir, "public", "app-icon.ico");
 if (fs.existsSync(rceditExe) && fs.existsSync(icoPath)) {
   console.log("🎨 تزریق آیکون رسمی و مشخصات برنامه به فایل Testino.exe...");
   try {
-    execSync(`"${rceditExe}" "${targetExe}" --set-icon "${icoPath}" --set-version-string "FileDescription" "تستینو" --set-version-string "ProductName" "تستینو" --set-version-string "CompanyName" "Testino"`, { stdio: "ignore" });
+    execSync(`"${rceditExe}" "${targetExe}" --set-icon "${icoPath}" --set-version-string "FileDescription" "تستیونو" --set-version-string "ProductName" "تستیونو" --set-version-string "CompanyName" "Testino"`, { stdio: "ignore" });
     console.log("✅ آیکون و برندینگ فایل اجرایی Testino.exe با موفقیت تنظیم شد.");
   } catch (err) {
     console.warn("⚠️ خطا در تزریق آیکون به Testino.exe:", err.message);
