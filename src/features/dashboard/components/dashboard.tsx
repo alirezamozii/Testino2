@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   BarChart3,
-  BookOpen,
   CheckCircle2,
   ChevronLeft,
   Layers,
@@ -17,13 +17,13 @@ import {
   Sprout,
 } from "lucide-react";
 import { LoadingState } from "@/components/ui/testino-ui";
-import { BrandLogo } from "@/components/ui/brand-logo";
 import { SignedPercent } from "@/components/ui/signed-number";
 import { useDatabase } from "@/providers/database-provider";
 import { cn } from "@/lib/utils";
 import { calculateWeightedTarget } from "@/features/profiles/domain/score-groups";
 
 export function Dashboard() {
+  const router = useRouter();
   const [selectedSimSubject, setSelectedSimSubject] = useState<string>("all");
   const database = useDatabase();
   const owner = useQuery({
@@ -43,108 +43,18 @@ export function Dashboard() {
     enabled: Boolean(profile),
   });
 
+  useEffect(() => {
+    if (database.status === "ready" && !profiles.isLoading && !profile) {
+      router.replace("/onboarding/");
+    }
+  }, [database.status, profiles.isLoading, profile, router]);
+
   if (database.status === "loading" || profiles.isLoading) {
     return <LoadingState label="در حال آماده‌سازی فضای مطالعه…" />;
   }
 
   if (!profile) {
-    return (
-      <div className="space-y-6 max-w-6xl mx-auto pb-10">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-          {/* Main Welcome Hero (7 cols) */}
-          <div className="lg:col-span-7 card-neo p-6 sm:p-8 bg-[var(--surface)] flex flex-col justify-between space-y-6">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <BrandLogo size="lg" />
-              </div>
-              <div className="space-y-2 pt-2">
-                <span className="inline-block text-xs font-black px-3 py-1 rounded-full bg-[var(--pastel-orange)] text-white border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-                  نسخه ۱.۰ آفلاین
-                </span>
-                <h1 className="text-2xl sm:text-3xl font-black text-[var(--ink)] tracking-tight">
-                  به سامانهٔ تستیونو خوش آمدید!
-                </h1>
-                <p className="text-xs sm:text-sm font-bold text-[var(--muted)] leading-relaxed">
-                  پلتفرم مستقل تمرین، آزمون‌های شبیه‌ساز و موتور مرور فاصله‌دار. با ساخت اولین پروفایل تحصیلی، تمام امکانات بر اساس آزمون، دروس و ضرایب دلخواه شما فعال می‌شوند.
-                </p>
-              </div>
-
-              {/* Offline & Architecture Badges */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-                <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-1">
-                  <strong className="text-xs font-black text-[var(--ink)] block">۱۰۰٪ آفلاین</strong>
-                  <span className="text-[10px] text-[var(--muted)] font-bold block">داده‌ها روی حافظه پایدار مرورگر شما</span>
-                </div>
-                <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-1">
-                  <strong className="text-xs font-black text-[var(--ink)] block">محاسبه تراز وزنی</strong>
-                  <span className="text-[10px] text-[var(--muted)] font-bold block">ضریب و اهداف تفکیکی هر درس</span>
-                </div>
-                <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-1">
-                  <strong className="text-xs font-black text-[var(--ink)] block">مرور لایتنر</strong>
-                  <span className="text-[10px] text-[var(--muted)] font-bold block">تکرار هوشمند بر اساس پاسخ واقعی</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t-2 border-[var(--line-strong)]/20 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <Link
-                href="/onboarding/"
-                className="btn-neo-orange py-3.5 px-6 text-sm font-black flex items-center justify-center gap-2 shadow-[3px_3px_0px_var(--neo-shadow)]"
-              >
-                <span>شروع و ساخت اولین پروفایل</span>
-                <ArrowLeft size={18} />
-              </Link>
-              <span className="text-[11px] font-bold text-[var(--muted)] text-center sm:text-right">
-                کمتر از ۱ دقیقه زمان می‌برد
-              </span>
-            </div>
-          </div>
-
-          {/* Feature Preview Cards (5 cols) */}
-          <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3.5">
-            <div className="card-neo card-neo-orange p-4 sm:p-5 flex items-center gap-3.5">
-              <div className="badge-neo-icon bg-[var(--surface)] text-[var(--line-strong)]">
-                <Plus size={20} strokeWidth={3} />
-              </div>
-              <div>
-                <strong className="text-sm font-black block text-white">۱. ساخت آزمون هدفمند</strong>
-                <span className="text-[11px] text-white/90 font-bold block mt-0.5">تمرین با سقف زمان، انتخاب دروس و نمره منفی</span>
-              </div>
-            </div>
-
-            <div className="card-neo card-neo-blue p-4 sm:p-5 flex items-center gap-3.5">
-              <div className="badge-neo-icon bg-[var(--surface)] text-[var(--line-strong)]">
-                <BookOpen size={20} strokeWidth={2.5} />
-              </div>
-              <div>
-                <strong className="text-sm font-black block text-white">۲. بانک سؤالات شخصی</strong>
-                <span className="text-[11px] text-white/90 font-bold block mt-0.5">دسته‌بندی موضوعی، فیلترها و ورود داده با JSON</span>
-              </div>
-            </div>
-
-            <div className="card-neo card-neo-yellow p-4 sm:p-5 flex items-center gap-3.5">
-              <div className="badge-neo-icon bg-[var(--surface)] text-[var(--line-strong)]">
-                <RotateCcw size={20} strokeWidth={2.5} />
-              </div>
-              <div>
-                <strong className="text-sm font-black block text-white">۳. مرور هوشمند لایتنر</strong>
-                <span className="text-[11px] text-white/90 font-bold block mt-0.5">بازآموزی اشتباهات و شک‌دارها در فواصل مشخص</span>
-              </div>
-            </div>
-
-            <div className="card-neo card-neo-green p-4 sm:p-5 flex items-center gap-3.5">
-              <div className="badge-neo-icon bg-[var(--surface)] text-[var(--line-strong)]">
-                <BarChart3 size={20} strokeWidth={2.5} />
-              </div>
-              <div>
-                <strong className="text-sm font-black block text-white">۴. تحلیل تسلط و تراز</strong>
-                <span className="text-[11px] text-white/90 font-bold block mt-0.5">محاسبه درصدهای واقعی و فاصله تا هدف تعیین‌شده</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoadingState label="در حال انتقال به صفحهٔ ثبت‌نام…" />;
   }
 
   const data = dashboard.data;

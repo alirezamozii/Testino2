@@ -366,7 +366,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
               <UserRound size={19} />
             </span>
             <span className="rail-profile-info">
-              <strong>{owner.data?.displayName || "کاربر تستینو"}</strong>
+              <strong>{owner.data?.displayName || "دانش‌آموز"}</strong>
               <small className={owner.data?.kind === "account" ? "text-blue-600 dark:text-blue-400 font-bold" : ""}>
                 {owner.data?.kind === "account" ? "حساب گوگل متصل" : "پروفایل محلی"}
               </small>

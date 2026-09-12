@@ -203,28 +203,36 @@ export class SqliteWorkerClient implements DatabasePort {
     }
   }
 
-  private async initDirectMode() {
-    this.isDirectMode = true;
-    this.storageType = "memory";
-    if (this.worker) {
-      try { this.worker.terminate(); } catch { /* ignore */ }
-      this.worker = null;
-    }
-    if (this.channel) {
-      try { this.channel.close(); } catch { /* ignore */ }
-      this.channel = null;
-    }
+  private initDirectModePromise: Promise<void> | null = null;
 
-    if (!this.directDb) {
-      try {
-        const { default: sqlite3InitModule } = await import("@sqlite.org/sqlite-wasm");
-        const sqlite = await sqlite3InitModule();
-        this.directDb = new sqlite.oo1.DB() as unknown as DirectSqliteDb;
-        this.directDb.exec({ sql: "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;" });
-      } catch (directErr) {
-        console.warn("Direct SQLite WASM init error:", directErr);
-      }
+  private async initDirectMode() {
+    if (this.initDirectModePromise) {
+      return this.initDirectModePromise;
     }
+    this.initDirectModePromise = (async () => {
+      this.isDirectMode = true;
+      this.storageType = "memory";
+      if (this.worker) {
+        try { this.worker.terminate(); } catch { /* ignore */ }
+        this.worker = null;
+      }
+      if (this.channel) {
+        try { this.channel.close(); } catch { /* ignore */ }
+        this.channel = null;
+      }
+
+      if (!this.directDb) {
+        try {
+          const { default: sqlite3InitModule } = await import("@sqlite.org/sqlite-wasm");
+          const sqlite = await sqlite3InitModule();
+          this.directDb = new sqlite.oo1.DB() as unknown as DirectSqliteDb;
+          this.directDb.exec({ sql: "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;" });
+        } catch (directErr) {
+          console.warn("Direct SQLite WASM init error:", directErr);
+        }
+      }
+    })();
+    return this.initDirectModePromise;
   }
 
   private async initClient() {

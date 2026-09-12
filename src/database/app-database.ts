@@ -1,5 +1,6 @@
 import { SqliteWorkerClient } from "./adapters/web/worker-client";
 import type { DatabasePort } from "./ports";
+import type { SqlStatement } from "./protocol";
 import { runMigrations } from "./migrate";
 import type { ParsedImport } from "@/features/questions/domain/importer";
 import type { ContentBlock, StoredQuestion } from "@/features/questions/domain/question-schema";
@@ -331,7 +332,7 @@ export class AppDatabase {
   async saveOwner(displayName: string, kind: "local" | "account" = "local", authUserId?: string): Promise<{ id: string; displayName: string }> {
     const now = Date.now();
     const existing = await this.getCurrentOwner();
-    const cleanName = displayName.trim() || "کاربر تستینو";
+    const cleanName = displayName.trim() || "دانش‌آموز";
     if (existing) {
       await this.client.execute(
         "UPDATE owners SET display_name=?, kind=?, auth_user_id=?, updated_at=? WHERE id=?",
@@ -355,7 +356,7 @@ export class AppDatabase {
       throw new Error("شناسه حساب ابری معتبر نیست.");
     }
     const existing = await this.getCurrentOwner();
-    const name = displayName?.trim() || existing?.displayName || "کاربر تستینو";
+    const name = displayName?.trim() || existing?.displayName || "دانش‌آموز";
     const now = Date.now();
     if (existing) {
       await this.client.execute(
@@ -377,7 +378,7 @@ export class AppDatabase {
   async unlinkGoogleAccount(): Promise<{ id: string; displayName: string }> {
     const existing = await this.getCurrentOwner();
     if (!existing) {
-      return this.saveOwner("کاربر تستینو", "local");
+      return this.saveOwner("دانش‌آموز", "local");
     }
     const now = Date.now();
     await this.client.execute(
@@ -872,7 +873,7 @@ export class AppDatabase {
     const question = await this.getQuestion(questionId);
     if (!question) throw new Error("سؤال موردنظر برای گزارش پیدا نشد.");
     let owner = await this.getCurrentOwner();
-    if (!owner) owner = { ...(await this.saveOwner("کاربر تستینو")), kind: "local" as const, authUserId: null };
+    if (!owner) owner = { ...(await this.saveOwner("دانش‌آموز")), kind: "local" as const, authUserId: null };
     const cleanNote = note?.trim() || null;
     if (cleanNote && cleanNote.length > 1000) throw new Error("توضیح گزارش حداکثر ۱۰۰۰ نویسه است.");
     try {
@@ -2361,52 +2362,52 @@ export class AppDatabase {
   }
 
   async deleteAllData(): Promise<void> {
-    await this.client.transaction(async (trx) => {
-      try {
-        await trx.execute("PRAGMA foreign_keys=OFF;");
-      } catch {
-        // ignore
-      }
-      const tables = [
-        "review_items",
-        "attempt_events",
-        "attempts",
-        "session_questions",
-        "sessions",
-        "question_reports",
-        "question_media",
-        "media_files",
-        "question_options",
-        "question_revisions",
-        "questions",
-        "question_groups",
-        "sources",
-        "topics",
-        "chapters",
-        "offline_subjects",
-        "subjects",
-        "profiles",
-        "applied_mutations",
-        "outbox",
-        "sync_state",
-        "sync_conflicts",
-        "sync_dirty_entities",
-        "sync_entity_cache",
-        "owners",
-      ];
-      for (const table of tables) {
+    const tables = [
+      "review_items",
+      "attempt_events",
+      "attempts",
+      "session_questions",
+      "sessions",
+      "question_reports",
+      "question_media",
+      "media_files",
+      "question_options",
+      "question_revisions",
+      "questions",
+      "question_groups",
+      "sources",
+      "topics",
+      "chapters",
+      "offline_subjects",
+      "subjects",
+      "profiles",
+      "applied_mutations",
+      "outbox",
+      "sync_state",
+      "sync_conflicts",
+      "sync_dirty_entities",
+      "sync_entity_cache",
+      "owners",
+    ];
+
+    const statements: SqlStatement[] = [
+      { sql: "PRAGMA foreign_keys=OFF;" },
+      ...tables.map((t) => ({ sql: `DELETE FROM ${t};` })),
+      { sql: "PRAGMA foreign_keys=ON;" },
+    ];
+
+    try {
+      await this.client.batch(statements);
+    } catch {
+      // Fallback row-by-row if any table doesn't exist
+      for (const stmt of statements) {
         try {
-          await trx.execute(`DELETE FROM ${table};`);
+          await this.client.execute(stmt.sql, stmt.bind);
         } catch {
-          // ignore if table does not exist in schema
+          // ignore table not found
         }
       }
-      try {
-        await trx.execute("PRAGMA foreign_keys=ON;");
-      } catch {
-        // ignore
-      }
-    });
+    }
   }
 }
 

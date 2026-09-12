@@ -1,6 +1,15 @@
 /// <reference lib="webworker" />
 import type { DatabaseReply, DatabaseRequest, SqlStatement } from "../../protocol";
 
+// Configure sqlite3 environment flags before importing WASM
+if (typeof self !== "undefined") {
+  (self as unknown as { sqlite3ApiConfig?: Record<string, unknown> }).sqlite3ApiConfig = {
+    // Disable default asyncer to prevent OPFS asyncer proxy worker warnings
+    defaultOpfsFlags: 0,
+    warn: () => {},
+  };
+}
+
 type SqliteDb = {
   exec(options: { sql: string; bind?: SqlStatement["bind"]; returnValue?: "resultRows"; rowMode?: "object" }): unknown;
   close(): void;

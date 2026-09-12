@@ -192,7 +192,7 @@ export function ProfileOnboarding() {
     }
 
     setIsAuthLoading(true);
-    const finalName = userName.trim() || cleanEmail.split("@")[0] || "کاربر تستینو";
+    const finalName = userName.trim() || cleanEmail.split("@")[0] || "دانش‌آموز";
 
     let cloudSynced = false;
     let authenticatedUserId = "";
@@ -324,7 +324,7 @@ export function ProfileOnboarding() {
     if (step === 1) {
       const cleanEmail = emailInput.trim().toLowerCase();
       const cleanName = userName.trim();
-      const finalName = cleanName || (cleanEmail ? cleanEmail.split("@")[0] : "") || (authEmail ? authEmail.split("@")[0] : "") || "کاربر تستینو";
+      const finalName = cleanName || (cleanEmail ? cleanEmail.split("@")[0] : "") || (authEmail ? authEmail.split("@")[0] : "") || "دانش‌آموز";
 
       if (!cleanName && !cleanEmail && !authEmail) {
         setError("لطفاً نام یا آدرس ایمیل خود را وارد کنید.");
@@ -481,7 +481,7 @@ export function ProfileOnboarding() {
       }
 
       // 1. Save Owner
-      const cleanOwnerName = userName.trim() || (isAuthenticated ? authEmail.split("@")[0] : "کاربر تستینو");
+      const cleanOwnerName = userName.trim() || (isAuthenticated ? authEmail.split("@")[0] : "دانش‌آموز");
        if (isAuthenticated && authUserId) {
          await db.linkAuthenticatedAccount(authUserId, cleanOwnerName);
       } else {
@@ -1500,7 +1500,7 @@ export function ProfileOnboarding() {
                     <div className="flex justify-between items-center p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/30">
                       <span className="text-[var(--muted)]">کاربر:</span>
                       <strong className="font-black text-[var(--ink)]">
-                        {userName || (isAuthenticated ? authEmail : "کاربر تستینو")}
+                        {userName || (isAuthenticated ? authEmail : "دانش‌آموز")}
                       </strong>
                     </div>
                     <div className="flex justify-between items-center p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/30">

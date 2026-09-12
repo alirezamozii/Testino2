@@ -109,14 +109,13 @@ export default function SettingsPage() {
     try {
       await database.db.deleteAllData();
       try {
-        localStorage.removeItem("testino_onboarding_completed");
-        localStorage.removeItem("testino_seen_splash");
-        sessionStorage.removeItem("testino_seen_splash");
+        localStorage.clear();
+        sessionStorage.clear();
       } catch {
         // ignore storage errors
       }
       await queryClient.clear();
-      router.push("/onboarding/");
+      router.replace("/onboarding/");
     } catch (err) {
       alert(err instanceof Error ? err.message : "خطا در پاک‌سازی داده‌ها");
       setIsDeleting(false);
