@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -25,3 +28,9 @@ jobs:
       - run: npm run build:web
         env:
           NO_BUMP: "true"
+
+      - name: Cleanup temporary build files
+        if: always()
+        run: |
+          rm -rf out .next/cache
+

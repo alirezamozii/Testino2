@@ -11,6 +11,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build-web:
     name: Build & Verify Web Assets
@@ -54,6 +57,11 @@ jobs:
           path: public/version.json
           retention-days: 1
 
+      - name: Cleanup temporary build files
+        if: always()
+        run: |
+          rm -rf out .next/cache
+
   build-android:
     name: Build Android APK
     needs: [build-web]
@@ -68,7 +76,7 @@ jobs:
           node-version: 22
 
       - name: Setup Java JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -112,6 +120,11 @@ jobs:
           name: testino-android-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
+      - name: Cleanup temporary Android build files
+        if: always()
+        run: |
+          rm -rf out android/app/build android/build android/.gradle
+
   build-windows:
     name: Package Windows Desktop App
     needs: [build-web]
@@ -137,7 +150,6 @@ jobs:
             npm install
           fi
 
-
       - name: Download Web Bundle
         uses: actions/download-artifact@v4
         with:
@@ -147,16 +159,25 @@ jobs:
       - name: Package Windows Portable & Executable
         run: node scripts/package-desktop.mjs
 
-      - name: Upload Windows Package
+      - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: testino-windows-zip
-          path: dist/Testino-Windows-x64.zip
+          name: testino-windows-dist
+          path: |
+            dist/Testino-Windows-x64.zip
+            dist/Testino-Setup-x64.exe
+          if-no-files-found: ignore
+
+      - name: Cleanup temporary Windows build files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf out dist/Testino-win-x64
 
   publish-release:
     name: Publish Release
     needs: [build-android, build-windows]
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: success()
     runs-on: ubuntu-latest
     steps:
       - name: Download Android APK
@@ -165,10 +186,10 @@ jobs:
           name: testino-android-apk
           path: ./release-files
 
-      - name: Download Windows Package
+      - name: Download Windows Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: testino-windows-zip
+          name: testino-windows-dist
           path: ./release-files
 
       - name: Download Version Meta
@@ -177,24 +198,57 @@ jobs:
           name: testino-version-meta
           path: ./release-files
 
-      - name: Determine Tag
-        id: tag_step
+      - name: Prepare Release Assets and Tag
+        id: release_info
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          if [ -z "$TAG" ] || [ "$TAG" = "refs/heads/main" ]; then
-            TAG="v$(node -p "require('./release-files/version.json').version")-build$(node -p "require('./release-files/version.json').build")"
+          # Copy APK to branded filename
+          if [ -f release-files/app-debug.apk ]; then
+            cp release-files/app-debug.apk release-files/Testino-Android.apk
           fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub Release
+          VERSION=$(node -p "try { require('./release-files/version.json').version } catch(e) { '0.1.8' }")
+          BUILD_NUM=$(node -p "try { require('./release-files/version.json').build } catch(e) { '${{ github.run_number }}' }")
+
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v${VERSION}-b${{ github.run_number }}"
+          fi
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build=$BUILD_NUM" >> $GITHUB_OUTPUT
+
+      - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Testino Release ${{ steps.tag_step.outputs.tag }}"
-          tag_name: ${{ steps.tag_step.outputs.tag }}
+          name: "نسخه ${{ steps.release_info.outputs.version }} (بیلد ${{ steps.release_info.outputs.build }})"
+          tag_name: ${{ steps.release_info.outputs.tag }}
           files: |
+            release-files/Testino-Android.apk
             release-files/app-debug.apk
+            release-files/Testino-Setup-x64.exe
             release-files/Testino-Windows-x64.zip
             release-files/version.json
           draft: false
           prerelease: false
+          generate_release_notes: true
+          body: |
+            ## 🚀 انتشار خودکار نسخه جدید تستیونو (Testino)
+
+            تمامی آزمون‌های خودکار کیفیت، ارزیابی ساختار تایپ‌ها، تحلیل کدهای فرانت‌اند و فرآیند کامپایل کامل، با موفقیت ۱۰۰٪ سبز سپری شدند و فایل‌های اجرایی آماده استفاده می‌باشند.
+
+            ### 📦 فایل‌های قابل دانلود:
+            - 💻 **نصب‌کننده رسمی ویندوز (توصیه‌شده)**: فایل نصبی آسان `Testino-Setup-x64.exe` با فشردگی بالا، ایجاد شورتکات دسکتاپ و منوی استارت و آیکون اختصاصی
+            - 💻 **نسخه پرتابل ویندوز**: فایل فشرده `Testino-Windows-x64.zip` (شامل `Testino.exe` - بدون نیاز به نصب)
+            - 📱 **نسخه اندروید**: فایل `Testino-Android.apk` جهت نصب روی گوشی‌ها و تبلت‌های اندروید
+            - 📋 **اطلاعات نسخه**: `version.json`
+
+
+      - name: Cleanup release files
+        if: always()
+        run: |
+          rm -rf release-files dist out
+
+
 

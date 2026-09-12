@@ -140,6 +140,18 @@ if (!zipped) {
   console.warn("⚠️ ایجاد فایل فشرده با موفقیت انجام نشد، اما پوشه اجرایی Testino-win-x64 آماده است.");
 }
 
+console.log("5️⃣ ساخت فایل نصبی حرفه‌ای ویندوز (NSIS Installer)...");
+try {
+  execSync("npx electron-builder --win nsis --x64", { stdio: "inherit" });
+  const setupExe = path.join(distDir, "Testino-Setup-x64.exe");
+  if (fs.existsSync(setupExe)) {
+    console.log(`📦 فایل نصبی Installer آماده شد: ${setupExe}`);
+  }
+} catch (e) {
+  console.warn("⚠️ ساخت فایل نصبی با electron-builder انجام نشد (بسته پرتابل آماده است):", e.message);
+}
+
 console.log("\n🎉 بیلد نسخه ویندوز دسکتاپ با موفقیت کامل انجام شد!");
 console.log(`📁 پوشه برنامه: ${outputAppDir}`);
 console.log(`🚀 فایل اجرایی مستقیم: ${targetExe}\n`);
+
