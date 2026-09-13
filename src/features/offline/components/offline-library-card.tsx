@@ -114,9 +114,9 @@ export function OfflineLibraryCard({
         <button
           type="button"
           onClick={() => toggleAll(selectedCount !== subjects.length)}
-          className="text-[11px] font-black text-sky-700 dark:text-sky-300 underline underline-offset-4"
+          className="text-[11px] font-black px-3 py-1.5 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] hover:bg-[var(--surface-3)] transition-all shadow-[1.5px_1.5px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px]"
         >
-          {selectedCount === subjects.length ? "لغو انتخاب همه" : "انتخاب همهٔ درس‌های پروفایل"}
+          {selectedCount === subjects.length ? "لغو انتخاب همه" : "انتخاب همهٔ درس‌ها"}
         </button>
       </div>
 

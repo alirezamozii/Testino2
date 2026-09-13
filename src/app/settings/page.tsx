@@ -655,8 +655,8 @@ export default function SettingsPage() {
                       </div>
 
                       {/* Middle Row: Question Count, Coefficient, and Target Inputs */}
-                      <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-[var(--line-strong)]/15">
-                        <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
+                      <div className="flex items-center gap-3 flex-wrap pt-1 border-t border-[var(--line-strong)]/15">
+                        <label className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--muted)]">
                           <span>سؤال:</span>
                           <input
                             aria-label={`تعداد سؤالات ${s.name}`}
@@ -665,11 +665,11 @@ export default function SettingsPage() {
                             max="200"
                             defaultValue={qCount}
                             onBlur={(event) => handleUpdateSubject(s.id, "questionCount", Number(event.currentTarget.value), qCount)}
-                            className="w-12 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-1 py-0.5 text-center text-xs font-black text-[var(--ink)]"
+                            className="w-14 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-1 text-center text-xs font-black text-[var(--ink)] focus:outline-none focus:border-sky-500"
                             title="تعداد سؤالات این درس در آزمون کنکور"
                           />
                         </label>
-                        <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
+                        <label className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--muted)]">
                           <span>ضریب:</span>
                           <input
                             aria-label={`ضریب ${s.name}`}
@@ -678,10 +678,10 @@ export default function SettingsPage() {
                             max="20"
                             defaultValue={s.coefficient}
                             onBlur={(event) => handleUpdateSubject(s.id, "coefficient", Number(event.currentTarget.value), s.coefficient)}
-                            className="w-11 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-1 py-0.5 text-center text-xs font-black text-[var(--ink)]"
+                            className="w-12 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-1 text-center text-xs font-black text-[var(--ink)] focus:outline-none focus:border-sky-500"
                           />
                         </label>
-                        <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
+                        <label className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--muted)]">
                           <span>هدف:</span>
                           <input
                             aria-label={`هدف ${s.name}`}
@@ -690,7 +690,7 @@ export default function SettingsPage() {
                             max="100"
                             defaultValue={s.targetPercentage}
                             onBlur={(event) => handleUpdateSubject(s.id, "targetPercentage", Number(event.currentTarget.value), s.targetPercentage)}
-                            className="w-12 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-1 py-0.5 text-center text-xs font-black text-[var(--ink)]"
+                            className="w-14 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-1 text-center text-xs font-black text-[var(--ink)] focus:outline-none focus:border-sky-500"
                           />
                           <span>٪</span>
                         </label>
