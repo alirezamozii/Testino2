@@ -138,10 +138,19 @@ export async function signInWithGoogle(redirectTo?: string): Promise<{ data: { u
       return { data: null, error: new Error(error.message) };
     }
     if (data.url) {
-      const desktop = (window as unknown as { testinoDesktop?: { openExternal?: (url: string) => void } }).testinoDesktop;
-      if (desktop?.openExternal) {
-        desktop.openExternal(data.url);
-      } else {
+      let opened = false;
+      try {
+        const desktop = typeof window !== "undefined"
+          ? (window as unknown as { testinoDesktop?: { openExternal?: (url: string) => void } }).testinoDesktop
+          : undefined;
+        if (desktop && typeof desktop.openExternal === "function") {
+          desktop.openExternal(data.url);
+          opened = true;
+        }
+      } catch (e) {
+        console.warn("Failed to call testinoDesktop.openExternal:", e);
+      }
+      if (!opened && typeof window !== "undefined") {
         window.open(data.url, "_blank");
       }
     }
