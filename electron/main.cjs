@@ -1,7 +1,13 @@
-const { app, BrowserWindow, protocol, net, shell } = require("electron");
+const { app, BrowserWindow, protocol, net, shell, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const url = require("url");
+
+ipcMain.on("open-external", (_event, targetUrl) => {
+  if (typeof targetUrl === "string" && /^https?:\/\//i.test(targetUrl)) {
+    shell.openExternal(targetUrl);
+  }
+});
 
 // Single-instance: a second instance used to lose the OPFS web lock and run
 // in volatile MEMORY mode (all writes silently lost on close). Focus the
