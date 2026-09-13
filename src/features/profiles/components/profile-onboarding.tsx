@@ -1456,41 +1456,47 @@ export function ProfileOnboarding() {
                     selectedSubjects.map((s, idx) => (
                       <div
                         key={s.name}
+                        onClick={() => toggleSubject(idx)}
                         className={cn(
-                          "p-3 rounded-2xl border-2 text-right transition-all flex items-center justify-between gap-3",
+                          "p-3.5 rounded-2xl border-2 text-right transition-all flex items-center justify-between gap-3 select-none cursor-pointer",
                           s.selected
-                            ? "border-[var(--line)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--line)]"
-                            : "border-[var(--line-strong)] bg-[var(--surface-2)] opacity-50"
+                            ? "border-[var(--line-strong)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)]"
+                            : "border-[var(--line-strong)]/30 bg-[var(--surface-2)] opacity-70 hover:opacity-100"
                         )}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <input
-                            type="checkbox"
-                            checked={s.selected}
-                            onChange={() => toggleSubject(idx)}
-                            className="w-4 h-4 rounded border-2 border-[var(--line)] text-[#6CCB7F] focus:ring-[#6CCB7F] cursor-pointer accent-[#6CCB7F] shrink-0"
-                            aria-label={`انتخاب ${s.name}`}
-                          />
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          {/* Custom Checkbox */}
+                          <div
+                            className={cn(
+                              "w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all shadow-[1px_1px_0px_var(--neo-shadow)]",
+                              s.selected
+                                ? "bg-[#6CCB7F] border-[var(--line-strong)] text-white"
+                                : "bg-[var(--surface)] border-[var(--line-strong)]/60 text-transparent"
+                            )}
+                          >
+                            <Check size={14} className={s.selected ? "stroke-[3]" : "opacity-0"} />
+                          </div>
+
                           <div className="min-w-0 flex-1">
-                            <strong className="block text-xs sm:text-sm font-black text-[var(--ink)] break-words">
+                            <strong className="block text-xs sm:text-sm font-black text-[var(--ink)] truncate">
                               {s.name}
                             </strong>
                             <div className="text-[11px] font-bold text-[var(--muted)] flex flex-wrap items-center gap-2 mt-0.5">
-                              <span>ضریب: {s.coefficient}</span>
+                              <span className="text-[var(--ink)] font-black">ضریب: {s.coefficient}</span>
                               <span>•</span>
                               <span>{s.questionCount} سؤال</span>
                               <span>•</span>
                               <span>هدف: {s.targetPercentage}٪</span>
-                              {s.scoreGroup && <><span>•</span><span>گروه: {s.scoreGroup}</span></>}
+                              {s.scoreGroup && <><span>•</span><span className="text-sky-600 dark:text-sky-400">گروه: {s.scoreGroup}</span></>}
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => handleRemoveSubject(idx)}
-                            className="w-8 h-8 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-300 text-red-600 flex items-center justify-center hover:bg-red-100 transition-colors"
+                            className="w-8 h-8 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors shadow-sm"
                             title="حذف درس"
                           >
                             <Trash2 size={14} />

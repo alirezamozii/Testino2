@@ -1604,5 +1604,16 @@ input[type="number"] {
   appearance: textfield;
 }
 
+/* Ensure checkboxes never expand or crush flex sibling containers */
+input[type="checkbox"] {
+  flex-shrink: 0 !important;
+  min-width: 18px !important;
+  max-width: 22px !important;
+  min-height: 18px !important;
+  max-height: 22px !important;
+  width: 18px !important;
+  height: 18px !important;
+}
+
 
 
