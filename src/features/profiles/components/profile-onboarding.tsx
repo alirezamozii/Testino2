@@ -18,6 +18,9 @@ import {
   Eye,
   EyeOff,
   Link2,
+  GripVertical,
+  Unlink,
+  Layers,
 } from "lucide-react";
 import { useDatabase } from "@/providers/database-provider";
 import { useQueryClient } from "@tanstack/react-query";
@@ -84,8 +87,10 @@ export function ProfileOnboarding() {
   const [isGroupMergeEnabled, setIsGroupMergeEnabled] = useState(false);
   const [showGroupMerge, setShowGroupMerge] = useState(false);
   const [newSubjScoreGroup, setNewSubjScoreGroup] = useState("");
-  const [selectedExistingGroup, setSelectedExistingGroup] = useState("");
   const [subjectError, setSubjectError] = useState("");
+  const [draggedSubjectIndex, setDraggedSubjectIndex] = useState<number | null>(null);
+  const [dragOverTargetIndex, setDragOverTargetIndex] = useState<number | null>(null);
+  const [mergePickerForIndex, setMergePickerForIndex] = useState<number | null>(null);
 
   // Autocomplete & Community Suggestions from Supabase shared subjects
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -545,7 +550,6 @@ export function ProfileOnboarding() {
     setNewSubjQuestions(25);
     setIsGroupMergeEnabled(false);
     setNewSubjScoreGroup("");
-    setSelectedExistingGroup("");
     setSubjectError("");
   }
 
@@ -565,6 +569,36 @@ export function ProfileOnboarding() {
     setSelectedSubjects((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], targetPercentage: Math.max(0, Math.min(100, target)) };
+      return next;
+    });
+  }
+
+  function handleMergeOnboardingSubjects(sourceIdx: number, targetIdx: number) {
+    if (sourceIdx === targetIdx) return;
+    setSelectedSubjects((prev) => {
+      const source = prev[sourceIdx];
+      const target = prev[targetIdx];
+      if (!source || !target) return prev;
+      const groupName = target.scoreGroup.trim() || source.scoreGroup.trim() || `${target.name} و ${source.name}`;
+      const sharedCoeff = target.coefficient || source.coefficient || 1;
+      return prev.map((s, idx) => {
+        if (idx === sourceIdx || idx === targetIdx || (s.scoreGroup && (s.scoreGroup === source.scoreGroup || s.scoreGroup === target.scoreGroup))) {
+          return { ...s, scoreGroup: groupName, coefficient: sharedCoeff };
+        }
+        return s;
+      });
+    });
+    setDraggedSubjectIndex(null);
+    setDragOverTargetIndex(null);
+    setMergePickerForIndex(null);
+  }
+
+  function handleUngroupOnboardingSubject(idx: number) {
+    setSelectedSubjects((prev) => {
+      const next = [...prev];
+      if (next[idx]) {
+        next[idx] = { ...next[idx], scoreGroup: "" };
+      }
       return next;
     });
   }
@@ -1298,57 +1332,181 @@ export function ProfileOnboarding() {
                       هنوز درسی اضافه نکرده‌اید. با فرم بالا اولین درس را اضافه کنید.
                     </div>
                   ) : (
-                    selectedSubjects.map((s, idx) => (
-                      <div
-                        key={s.name}
-                        onClick={() => toggleSubject(idx)}
-                        className={cn(
-                          "p-3.5 rounded-2xl border-2 text-right transition-all flex items-center justify-between gap-3 select-none cursor-pointer",
-                          s.selected
-                            ? "border-[var(--line-strong)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                            : "border-[var(--line-strong)]/30 bg-[var(--surface-2)] opacity-70 hover:opacity-100"
-                        )}
-                      >
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          {/* Custom Checkbox */}
-                          <div
-                            className={cn(
-                              "w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all shadow-[1px_1px_0px_var(--neo-shadow)]",
-                              s.selected
-                                ? "bg-[#6CCB7F] border-[var(--line-strong)] text-white"
-                                : "bg-[var(--surface)] border-[var(--line-strong)]/60 text-transparent"
-                            )}
-                          >
-                            <Check size={14} className={s.selected ? "stroke-[3]" : "opacity-0"} />
-                          </div>
+                    selectedSubjects.map((s, idx) => {
+                      const isDraggingThis = draggedSubjectIndex === idx;
+                      const isDragTarget = dragOverTargetIndex === idx;
+                      const otherSubjects = selectedSubjects
+                        .map((other, oIdx) => ({ ...other, originalIdx: oIdx }))
+                        .filter((other) => other.originalIdx !== idx);
 
-                          <div className="min-w-0 flex-1">
-                            <strong className="block text-xs sm:text-sm font-black text-[var(--ink)] truncate">
-                              {s.name}
-                            </strong>
-                            <div className="text-[11px] font-bold text-[var(--muted)] flex flex-wrap items-center gap-2 mt-0.5">
-                              <span className="text-[var(--ink)] font-black">ضریب: {s.coefficient}</span>
-                              <span>•</span>
-                              <span>{s.questionCount} سؤال</span>
-                              <span>•</span>
-                              <span>هدف: {s.targetPercentage}٪</span>
-                              {s.scoreGroup && <><span>•</span><span className="text-sky-600 dark:text-sky-400">گروه: {s.scoreGroup}</span></>}
+                      return (
+                        <div
+                          key={s.name}
+                          draggable={true}
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("text/plain", String(idx));
+                            e.dataTransfer.effectAllowed = "move";
+                            setDraggedSubjectIndex(idx);
+                          }}
+                          onDragEnd={() => {
+                            setDraggedSubjectIndex(null);
+                            setDragOverTargetIndex(null);
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            if (draggedSubjectIndex !== null && draggedSubjectIndex !== idx) {
+                              setDragOverTargetIndex(idx);
+                            }
+                          }}
+                          onDragLeave={() => {
+                            if (dragOverTargetIndex === idx) {
+                              setDragOverTargetIndex(null);
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            if (draggedSubjectIndex !== null && draggedSubjectIndex !== idx) {
+                              handleMergeOnboardingSubjects(draggedSubjectIndex, idx);
+                            }
+                          }}
+                          onClick={() => toggleSubject(idx)}
+                          className={cn(
+                            "p-3 rounded-2xl border-2 text-right transition-all select-none cursor-pointer space-y-2",
+                            isDraggingThis && "opacity-40 border-dashed border-sky-400",
+                            isDragTarget
+                              ? "border-sky-500 bg-sky-500/10 shadow-[3px_3px_0px_#0284c7] scale-[1.01]"
+                              : s.selected
+                              ? "border-[var(--line-strong)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)]"
+                              : "border-[var(--line-strong)]/30 bg-[var(--surface-2)] opacity-70 hover:opacity-100"
+                          )}
+                        >
+                          {isDragTarget && (
+                            <div className="py-1 px-2 rounded-lg bg-sky-500 text-white text-center text-[10px] font-black animate-pulse">
+                              رها کنید تا با «{s.name}» در یک گروه کنکوری ادغام شوند
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between gap-2.5">
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {/* Drag Handle */}
+                              <div
+                                draggable={true}
+                                onDragStart={(e) => {
+                                  e.stopPropagation();
+                                  e.dataTransfer.setData("text/plain", String(idx));
+                                  e.dataTransfer.effectAllowed = "move";
+                                  setDraggedSubjectIndex(idx);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-1 rounded-lg bg-[var(--surface-2)] hover:bg-sky-500 hover:text-white border border-[var(--line-strong)]/20 cursor-grab active:cursor-grabbing text-[var(--muted)] transition-colors shrink-0"
+                                title="این دستگیره را بکشید و روی درس دیگر رها کنید تا ادغام شوند"
+                              >
+                                <GripVertical size={14} />
+                              </div>
+
+                              {/* Custom Checkbox */}
+                              <div
+                                className={cn(
+                                  "w-5 h-5 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all shadow-sm",
+                                  s.selected
+                                    ? "bg-[#6CCB7F] border-[var(--line-strong)] text-white"
+                                    : "bg-[var(--surface)] border-[var(--line-strong)]/60 text-transparent"
+                                )}
+                              >
+                                <Check size={12} className={s.selected ? "stroke-[3]" : "opacity-0"} />
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <strong className="text-xs sm:text-sm font-black text-[var(--ink)] truncate">
+                                    {s.name}
+                                  </strong>
+                                  {s.scoreGroup && (
+                                    <span className="text-[10px] font-black text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded-md bg-sky-100 dark:bg-sky-950/50 border border-sky-300 dark:border-sky-800 shrink-0">
+                                      گروه: {s.scoreGroup}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] font-bold text-[var(--muted)] flex flex-wrap items-center gap-1.5 mt-0.5">
+                                  <span className="text-[var(--ink)] font-black">ضریب: {s.coefficient}</span>
+                                  <span>•</span>
+                                  <span>{s.questionCount} سؤال</span>
+                                  <span>•</span>
+                                  <span>هدف: {s.targetPercentage}٪</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                              {s.scoreGroup && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUngroupOnboardingSubject(idx)}
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-[var(--surface-2)] text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 hover:bg-amber-100 transition-colors shadow-sm"
+                                  title="خروج از گروه مشترک"
+                                >
+                                  <Unlink size={11} className="text-amber-500" />
+                                  <span className="hidden sm:inline">انفصال</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSubject(idx)}
+                                className="w-7 h-7 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors shadow-sm"
+                                title="حذف درس"
+                              >
+                                <Trash2 size={13} />
+                              </button>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveSubject(idx)}
-                            className="w-8 h-8 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors shadow-sm"
-                            title="حذف درس"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {/* Quick merge toggle on card */}
+                          <div className="pt-1 border-t border-[var(--line-strong)]/10" onClick={(e) => e.stopPropagation()}>
+                            {mergePickerForIndex === idx ? (
+                              <div className="p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--line-strong)]/20 space-y-1.5 animate-in fade-in zoom-in-95 duration-150">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-black text-[var(--ink)]">
+                                    ادغام با:
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setMergePickerForIndex(null)}
+                                    className="text-[9px] font-bold text-[var(--muted)] hover:text-[var(--ink)]"
+                                  >
+                                    انصراف
+                                  </button>
+                                </div>
+                                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                                  {otherSubjects.map((other) => (
+                                    <button
+                                      key={other.name}
+                                      type="button"
+                                      onClick={() => handleMergeOnboardingSubjects(idx, other.originalIdx)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-[var(--surface)] hover:bg-sky-500 hover:text-white border border-[var(--line-strong)]/20 transition-colors"
+                                    >
+                                      <Link2 size={10} />
+                                      <span>{other.name}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between text-[10px]">
+                                <button
+                                  type="button"
+                                  onClick={() => setMergePickerForIndex(idx)}
+                                  className="inline-flex items-center gap-1 font-bold text-[var(--muted)] hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
+                                >
+                                  <Link2 size={11} className="text-sky-500 shrink-0" />
+                                  <span>ادغام با درس دیگر...</span>
+                                </button>
+                                <span className="text-[9px] text-[var(--muted)]">یا درگ روی درس دیگر</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
 

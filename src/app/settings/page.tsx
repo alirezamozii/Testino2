@@ -899,12 +899,19 @@ export default function SettingsPage() {
                       {/* Top Row: Full Subject Name & Action Controls */}
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className="cursor-grab active:cursor-grabbing text-[var(--muted)] hover:text-[var(--ink)]"
-                            title="برای ادغام، این درس را بکشید و روی درس دیگر رها کنید"
+                          <div
+                            draggable={true}
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              e.dataTransfer.setData("text/plain", s.id);
+                              e.dataTransfer.effectAllowed = "move";
+                              setDraggedSubjectId(s.id);
+                            }}
+                            className="p-1 rounded-lg bg-[var(--surface)] hover:bg-sky-500 hover:text-white border border-[var(--line-strong)]/30 cursor-grab active:cursor-grabbing text-[var(--muted)] transition-colors shrink-0 select-none"
+                            title="این دستگیره را با موس بگیرید، بکشید و روی کارت درس دیگر رها کنید تا ادغام شوند"
                           >
                             <GripVertical size={16} />
-                          </span>
+                          </div>
                           <span className="w-2.5 h-2.5 rounded-full bg-[var(--testino-orange)] shrink-0" />
                           <span className="font-black text-sm text-[var(--ink)] truncate">
                             {s.name}
