@@ -507,16 +507,23 @@ export function Dashboard() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="relative flex-1 bg-[var(--surface-3)] h-2 rounded-full overflow-hidden border border-[var(--line)]">
-                          {/* Real accuracy fill — not the target itself. */}
+                        <div
+                          dir="ltr"
+                          className="relative flex-1 bg-[var(--surface-3)] h-2.5 rounded-full overflow-hidden border border-[var(--line)]"
+                          title={`پیشرفت تا هدف ${subject.targetPercentage}٪`}
+                        >
+                          {/* Real accuracy fill — 0% to 100% left-to-right */}
                           <div
-                            className={cn("h-full rounded-full transition-all duration-500", hasSubjectAttempts ? "bg-[var(--brand-green)]" : "bg-transparent")}
+                            className={cn(
+                              "h-full rounded-full transition-all duration-500",
+                              hasSubjectAttempts ? "bg-[var(--brand-green)]" : "bg-transparent"
+                            )}
                             style={{ width: hasSubjectAttempts ? `${accuracy}%` : "0%" }}
                           />
-                          {/* Target marker on the same scale */}
+                          {/* Target marker on standard scale (0% left -> 100% right) */}
                           <div
-                            className="absolute top-0 bottom-0 w-0.5 bg-[var(--testino-orange)]"
-                            style={{ right: `${Math.min(100, subject.targetPercentage)}%` }}
+                            className="absolute top-0 bottom-0 w-1 bg-amber-400 z-10 shadow-[0_0_4px_rgba(251,191,36,0.6)]"
+                            style={{ left: `${Math.min(100, subject.targetPercentage)}%` }}
                             title={`هدف: ${subject.targetPercentage}٪`}
                           />
                         </div>
