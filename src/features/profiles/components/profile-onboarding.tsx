@@ -568,30 +568,45 @@ export function ProfileOnboarding() {
 
       // 1. Save Owner
       const cleanOwnerName = userName.trim() || (isAuthenticated ? authEmail.split("@")[0] : "دانش‌آموز");
-       if (isAuthenticated && authUserId) {
-         await db.linkAuthenticatedAccount(authUserId, cleanOwnerName);
-      } else {
-        await db.saveOwner(cleanOwnerName, "local");
-      }
-
       // 2. Create Profile
       const examTitle = examType.trim() || "آزمون تحصیلی";
 
-      const profileId = await db.createProfile({
-        name: `${examTitle} - ${effectiveTrack}`,
-        targetTrack: effectiveTrack,
-        subjects: activeSubjects,
-      });
+      // Cold-start OPFS/worker hiccups are transient (worker restart + re-open);
+      // one retry turns a rare first-run failure into a self-heal instead of an
+      // error screen that loses the whole wizard input.
+      let profileId = "";
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (isAuthenticated && authUserId) {
+            await db.linkAuthenticatedAccount(authUserId, cleanOwnerName);
+          } else {
+            await db.saveOwner(cleanOwnerName, "local");
+          }
+
+          profileId = await db.createProfile({
+            name: `${examTitle} - ${effectiveTrack}`,
+            targetTrack: effectiveTrack,
+            subjects: activeSubjects,
+          });
+
+          const persistedProfiles = await db.listProfiles();
+          if (persistedProfiles.some((profile) => profile.id === profileId)) break;
+          throw new Error("persist-verify-failed");
+        } catch (attemptError) {
+          if (attempt === 1) {
+            if (attemptError instanceof Error && attemptError.message === "persist-verify-failed") {
+              throw new Error("پروفایل روی حافظهٔ پایدار تأیید نشد. دوباره تلاش کنید.");
+            }
+            throw attemptError;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+      }
 
       // 3. Register any new subjects to Supabase catalog so other users can see them
       activeSubjects.forEach((sub) => {
         void registerSubject(sub.name);
       });
-
-      const persistedProfiles = await db.listProfiles();
-      if (!persistedProfiles.some((profile) => profile.id === profileId)) {
-        throw new Error("پروفایل روی حافظهٔ پایدار تأیید نشد. دوباره تلاش کنید.");
-      }
 
       // Cache refreshes must NOT gate navigation: an awaited invalidate could
       // hang on a busy DB and strand the wizard on step 4. The dashboard

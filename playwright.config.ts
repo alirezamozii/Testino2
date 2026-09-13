@@ -54,7 +54,14 @@ export default defineConfig({
     },
     {
       name: "tablet",
-      use: { ...devices["iPad (gen 7)"], viewport: { width: 768, height: 1024 } },
+      // iPad layout metrics on chromium — CI installs only chromium (webkit binary
+      // is not downloaded there, which previously failed every tablet test in 3ms).
+      use: {
+        ...devices["iPad (gen 7)"],
+        browserName: "chromium",
+        defaultBrowserType: "chromium",
+        viewport: { width: 768, height: 1024 },
+      },
       testIgnore: /journey-/,
     },
   ],

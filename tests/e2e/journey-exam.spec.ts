@@ -56,11 +56,10 @@ test.describe("exam lifecycle journey", () => {
     await expectPageResponsive(page);
 
     // ── Answer through ALL questions until the finish dialog appears ───
-    // (The finish button only exists on the last question — or appears as
-    // «مشاهده کارنامه نهایی» after revealing the last answer. Unanswered
-    // questions are legitimately counted as نزده.)
+    // (The finish button only exists on the last question — canonical label
+    // is «تحویل آزمون». Unanswered questions are legitimately counted as نزده.)
     const finishDialogText = page.getByText("تعیین وضعیت پایان آزمون");
-    const finishTrigger = page.getByRole("button", { name: /پایان و ثبت آزمون|مشاهده کارنامه نهایی/ });
+    const finishTrigger = page.getByRole("button", { name: /^تحویل آزمون$/ });
     for (let guard = 0; guard < 24; guard++) {
       if (await finishDialogText.isVisible().catch(() => false)) break;
       if (await finishTrigger.isVisible().catch(() => false)) {
@@ -85,7 +84,7 @@ test.describe("exam lifecycle journey", () => {
 
     // Regression guard: the old dialog offered two different-looking buttons
     // that ran the identical finish() code path (deceptive UX). Merged into one.
-    const finalSubmit = page.getByRole("button", { name: /ثبت نهایی و مشاهده کارنامه/ });
+    const finalSubmit = page.getByRole("button", { name: /تحویل آزمون و مشاهده کارنامه/ });
     await expect(finalSubmit).toBeVisible();
     await expect(page.getByRole("button", { name: /همین‌جا تمام کن/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /تحویل کامل کنکوری/ })).toHaveCount(0);
