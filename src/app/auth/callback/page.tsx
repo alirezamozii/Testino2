@@ -47,16 +47,40 @@ export default function AuthCallbackPage() {
       }
 
       const { data } = client.auth.onAuthStateChange((event, session) => {
-        // Only a REAL session continues the flow. INITIAL_SESSION(null) means
-        // the PKCE exchange failed (expired/used code) — surface it instead
-        // of silently bouncing.
         if (session?.user) {
           redirect();
         } else if (event === "INITIAL_SESSION" || event === "SIGNED_OUT") {
+          // Check if there is an explicit code in URL before failing
+          if (typeof window !== "undefined") {
+            const params = new URLSearchParams(window.location.search);
+            const code = params.get("code");
+            if (code) {
+              import("@/platform/auth/supabase-client").then(({ exchangeOAuthCode }) => {
+                exchangeOAuthCode(code).then(({ user }) => {
+                  if (user) redirect();
+                  else fail();
+                }).catch(fail);
+              }).catch(fail);
+              return;
+            }
+          }
           fail();
         }
       });
       unsubscribe = () => data.subscription.unsubscribe();
+
+      // In addition to onAuthStateChange, explicitly trigger exchange if code is present in URL
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get("code");
+        if (code) {
+          import("@/platform/auth/supabase-client").then(({ exchangeOAuthCode }) => {
+            exchangeOAuthCode(code).then(({ user }) => {
+              if (user) redirect();
+            }).catch(() => {});
+          });
+        }
+      }
 
       // Safety net: give the exchange ~8s, then show the failure state.
       timeoutId = setTimeout(fail, 8000);
