@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, DownloadCloud, HardDriveDownload, LoaderCircle, WifiOff } from "lucide-react";
+import { CheckCircle2, CheckCheck, XCircle, DownloadCloud, HardDriveDownload, LoaderCircle, WifiOff } from "lucide-react";
 import { useDatabase } from "@/providers/database-provider";
 import type { User } from "@supabase/supabase-js";
 import { getCurrentAuthUser, onAuthStateChange, signInWithGoogle } from "@/platform/auth/supabase-client";
@@ -114,9 +114,19 @@ export function OfflineLibraryCard({
         <button
           type="button"
           onClick={() => toggleAll(selectedCount !== subjects.length)}
-          className="text-[11px] font-black px-3 py-1.5 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] hover:bg-[var(--surface-3)] transition-all shadow-[1.5px_1.5px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px]"
+          className="inline-flex items-center gap-1.5 text-xs font-black px-3 py-1.5 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] hover:bg-[var(--surface-3)] transition-all shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-0.5 active:translate-y-0.5"
         >
-          {selectedCount === subjects.length ? "لغو انتخاب همه" : "انتخاب همهٔ درس‌ها"}
+          {selectedCount === subjects.length ? (
+            <>
+              <XCircle size={14} className="text-red-500 shrink-0" />
+              <span>لغو انتخاب همه</span>
+            </>
+          ) : (
+            <>
+              <CheckCheck size={14} className="text-sky-500 shrink-0" />
+              <span>انتخاب همهٔ درس‌ها</span>
+            </>
+          )}
         </button>
       </div>
 
