@@ -43,13 +43,15 @@ const versionData = {
   build: currentBuild,
   releaseDate: today,
   changelog: [
-    "به‌روزرسانی عملکرد و همگام‌سازی هسته",
-    "بهینه‌سازی ذخیره‌سازی آفلاین و پاسخ‌دهی آزمون‌ها"
+    "بازطراحی کامل رابط کاربری آزمون و صفحه ابری",
+    "زمان‌بندی هوشمند آزمون متناسب با تعداد سوال",
+    "رفع مشکل ورود با گوگل در اندروید و ویندوز",
+    "بهبود پایداری و رفع خطاهای دیپلوی"
   ],
   downloadUrls: {
-    windows: "https://github.com/testino/testino/releases/latest/download/Testino-Windows-x64.zip",
-    android: "https://github.com/testino/testino/releases/latest/download/app-debug.apk",
-    web: "https://testino.app"
+    windows: "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Setup-x64.exe",
+    android: "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Android.apk",
+    web: "https://github.com/alirezamozii/Testino2"
   }
 };
 

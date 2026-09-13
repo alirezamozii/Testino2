@@ -55,34 +55,70 @@ export function getSupabaseClient(): SupabaseClient | null {
 
 /**
  * Initiates Google OAuth Sign-In with PKCE flow.
+ *
+ * Per-platform strategy:
+ * - Web: standard full-page redirect to `${origin}/auth/callback`.
+ * - Capacitor (Android/iOS): Google BLOCKS OAuth inside WebViews, so the
+ *   authorize URL must open in the SYSTEM browser (Custom Tabs/SFSafariView)
+ *   via @capacitor/browser, with redirectTo pointing at the app's custom
+ *   scheme. The OS bounces back into the app, appUrlOpen routes the code
+ *   into the SPA and supabase-js completes the PKCE exchange in-app.
+ * - Electron: window.location changes to external URLs are intercepted by
+ *   the main process (will-navigate → shell.openExternal), so we hand it the
+ *   custom-scheme redirectTo and let the shell open the system browser. The
+ *   main process registers the scheme and routes the code back to the window.
  */
 export async function signInWithGoogle(redirectTo?: string): Promise<{ data: { url: string | null } | null; error: Error | null }> {
   const client = getSupabaseClient();
   if (!client) {
     return {
       data: null,
-      error: new Error("تنظیمات Supabase در فایل .env تنظیم نشده است. لطفاً NEXT_PUBLIC_SUPABASE_URL و NEXT_PUBLIC_SUPABASE_ANON_KEY را تنظیم کنید."),
+      error: new Error("CONFIG_MISSING"),
     };
   }
 
-  // On Android (Capacitor) the WebView origin is https://localhost — Google
-  // would redirect the SYSTEM browser to an unreachable URL and sign-in
-  // dead-ended. Route through the app's custom scheme instead; AndroidManifest
-  // declares the matching VIEW intent-filter and the appUrlOpen listener
-  // completes the PKCE exchange in-app.
-  // (Requires adding `app.testino.mobile://auth/callback` to the Supabase
-  //  Dashboard → Auth → Redirect URLs allowlist.)
+  const ua = typeof window !== "undefined" ? window.navigator.userAgent : "";
   const isNative =
     typeof window !== "undefined" &&
     Boolean((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.());
+  const isElectron = ua.includes("Electron");
   const origin = typeof window !== "undefined" ? window.location.origin : "";
+
   const callbackUrl =
     redirectTo ||
-    (isNative
+    (isNative || isElectron
       ? "app.testino.mobile://auth/callback"
       : origin
         ? `${origin}/auth/callback`
         : undefined);
+
+  if (isNative) {
+    // System browser flow (Google rejects WebView user agents).
+    const { data, error } = await client.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: callbackUrl,
+        skipBrowserRedirect: true,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    });
+
+    if (error) {
+      return { data: null, error: new Error(error.message) };
+    }
+    if (data.url) {
+      try {
+        const { Browser } = await import("@capacitor/browser");
+        await Browser.open({ url: data.url });
+      } catch (cause) {
+        return { data: null, error: new Error(cause instanceof Error ? cause.message : "BROWSER_OPEN_FAILED") };
+      }
+    }
+    return { data, error: null };
+  }
 
   const { data, error } = await client.auth.signInWithOAuth({
     provider: "google",

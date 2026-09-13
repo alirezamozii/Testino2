@@ -9,13 +9,43 @@ const url = require("url");
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
     const [win] = BrowserWindow.getAllWindows();
     if (win) {
+      // Google OAuth return path: the system browser hands the PKCE code
+      // back via the custom scheme, which re-launches the app with the URL
+      // in argv. Route it into the SPA so supabase-js completes the exchange.
+      const oauthUrl = argv.find((a) => typeof a === "string" && a.startsWith("app.testino.mobile://"));
+      if (oauthUrl) {
+        routeOAuthCallback(win, oauthUrl);
+        return;
+      }
       if (win.isMinimized()) win.restore();
       win.focus();
     }
   });
+}
+
+// OS-level handler for app.testino.mobile:// — after Google consent the
+// system browser redirects here; the OS re-opens (or focuses) the app.
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient("app.testino.mobile", process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient("app.testino.mobile");
+}
+
+function routeOAuthCallback(win, rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    const query = parsed.search || "";
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    win.loadURL(`app://localhost/auth/callback${query}`);
+  } catch (err) {
+    console.error("OAuth callback routing failed:", err);
+  }
 }
 
 // 1. Register privileged secure scheme so OPFS, Web Workers, and Web Locks operate properly

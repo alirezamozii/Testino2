@@ -1,6 +1,6 @@
 {
   "name": "testino",
-  "version": "0.1.8",
+  "version": "2.0.0",
   "description": "سامانه آزمون‌یار و مرور هوشمند تستینو",
   "author": "Testino",
   "type": "module",
@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
     "@fontsource/vazirmatn": "5.2.8",
     "@hookform/resolvers": "5.9.1",
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",

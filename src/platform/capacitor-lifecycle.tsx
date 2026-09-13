@@ -68,6 +68,12 @@ export function CapacitorLifecycle() {
         // URL through the SPA so supabase-js detectSessionInUrl completes the
         // PKCE exchange in-app (without this the browser dead-ended).
         const urlListener = await App.addListener("appUrlOpen", ({ url: openedUrl }) => {
+          // Close the Custom Tabs view the sign-in flow opened.
+          try {
+            void import("@capacitor/browser").then(({ Browser }) => Browser.close()).catch(() => {});
+          } catch {
+            // plugin not available — ignore
+          }
           try {
             const parsed = new URL(openedUrl);
             const path = `${parsed.host || ""}${parsed.pathname}`.replace(/\/+$/, "");

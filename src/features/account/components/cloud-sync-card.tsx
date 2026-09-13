@@ -1,15 +1,7 @@
 "use client";
 
 import { useState, useEffect, useSyncExternalStore } from "react";
-import {
-  Cloud,
-  CloudOff,
-  RefreshCw,
-  LogIn,
-  LogOut,
-  CheckCircle2,
-  AlertCircle,
-} from "lucide-react";
+import { Cloud, CloudOff, RefreshCw, LogOut, CheckCircle2, AlertCircle } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import {
   getSupabaseConfig,
@@ -24,10 +16,34 @@ import { useSync } from "@/providers/sync-provider";
 const mountedSubscribe = () => () => {};
 const useMounted = () => useSyncExternalStore(mountedSubscribe, () => true, () => false);
 
+function GoogleIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M23.5 12.27c0-.85-.08-1.66-.22-2.45H12v4.64h6.45a5.52 5.52 0 0 1-2.39 3.62v3h3.87c2.26-2.09 3.57-5.16 3.57-8.81Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.87-3c-1.07.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.29v3.1A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.27 14.28A7.2 7.2 0 0 1 4.89 12c0-.79.14-1.56.38-2.28v-3.1H1.29a12 12 0 0 0 0 10.76l3.98-3.1Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.77c1.76 0 3.34.61 4.58 1.8l3.44-3.44A11.98 11.98 0 0 0 12 0 12 12 0 0 0 1.29 6.62l3.98 3.1C6.22 6.88 8.87 4.77 12 4.77Z"
+      />
+    </svg>
+  );
+}
+
 export function CloudSyncCard() {
   const { status: syncStatus, isOnline, isSyncing, lastReport, pendingCount, syncNow } = useSync();
   const [config] = useState(() => getSupabaseConfig());
   const [authUser, setAuthUser] = useState<User | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
   const mounted = useMounted();
 
   useEffect(() => {
@@ -46,7 +62,6 @@ export function CloudSyncCard() {
     };
   }, []);
 
-  // Feedback state
   const [actionFeedback, setActionFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const handleManualSync = async () => {
@@ -54,26 +69,28 @@ export function CloudSyncCard() {
     try {
       const report = await syncNow();
       if (report.errors.length > 0) {
-        setActionFeedback({ type: "error", text: report.errors[0] });
+        setActionFeedback({ type: "error", text: "همگام‌سازی ناموفق بود." });
       } else {
-        setActionFeedback({
-          type: "success",
-          text: `همگام‌سازی موفق: ${report.pushedCount} جهش ارسال شد، ${report.pulledCount} تغییر دریافت شد.`,
-        });
+        setActionFeedback({ type: "success", text: "همگام‌سازی انجام شد." });
       }
-    } catch (err) {
-      setActionFeedback({
-        type: "error",
-        text: err instanceof Error ? err.message : "خطا در برقراری ارتباط با سرور ابری",
-      });
+    } catch {
+      setActionFeedback({ type: "error", text: "همگام‌سازی ناموفق بود." });
     }
   };
 
   const handleGoogleSignIn = async () => {
     setActionFeedback(null);
-    const { error } = await signInWithGoogle();
-    if (error) {
-      setActionFeedback({ type: "error", text: error.message });
+    setSigningIn(true);
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        setActionFeedback({
+          type: "error",
+          text: !config.isConfigured ? "اتصال ابری تنظیم نشده است." : "ورود با گوگل ناموفق بود.",
+        });
+      }
+    } finally {
+      setSigningIn(false);
     }
   };
 
@@ -81,122 +98,116 @@ export function CloudSyncCard() {
     setActionFeedback(null);
     const { error } = await signOut();
     if (error) {
-      setActionFeedback({ type: "error", text: error.message });
+      setActionFeedback({ type: "error", text: "خروج ناموفق بود." });
     } else {
       setAuthUser(null);
-      setActionFeedback({ type: "success", text: "با موفقیت از حساب ابری خارج شدید. داده‌های محلی شما محفوظ است." });
     }
   };
 
-
-
+  const statusText = !mounted
+    ? "…"
+    : !config.isConfigured
+    ? "غیرفعال"
+    : authUser
+    ? authUser.email || "متصل"
+    : "وارد نشده‌اید";
 
   return (
     <div className="card-neo p-5 rounded-3xl bg-[var(--surface)] space-y-4 border-2 border-[var(--line-strong)] shadow-[3px_3px_0px_var(--neo-shadow)]">
       {/* Header */}
-      <div className="flex items-center justify-between border-b-2 border-[var(--line-strong)]/20 pb-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border-2 border-[var(--line-strong)] text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] text-[var(--ink)] flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
             {mounted && isOnline && config.isConfigured ? <Cloud size={20} /> : <CloudOff size={20} />}
           </div>
           <div>
-            <h3 className="text-sm font-black text-[var(--ink)]">حساب ابری و همگام‌سازی (Supabase)</h3>
-            <span className="text-[11px] text-[var(--muted)] font-bold">
-              {config.isConfigured
-                ? authUser
-                  ? `متصل با حساب: ${authUser.email || authUser.id.slice(0, 8)}`
-                  : "سرویس ابری آماده • نیاز به ورود با گوگل"
-                : "حالت کاملاً آفلاین و محلی (ذخیره روی دیتابیس دستگاه)"}
+            <h3 className="text-sm font-black text-[var(--ink)]">حساب ابری</h3>
+            <span className="text-[11px] text-[var(--muted)] font-bold block max-w-[220px] truncate" dir="ltr">
+              {statusText}
             </span>
           </div>
         </div>
+
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--surface-2)] border-2 border-[var(--line-strong)] shrink-0">
+          <span
+            className={
+              !mounted
+                ? "w-2 h-2 rounded-full bg-slate-400"
+                : !isOnline
+                ? "w-2 h-2 rounded-full bg-slate-400"
+                : isSyncing || syncStatus === "syncing"
+                ? "w-2 h-2 rounded-full bg-[var(--pastel-yellow)] animate-pulse"
+                : authUser && pendingCount === 0
+                ? "w-2 h-2 rounded-full bg-[var(--brand-green)]"
+                : "w-2 h-2 rounded-full bg-[var(--pastel-yellow)]"
+            }
+          />
+          <span className="text-[11px] font-black text-[var(--ink)]">
+            {pendingCount > 0 ? `${pendingCount.toLocaleString("fa-IR")} در انتظار` : isSyncing ? "همگام‌سازی…" : "به‌روز"}
+          </span>
+        </div>
       </div>
 
-      {/* Feedback Alert */}
+      {/* Feedback */}
       {actionFeedback && (
         <div
-          className={`p-3 rounded-2xl border-2 border-[var(--line-strong)] text-xs font-black flex items-center gap-2 shadow-[2px_2px_0px_var(--neo-shadow)] ${
+          className={`p-2.5 rounded-xl border-2 border-[var(--line-strong)] text-xs font-black flex items-center gap-2 ${
             actionFeedback.type === "success"
-              ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300"
-              : "bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300"
+              ? "bg-[var(--pastel-green-soft)] text-[var(--ink)]"
+              : "bg-[var(--pastel-red-soft)] text-[var(--ink)]"
           }`}
         >
           {actionFeedback.type === "success" ? (
-            <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+            <CheckCircle2 size={15} className="shrink-0" />
           ) : (
-            <AlertCircle size={16} className="shrink-0 text-red-600" />
+            <AlertCircle size={15} className="shrink-0" />
           )}
           <span>{actionFeedback.text}</span>
         </div>
       )}
 
-      {/* Status & Sync Stats */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-          <span className="text-[10px] font-bold text-[var(--muted)] block">صف خروجی محلی (Outbox)</span>
-          <span className="text-sm font-black text-[var(--ink)] mt-0.5 block">
-            {pendingCount > 0 ? `${pendingCount} تغییر در انتظار` : "تمام تغییرات محلی ثبت شده"}
-          </span>
-        </div>
-
-        <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-          <span className="text-[10px] font-bold text-[var(--muted)] block">وضعیت اتصال</span>
-          <span className="text-sm font-black text-[var(--ink)] mt-0.5 block">
-            {!mounted
-              ? "در حال بررسی اتصال..."
-              : !isOnline
-              ? "آفلاین (بدون اینترنت)"
-              : !config.isConfigured
-              ? "کلید سرور تنظیم نشده"
-              : syncStatus === "syncing"
-              ? "در حال همگام‌سازی..."
-              : "آماده برای تبادل"}
-          </span>
-        </div>
-      </div>
-
-      {lastReport && (
-        <div className="text-[11px] font-bold text-[var(--muted)] flex items-center justify-between px-1">
-          <span>آخرین همگام‌سازی: {new Date(lastReport.completedAt).toLocaleTimeString("fa-IR")}</span>
-          <span>{lastReport.pushedCount} ارسال / {lastReport.pulledCount} دریافت</span>
-        </div>
-      )}
-
-      {/* Action Buttons: Google Sign-In & Sync Now */}
-      <div className="flex flex-col sm:flex-row items-center gap-3 pt-1">
+      {/* Actions */}
+      <div className="flex flex-col sm:flex-row items-center gap-3">
         {authUser ? (
           <button
             type="button"
             onClick={handleSignOut}
-            className="w-full sm:w-1/2 py-2.5 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 font-black text-xs flex items-center justify-center gap-2 hover:bg-red-100 transition-colors shadow-[2px_2px_0px_var(--neo-shadow)]"
+            className="w-full sm:w-1/2 py-2.5 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] font-black text-xs flex items-center justify-center gap-2 hover:bg-[var(--surface-3)] transition-colors shadow-[2px_2px_0px_var(--neo-shadow)]"
           >
-            <LogOut size={16} />
+            <LogOut size={15} />
             <span>خروج از حساب</span>
           </button>
         ) : (
           <button
             type="button"
             onClick={handleGoogleSignIn}
-            className="w-full sm:w-1/2 py-2.5 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] dark:bg-slate-900 text-[var(--ink)] font-black text-xs flex items-center justify-center gap-2 hover:bg-slate-50 transition-colors shadow-[2px_2px_0px_var(--neo-shadow)]"
+            disabled={signingIn}
+            className="w-full sm:w-1/2 py-2.5 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-white text-[#1f2937] font-black text-xs flex items-center justify-center gap-2.5 hover:bg-slate-50 transition-colors shadow-[2px_2px_0px_var(--neo-shadow)] disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <LogIn size={16} className="text-blue-500" />
-            <span>ورود با حساب گوگل (PKCE)</span>
+            <GoogleIcon size={16} />
+            <span>{signingIn ? "در حال انتقال…" : "ورود با گوگل"}</span>
           </button>
         )}
 
         <button
           type="button"
           onClick={handleManualSync}
-          disabled={isSyncing || !config.isConfigured}
+          disabled={isSyncing || !config.isConfigured || !authUser}
           className="btn-neo-orange w-full sm:w-1/2 py-2.5 text-xs font-black shadow-[3px_3px_0px_var(--neo-shadow)] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <RefreshCw size={15} className={isSyncing ? "animate-spin" : ""} />
-          <span>{isSyncing ? "همگام‌سازی..." : "همگام‌سازی دستی (Push & Pull)"}</span>
+          <span>{isSyncing ? "همگام‌سازی…" : "همگام‌سازی"}</span>
         </button>
       </div>
 
-
-
+      {lastReport && (
+        <div className="text-[10px] font-bold text-[var(--muted)] flex items-center justify-between px-1">
+          <span>آخرین همگام‌سازی: {new Date(lastReport.completedAt).toLocaleTimeString("fa-IR")}</span>
+          <span>
+            {lastReport.pushedCount.toLocaleString("fa-IR")} ارسال / {lastReport.pulledCount.toLocaleString("fa-IR")} دریافت
+          </span>
+        </div>
+      )}
     </div>
   );
 }
