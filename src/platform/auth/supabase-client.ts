@@ -81,16 +81,16 @@ export async function signInWithGoogle(redirectTo?: string): Promise<{ data: { u
   const isNative =
     typeof window !== "undefined" &&
     Boolean((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.());
-  const isElectron = ua.includes("Electron");
+  const isElectron =
+    typeof window !== "undefined" &&
+    (Boolean((window as unknown as { testinoDesktop?: { isElectron?: boolean } }).testinoDesktop?.isElectron) ||
+      ua.includes("Electron"));
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
   const callbackUrl =
-    redirectTo ||
     (isNative || isElectron
       ? "app.testino.mobile://auth/callback"
-      : origin
-        ? `${origin}/auth/callback`
-        : undefined);
+      : redirectTo || (origin ? `${origin}/auth/callback` : undefined));
 
   if (isNative) {
     // System browser flow (Google rejects WebView user agents).
@@ -120,6 +120,34 @@ export async function signInWithGoogle(redirectTo?: string): Promise<{ data: { u
     return { data, error: null };
   }
 
+  if (isElectron) {
+    // Open system browser once; OS deep-link routes back into Electron
+    const { data, error } = await client.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: callbackUrl,
+        skipBrowserRedirect: true,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    });
+
+    if (error) {
+      return { data: null, error: new Error(error.message) };
+    }
+    if (data.url) {
+      const desktop = (window as unknown as { testinoDesktop?: { openExternal?: (url: string) => void } }).testinoDesktop;
+      if (desktop?.openExternal) {
+        desktop.openExternal(data.url);
+      } else {
+        window.open(data.url, "_blank");
+      }
+    }
+    return { data, error: null };
+  }
+
   const { data, error } = await client.auth.signInWithOAuth({
     provider: "google",
     options: {
@@ -132,6 +160,43 @@ export async function signInWithGoogle(redirectTo?: string): Promise<{ data: { u
   });
 
   return { data, error: error ? new Error(error.message) : null };
+}
+
+/**
+ * Exchanges an OAuth PKCE code or full redirect URL for a session.
+ * Supports both automatic deep link routes and manual copy-paste fallback.
+ */
+export async function exchangeOAuthCode(codeOrUrl: string): Promise<{ user: User | null; error: Error | null }> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { user: null, error: new Error("CONFIG_MISSING") };
+  }
+
+  let code = (codeOrUrl || "").trim();
+  if (!code) {
+    return { user: null, error: new Error("CODE_EMPTY") };
+  }
+
+  // Extract ?code=... if full URL or query string was provided
+  if (code.includes("code=")) {
+    try {
+      const parsed = new URL(code.startsWith("http") || code.startsWith("app.") ? code : `https://dummy.com/${code}`);
+      code = parsed.searchParams.get("code") || code;
+    } catch {
+      const match = code.match(/code=([^&]+)/);
+      if (match) code = decodeURIComponent(match[1]);
+    }
+  }
+
+  try {
+    const { data, error } = await client.auth.exchangeCodeForSession(code);
+    if (error) {
+      return { user: null, error: new Error(error.message) };
+    }
+    return { user: data.user, error: null };
+  } catch (err) {
+    return { user: null, error: err instanceof Error ? err : new Error(String(err)) };
+  }
 }
 
 /**

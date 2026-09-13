@@ -39,10 +39,10 @@ if (process.defaultApp) {
 function routeOAuthCallback(win, rawUrl) {
   try {
     const parsed = new URL(rawUrl);
-    const query = parsed.search || "";
+    const searchOrHash = (parsed.search || "") + (parsed.hash || "");
     if (win.isMinimized()) win.restore();
     win.focus();
-    win.loadURL(`app://localhost/auth/callback${query}`);
+    win.loadURL(`app://localhost/auth/callback${searchOrHash}`);
   } catch (err) {
     console.error("OAuth callback routing failed:", err);
   }
@@ -108,7 +108,12 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadURL("app://localhost/");
+  const initialOAuthUrl = process.argv.find((a) => typeof a === "string" && a.startsWith("app.testino.mobile://"));
+  if (initialOAuthUrl) {
+    routeOAuthCallback(mainWindow, initialOAuthUrl);
+  } else {
+    mainWindow.loadURL("app://localhost/");
+  }
 }
 
 app.whenReady().then(() => {

@@ -9,6 +9,7 @@ import {
   signOut,
   getCurrentAuthUser,
   onAuthStateChange,
+  exchangeOAuthCode,
 } from "@/platform/auth/supabase-client";
 import { useSync } from "@/providers/sync-provider";
 
@@ -44,6 +45,9 @@ export function CloudSyncCard() {
   const [config] = useState(() => getSupabaseConfig());
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [signingIn, setSigningIn] = useState(false);
+  const [manualCode, setManualCode] = useState("");
+  const [showManualCode, setShowManualCode] = useState(false);
+  const [isExchanging, setIsExchanging] = useState(false);
   const mounted = useMounted();
 
   useEffect(() => {
@@ -88,9 +92,45 @@ export function CloudSyncCard() {
           type: "error",
           text: !config.isConfigured ? "اتصال ابری تنظیم نشده است." : "ورود با گوگل ناموفق بود.",
         });
+      } else {
+        setActionFeedback({
+          type: "success",
+          text: "صفحهٔ ورود گوگل در مرورگر باز شد. پس از ورود، به برنامه بازگردید.",
+        });
+        setShowManualCode(true);
       }
     } finally {
-      setSigningIn(false);
+      setTimeout(() => setSigningIn(false), 2000);
+    }
+  };
+
+  const handleManualCodeSubmit = async () => {
+    if (!manualCode.trim()) return;
+    setIsExchanging(true);
+    setActionFeedback(null);
+    try {
+      const { user, error } = await exchangeOAuthCode(manualCode);
+      if (error || !user) {
+        setActionFeedback({
+          type: "error",
+          text: error?.message || "کد یا آدرس نامعتبر است. لطفاً دوباره تلاش کنید.",
+        });
+      } else {
+        setAuthUser(user);
+        setShowManualCode(false);
+        setManualCode("");
+        setActionFeedback({
+          type: "success",
+          text: `با موفقیت متصل شدید: ${user.email || user.id.slice(0, 8)}`,
+        });
+      }
+    } catch (err) {
+      setActionFeedback({
+        type: "error",
+        text: err instanceof Error ? err.message : "خطا در بررسی کد",
+      });
+    } finally {
+      setIsExchanging(false);
     }
   };
 
@@ -199,6 +239,32 @@ export function CloudSyncCard() {
           <span>{isSyncing ? "همگام‌سازی…" : "همگام‌سازی"}</span>
         </button>
       </div>
+
+      {!authUser && showManualCode && (
+        <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-2">
+          <label className="text-[11px] font-bold text-[var(--ink)] block">
+            اگر مرورگر خودکار به برنامه بازنگشت، آدرس یا کد نهایی صفحه مرورگر را اینجا قرار دهید:
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value)}
+              placeholder="http://localhost:3000/?code=... یا کد"
+              className="flex-1 px-3 py-1.5 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-xs font-mono text-[var(--ink)]"
+              dir="ltr"
+            />
+            <button
+              type="button"
+              onClick={handleManualCodeSubmit}
+              disabled={isExchanging || !manualCode.trim()}
+              className="btn-neo-orange px-3 py-1.5 text-xs font-black rounded-xl disabled:opacity-50 shrink-0"
+            >
+              {isExchanging ? "تأیید…" : "تأیید"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {lastReport && (
         <div className="text-[10px] font-bold text-[var(--muted)] flex items-center justify-between px-1">

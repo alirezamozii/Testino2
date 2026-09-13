@@ -35,6 +35,7 @@ import {
   signUpWithEmail,
   signOut,
   getCurrentAuthUser,
+  exchangeOAuthCode,
 } from "@/platform/auth/supabase-client";
 
 /** Auth requests must never hang the onboarding spinner forever. */
@@ -55,6 +56,9 @@ export function ProfileOnboarding() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authTab, setAuthTab] = useState<"email" | "google">("email");
+  const [manualOAuthCode, setManualOAuthCode] = useState("");
+  const [showManualCodeInput, setShowManualCodeInput] = useState(false);
+  const [isManualExchanging, setIsManualExchanging] = useState(false);
 
   // Email+Password fields
   const [emailInput, setEmailInput] = useState("");
@@ -321,13 +325,15 @@ export function ProfileOnboarding() {
 
     setIsAuthLoading(true);
     try {
-      // On native Android the WebView origin (https://localhost) is NOT a
-      // reachable redirect target — pass undefined so signInWithGoogle uses
-      // the app's custom scheme (app.testino.mobile://auth/callback).
       const isNative =
         Boolean((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.());
+      const isElectron =
+        typeof window !== "undefined" &&
+        (Boolean((window as unknown as { testinoDesktop?: { isElectron?: boolean } }).testinoDesktop?.isElectron) ||
+          window.navigator.userAgent.includes("Electron"));
       const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const redirectUrl = !isNative && origin ? `${origin}/auth/callback` : undefined;
+      const redirectUrl = (!isNative && !isElectron && origin) ? `${origin}/auth/callback` : undefined;
+
       const { data, error: authError } = await withTimeout(
         signInWithGoogle(redirectUrl),
         AUTH_REQUEST_TIMEOUT_MS,
@@ -336,24 +342,55 @@ export function ProfileOnboarding() {
       if (authError) {
         setError(authError.message);
         setIsAuthLoading(false);
+      } else if (isNative || isElectron) {
+        // Native and Electron already opened system browser once inside signInWithGoogle
+        setError("صفحهٔ ورود با گوگل در مرورگر باز شد. پس از تأیید، به‌صورت خودکار به برنامه بازمی‌گردید.");
+        setShowManualCodeInput(true);
+        startGoogleSessionPolling();
+        // Give 5 seconds then allow interaction so user is never locked
+        setTimeout(() => setIsAuthLoading(false), 5000);
       } else if (data?.url) {
-        // Google blocks OAuth inside iframes (X-Frame-Options) — the preview
-        // pane cannot navigate to accounts.google.com. Open a top-level tab;
-        // the session lands in shared localStorage and we poll for it here.
-        // NOTE: do NOT pass "noopener" — per spec window.open then ALWAYS
-        // returns null, which made the blocked-popup fallback fire on every
-        // successful popup and killed the session polling below.
         const opened = window.open(data.url, "_blank");
         if (!opened) {
-          // Popup genuinely blocked — fall back to same-tab navigation.
           window.location.assign(data.url);
           return;
         }
         setError("پنجرهٔ ورود گوگل در تب جدید باز شد. پس از تأیید، به‌صورت خودکار به این صفحه بازمی‌گردید.");
+        setShowManualCodeInput(true);
         startGoogleSessionPolling();
+        setTimeout(() => setIsAuthLoading(false), 5000);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "خطا در برقراری اتصال با گوگل");
+      setIsAuthLoading(false);
+    }
+  }
+
+  async function handleManualOAuthSubmit() {
+    if (!manualOAuthCode.trim()) return;
+    setIsManualExchanging(true);
+    setError("");
+    try {
+      const { user, error: exError } = await exchangeOAuthCode(manualOAuthCode);
+      if (exError || !user) {
+        setError(exError?.message || "کد یا آدرس نامعتبر است. لطفاً دوباره تلاش کنید.");
+      } else {
+        if (googlePollRef.current) window.clearInterval(googlePollRef.current);
+        googlePollRef.current = null;
+        setIsAuthenticated(true);
+        setAuthEmail(user.email || "");
+        setAuthUserId(user.id);
+        const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
+        setUserName((prev) => prev || metaName || (user.email ? user.email.split("@")[0] : ""));
+        const avatar = user.user_metadata?.avatar_url as string | undefined;
+        if (avatar) setAvatarUrl(avatar);
+        setShowManualCodeInput(false);
+        setError("");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "خطا در بررسی کد ورود");
+    } finally {
+      setIsManualExchanging(false);
       setIsAuthLoading(false);
     }
   }
@@ -1014,6 +1051,32 @@ export function ProfileOnboarding() {
                               </>
                             )}
                           </button>
+
+                          {showManualCodeInput && (
+                            <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-2 mt-2">
+                              <label className="text-[11px] font-bold text-[var(--ink)] block">
+                                اگر مرورگر خودکار به برنامه بازنگشت، آدرس یا کد صفحه مرورگر را اینجا قرار دهید:
+                              </label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={manualOAuthCode}
+                                  onChange={(e) => setManualOAuthCode(e.target.value)}
+                                  placeholder="http://localhost:3000/?code=... یا کد"
+                                  className="flex-1 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-1.5 text-xs font-mono text-[var(--ink)]"
+                                  dir="ltr"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleManualOAuthSubmit}
+                                  disabled={isManualExchanging || !manualOAuthCode.trim()}
+                                  className="btn-neo-orange px-3 py-1.5 text-xs font-black rounded-xl disabled:opacity-50"
+                                >
+                                  {isManualExchanging ? "تأیید…" : "تأیید"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </>
