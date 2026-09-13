@@ -39,3 +39,6 @@ release.keystore
 
 # TS incremental build info
 tsconfig.tsbuildinfo
+
+# Windows-drive-style stray dir (invalid path on Windows checkouts)
+/C/
