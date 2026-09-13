@@ -752,18 +752,29 @@ export default function SettingsPage() {
                 })}
               </div>
 
-              {/* Inline Add Subject — cleanly organized */}
-              <form onSubmit={handleAddSubject} className="space-y-2 pt-3 border-t-2 border-[var(--line-strong)]/20">
-                <div className="grid grid-cols-2 sm:grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-center">
-                  <input
-                    type="text"
-                    value={newSubjName}
-                    onChange={(e) => setNewSubjName(e.target.value)}
-                    placeholder="نام درس جدید..."
-                    className="col-span-2 sm:col-span-1 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2 text-xs font-bold text-[var(--ink)] focus:outline-none focus:border-sky-500"
-                  />
-                  <div className="flex items-center gap-1 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-1.5">
-                    <span className="text-[10px] font-bold text-[var(--muted)]">سؤال:</span>
+              {/* Inline Add Subject — 2-Row Spacious Layout */}
+              <form onSubmit={handleAddSubject} className="space-y-2.5 pt-3 border-t-2 border-[var(--line-strong)]/20 bg-[var(--surface-2)] p-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5">
+                    <Plus size={14} className="text-[var(--testino-orange)]" />
+                    <span>افزودن درس جدید به برنامه</span>
+                  </span>
+                </div>
+
+                {/* Row 1: Full-Width Subject Name Input */}
+                <input
+                  type="text"
+                  value={newSubjName}
+                  onChange={(e) => setNewSubjName(e.target.value)}
+                  placeholder="نام درس جدید را اینجا بنویسید (مثلاً: ریاضی، ادبیات)..."
+                  className="w-full bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2 text-xs font-black text-[var(--ink)] placeholder:text-[var(--muted)] placeholder:font-normal focus:outline-none focus:border-sky-500 shadow-sm"
+                />
+
+                {/* Row 2: 4-Column Grid for Metrics & Action */}
+                <div className="grid grid-cols-4 gap-2 items-center">
+                  {/* Question Count */}
+                  <div className="flex flex-col items-center justify-center p-1.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/20">
+                    <span className="text-[10px] font-bold text-[var(--muted)] mb-1">تعداد سؤال</span>
                     <input
                       aria-label="تعداد سؤال درس جدید"
                       type="number"
@@ -771,11 +782,13 @@ export default function SettingsPage() {
                       max="200"
                       value={newSubjQuestions}
                       onChange={(e) => setNewSubjQuestions(Math.max(1, Number(e.target.value)))}
-                      className="w-12 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
+                      className="w-full bg-[var(--surface-2)] border border-[var(--line-strong)]/40 rounded-lg py-1 text-xs font-black text-center text-[var(--ink)] focus:outline-none focus:border-sky-500"
                     />
                   </div>
-                  <div className="flex items-center gap-1 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-1.5">
-                    <span className="text-[10px] font-bold text-[var(--muted)]">ضریب:</span>
+
+                  {/* Coefficient */}
+                  <div className="flex flex-col items-center justify-center p-1.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/20">
+                    <span className="text-[10px] font-bold text-[var(--muted)] mb-1">ضریب درس</span>
                     <input
                       aria-label="ضریب درس جدید"
                       type="number"
@@ -783,45 +796,62 @@ export default function SettingsPage() {
                       max="100"
                       value={newSubjCoefficient}
                       onChange={(e) => setNewSubjCoefficient(Math.max(0, Number(e.target.value)))}
-                      className="w-10 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
+                      className="w-full bg-[var(--surface-2)] border border-[var(--line-strong)]/40 rounded-lg py-1 text-xs font-black text-center text-[var(--ink)] focus:outline-none focus:border-sky-500"
                     />
                   </div>
-                  <div className="flex items-center gap-1 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-1.5">
-                    <span className="text-[10px] font-bold text-[var(--muted)]">هدف:</span>
-                    <input
-                      aria-label="هدف درصدی درس جدید"
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={newSubjTarget}
-                      onChange={(e) => setNewSubjTarget(Math.max(0, Math.min(100, Number(e.target.value))))}
-                      className="w-12 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
-                    />
-                    <span className="text-[10px] font-black text-[var(--muted)]">٪</span>
+
+                  {/* Target Percentage */}
+                  <div className="flex flex-col items-center justify-center p-1.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/20">
+                    <span className="text-[10px] font-bold text-[var(--muted)] mb-1">درصد هدف</span>
+                    <div className="flex items-center justify-center gap-0.5 w-full">
+                      <input
+                        aria-label="هدف درصدی درس جدید"
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={newSubjTarget}
+                        onChange={(e) => setNewSubjTarget(Math.max(0, Math.min(100, Number(e.target.value))))}
+                        className="w-full bg-[var(--surface-2)] border border-[var(--line-strong)]/40 rounded-lg py-1 text-xs font-black text-center text-[var(--ink)] focus:outline-none focus:border-sky-500"
+                      />
+                      <span className="text-[10px] font-black text-[var(--muted)] shrink-0">٪</span>
+                    </div>
                   </div>
-                  <button type="submit" title="افزودن درس" className="btn-neo-orange py-2 px-3 text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0 flex items-center justify-center">
+
+                  {/* Submit Button */}
+                  <button
+                    type="submit"
+                    className="h-full min-h-[48px] btn-neo-orange rounded-xl flex flex-col items-center justify-center gap-0.5 text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-0.5 active:translate-y-0.5"
+                    title="افزودن درس جدید"
+                  >
                     <Plus size={16} />
+                    <span className="text-[10px] font-black">افزودن</span>
                   </button>
                 </div>
 
-                {addGroupEnabled ? (
-                  <input
-                    type="text"
-                    value={newSubjScoreGroup}
-                    onChange={(e) => setNewSubjScoreGroup(e.target.value)}
-                    placeholder="نام گروه مشترک؛ مثلاً: اقتصاد"
-                    className="w-full bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2 text-xs font-bold text-[var(--ink)]"
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setAddGroupEnabled(true)}
-                    className="flex items-center gap-1 text-[10px] font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors"
-                  >
-                    <Link2 size={11} />
-                    <span>این درس با درس دیگری یک گروه است؟ (اختیاری)</span>
-                  </button>
-                )}
+                {/* Optional Score Group */}
+                <div className="pt-1">
+                  {addGroupEnabled ? (
+                    <div className="flex items-center gap-2 text-xs font-bold text-[var(--muted)] bg-[var(--surface)] p-2 rounded-xl border border-[var(--line-strong)]/20">
+                      <span className="shrink-0 text-[11px]">گروه مشترک:</span>
+                      <input
+                        type="text"
+                        value={newSubjScoreGroup}
+                        onChange={(e) => setNewSubjScoreGroup(e.target.value)}
+                        placeholder="نام درس مشترک؛ مثلاً: اقتصاد"
+                        className="min-w-0 flex-1 bg-[var(--surface-2)] border border-[var(--line-strong)]/40 rounded-lg px-2 py-1 text-xs font-bold text-[var(--ink)] focus:outline-none focus:border-sky-500"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setAddGroupEnabled(true)}
+                      className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors py-0.5"
+                    >
+                      <Link2 size={12} className="text-sky-500 shrink-0" />
+                      <span>این درس با درس دیگری هم‌گروه تراز است؟ (اختیاری)</span>
+                    </button>
+                  )}
+                </div>
               </form>
               {subjectError && <p className="text-[10px] text-red-600 font-bold">{subjectError}</p>}
             </div>
