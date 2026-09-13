@@ -14,17 +14,16 @@ import {
   RefreshCw,
   RotateCcw,
   Settings,
-  Sparkles,
   Sun,
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ErrorState } from "@/components/ui/testino-ui";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { useDatabase } from "@/providers/database-provider";
 import { useSync } from "@/providers/sync-provider";
 import { useTheme } from "@/providers/theme-provider";
 import { SplashScreen } from "./splash-screen";
+import { SyncDiagnosticsModal } from "./sync-diagnostics-modal";
 
 const navigation = [
   { href: "/", label: "خانه", icon: Home },
@@ -69,10 +68,17 @@ function subscribeSplash(callback: () => void) {
 
 function getSplashSnapshot() {
   try {
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("splash")) {
-      return true;
+    if (typeof window !== "undefined") {
+      if (new URLSearchParams(window.location.search).has("splash")) {
+        return true;
+      }
+      if (new URLSearchParams(window.location.search).has("nosplash")) {
+        return false;
+      }
+      const seen = localStorage.getItem("testino_seen_splash") || sessionStorage.getItem("testino_seen_splash");
+      return !seen;
     }
-    return !sessionStorage.getItem("testino_seen_splash");
+    return false;
   } catch {
     return false;
   }
@@ -83,26 +89,71 @@ function getServerSplashSnapshot() {
 }
 
 function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
-  const { status, isOnline, isSyncing, pendingCount, syncNow } = useSync();
+  const { status, isOnline, isSyncing, pendingCount, syncNow, lastReport } = useSync();
+  const database = useDatabase();
   const [justSynced, setJustSynced] = useState(false);
+  const [hasWaited, setHasWaited] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+
+  useEffect(() => {
+    if (!databaseReady) {
+      const timer = setTimeout(() => setHasWaited(true), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [databaseReady]);
 
   const handleClick = async () => {
+    if (status === "error") {
+      setShowDiagnostics(true);
+      return;
+    }
     if (isSyncing || !databaseReady) return;
     try {
-      await syncNow();
-      setJustSynced(true);
-      setTimeout(() => setJustSynced(false), 2500);
+      const report = await syncNow();
+      if (report.errors.length === 0) {
+        setJustSynced(true);
+        setTimeout(() => setJustSynced(false), 2500);
+      }
     } catch {
       // ignore
     }
   };
 
-  if (!databaseReady) {
+  if (!databaseReady && !hasWaited) {
     return (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-slate-100 dark:bg-slate-800 text-slate-500 border border-[var(--border)] shadow-[1px_1px_0px_var(--neo-shadow)] select-none">
         <i className="loading w-2 h-2 rounded-full border-2 border-slate-400 border-t-transparent animate-spin inline-block" />
-        <span>در حال بارگذاری…</span>
+        <span>در حال آماده‌سازی…</span>
       </span>
+    );
+  }
+
+  if (!databaseReady && hasWaited) {
+    return (
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        title="دیتابیس در حالت محلی فعال است یا نیاز به بازنشانی دارد."
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-2 border-[var(--border)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-slate-200 transition-all cursor-pointer select-none"
+      >
+        <span className="w-2 h-2 rounded-full bg-slate-400" />
+        <span>محلی</span>
+      </button>
+    );
+  }
+
+  // Persistent-storage warning: memory DB loses everything on reload.
+  if (databaseReady && database.status === "ready" && database.storage === "memory") {
+    return (
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        title="دیتابیس در حافظهٔ موقت اجرا می‌شود (OPFS در این محیط در دسترس نیست) — داده‌ها بعد از بستن صفحه پاک می‌شوند. برای ذخیرهٔ دائمی، برنامه را در تب جداگانه باز کنید."
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-2 border-amber-400 dark:border-amber-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-all cursor-pointer select-none"
+      >
+        <span className="w-2 h-2 rounded-full bg-amber-500" />
+        <span>حافظه موقت</span>
+      </button>
     );
   }
 
@@ -139,15 +190,52 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
   }
 
   if (status === "error") {
+    const errorTooltip =
+      lastReport?.errors?.filter(Boolean)[0] || "خطا در اتصال به سرور ابری";
+
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setShowDiagnostics(true)}
+          title={`خطای همگام‌سازی: ${errorTooltip}\n(برای مشاهدهٔ جزئیات و لاگ خطا کلیک کنید)`}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-2 border-rose-400 dark:border-rose-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all cursor-pointer select-none active:translate-x-[1px] active:translate-y-[1px]"
+        >
+          <span className="w-2 h-2 rounded-full bg-rose-500" />
+          <span>تلاش مجدد</span>
+        </button>
+        <SyncDiagnosticsModal
+          isOpen={showDiagnostics}
+          onClose={() => setShowDiagnostics(false)}
+          status={status}
+          lastReport={lastReport}
+          pendingCount={pendingCount}
+          onRetry={async () => {
+            const res = await syncNow();
+            if (res.errors.length === 0) {
+              setJustSynced(true);
+              setTimeout(() => setJustSynced(false), 2500);
+            }
+          }}
+          isSyncing={isSyncing}
+        />
+      </>
+    );
+  }
+
+  // Signed out (or cloud unconfigured): previously fell through to the green
+  // "آنلاین" chip below, so users believed sync was running while autosync
+  // no-opped every tick. Show an honest amber chip instead.
+  if (status === "unconfigured") {
     return (
       <button
         type="button"
         onClick={handleClick}
-        title="خطا در اتصال به سرور ابری — کلیک کنید تا مجدداً تلاش شود."
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-2 border-rose-400 dark:border-rose-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all cursor-pointer select-none active:translate-x-[1px] active:translate-y-[1px]"
+        title="وارد حساب ابری نشده‌اید — داده‌ها فقط روی همین دستگاه ذخیره می‌شوند. برای همگام‌سازی ابری از تنظیمات وارد شوید."
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-2 border-amber-400 dark:border-amber-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-all cursor-pointer select-none active:translate-x-[1px] active:translate-y-[1px]"
       >
-        <span className="w-2 h-2 rounded-full bg-rose-500" />
-        <span>تلاش مجدد</span>
+        <span className="w-2 h-2 rounded-full bg-amber-500" />
+        <span>بدون حساب ابری</span>
       </button>
     );
   }
@@ -173,7 +261,7 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
 function ShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const database = useDatabase();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, mounted } = useTheme();
   const isSplashUnseen = useSyncExternalStore(
     subscribeSplash,
     getSplashSnapshot,
@@ -187,24 +275,36 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
+    let rafId = 0;
+
     const checkModalState = () => {
+      rafId = 0;
       const modal = document.querySelector(
         '[data-modal="true"], [role="dialog"], .modal-overlay, .dialog-backdrop, .modal-backdrop'
       );
       const open = Boolean(modal);
-      setIsModalOpen(open);
-      if (open) {
+      // Functional update: provably bails out when the value is unchanged.
+      // Calling setIsModalOpen(open) directly from a MutationObserver microtask
+      // kept re-entering React's commit phase and froze the main thread.
+      setIsModalOpen((prev) => (prev === open ? prev : open));
+      const hasClass = document.body.classList.contains("modal-open");
+      if (open && !hasClass) {
         document.body.classList.add("modal-open");
-      } else {
+      } else if (!open && hasClass) {
         document.body.classList.remove("modal-open");
       }
     };
 
-    checkModalState();
+    // Coalesce mutation storms into one check per animation frame.
+    const scheduleCheck = () => {
+      if (rafId === 0) {
+        rafId = requestAnimationFrame(checkModalState);
+      }
+    };
 
-    const observer = new MutationObserver(() => {
-      checkModalState();
-    });
+    scheduleCheck();
+
+    const observer = new MutationObserver(scheduleCheck);
 
     observer.observe(document.body, {
       childList: true,
@@ -215,6 +315,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
 
     return () => {
       observer.disconnect();
+      if (rafId !== 0) cancelAnimationFrame(rafId);
       document.body.classList.remove("modal-open");
     };
   }, []);
@@ -234,18 +335,24 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   const handleFinishSplash = () => {
     setDismissedSplash(true);
     try {
+      localStorage.setItem("testino_seen_splash", "true");
       sessionStorage.setItem("testino_seen_splash", "true");
     } catch {
       // ignore
     }
     const hasProfile = Boolean(profiles.data && profiles.data.length > 0);
-    if (!hasProfile) {
+    const hasCompletedOnboarding =
+      typeof window !== "undefined" && localStorage.getItem("testino_onboarding_completed") === "true";
+    if (!hasProfile && !hasCompletedOnboarding) {
       router.push("/onboarding/");
     }
   };
 
+  // Focus routes run full-screen without the app nav (exam, onboarding, review runner)
   const focused =
-    pathname.startsWith("/sessions/run") || pathname.startsWith("/onboarding");
+    pathname.startsWith("/sessions/run") ||
+    pathname.startsWith("/review/run") ||
+    pathname.startsWith("/onboarding");
 
   const hasNoSplash = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("nosplash");
   const stepMatch = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("step") : null;
@@ -262,12 +369,38 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   }
 
   if (database.status === "error") {
+    const isIframe = typeof window !== "undefined" && window.self !== window.top;
     return (
-      <main className="focus-shell">
-        <ErrorState
-          message="ذخیره‌سازی محلی آماده نشد. صفحه را دوباره بارگذاری کن."
-          retry={() => window.location.reload()}
-        />
+      <main className="focus-shell flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-card p-6 rounded-2xl border shadow-sm text-center space-y-4">
+          <h2 className="text-lg font-bold text-foreground">عدم دسترسی به پایگاه داده مرورگر</h2>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {database.message || "ذخیره‌سازی محلی آماده نشد."}
+          </p>
+          {isIframe && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 p-3 rounded-lg">
+              اگر در محیط پیش‌نمایش هستید، سیاست‌های امنیتی آی‌فریم در مرورگر ممکن است دسترسی به ذخیره‌سازی آفلاین را محدود کرده باشند. باز کردن در تب جدید این مورد را حل می‌کند.
+            </p>
+          )}
+          <div className="flex flex-col sm:flex-row gap-2 justify-center pt-2">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
+            >
+              بارگذاری مجدد
+            </button>
+            {isIframe && (
+              <a
+                href={typeof window !== "undefined" ? window.location.href : "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg text-sm font-medium hover:bg-secondary/80 inline-flex items-center justify-center gap-1.5"
+              >
+                باز کردن در تب جدید
+              </a>
+            )}
+          </div>
+        </div>
       </main>
     );
   }
@@ -310,7 +443,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
               <UserRound size={19} />
             </span>
             <span className="rail-profile-info">
-              <strong>{owner.data?.displayName || "کاربر تستینو"}</strong>
+              <strong>{owner.data?.displayName || "دانش‌آموز"}</strong>
               <small className={owner.data?.kind === "account" ? "text-blue-600 dark:text-blue-400 font-bold" : ""}>
                 {owner.data?.kind === "account" ? "حساب گوگل متصل" : "پروفایل محلی"}
               </small>
@@ -330,14 +463,14 @@ function ShellInner({ children }: { children: React.ReactNode }) {
           <div className="topbar-actions">
             <SyncStatusIndicator databaseReady={database.status === "ready"} />
 
-            {/* Notifications Bell */}
+            {/* History Bell — no fake notification dot; destination labelled honestly */}
             <Link
               href="/history/"
               className="icon-button relative"
-              aria-label="اعلان‌ها و تاریخچه"
+              aria-label="تاریخچهٔ آزمون‌ها"
+              title="تاریخچهٔ آزمون‌ها"
             >
               <Bell size={18} />
-              <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-[var(--testino-orange)]" />
             </Link>
 
             {/* Theme Toggle Button */}
@@ -345,10 +478,10 @@ function ShellInner({ children }: { children: React.ReactNode }) {
               type="button"
               className="icon-button"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              title={`تغییر حالت نمایش (فعلی: ${theme === "dark" ? "شب" : "روز"})`}
+              title={mounted ? `تغییر حالت نمایش (فعلی: ${theme === "dark" ? "شب" : "روز"})` : "تغییر حالت نمایش"}
               aria-label="تغییر حالت نمایش"
             >
-              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+              {mounted && theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
 
             {/* Mobile Settings Button */}

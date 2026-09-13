@@ -11,6 +11,28 @@ const distDir = path.join(rootDir, "dist");
 const outputAppDir = path.join(distDir, "Testino-win-x64");
 const electronDist = path.join(rootDir, "node_modules", "electron", "dist");
 
+// 0. Ensure Electron Windows binary exists
+if (!fs.existsSync(path.join(electronDist, "electron.exe"))) {
+  console.log("📥 در حال دریافت باینری‌های رسمی Electron برای ویندوز...");
+  try {
+    const versionFile = path.join(electronDist, "version");
+    if (fs.existsSync(versionFile)) {
+      fs.unlinkSync(versionFile);
+    }
+    execSync("node node_modules/electron/install.js", {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        ELECTRON_INSTALL_PLATFORM: "win32",
+        ELECTRON_INSTALL_ARCH: "x64",
+        force_no_cache: "true"
+      }
+    });
+  } catch (err) {
+    console.warn("تلاش برای دریافت باینری الکترون ویندوز:", err.message);
+  }
+}
+
 if (!fs.existsSync(path.join(electronDist, "electron.exe"))) {
   console.error("❌ باینری Electron در node_modules/electron/dist یافت نشد.");
   process.exit(1);
@@ -38,13 +60,19 @@ if (fs.existsSync(defaultExe)) {
   fs.renameSync(defaultExe, targetExe);
 }
 
+// Remove default_app.asar so Electron loads resources/app directly
+const defaultAppAsar = path.join(outputAppDir, "resources", "default_app.asar");
+if (fs.existsSync(defaultAppAsar)) {
+  fs.unlinkSync(defaultAppAsar);
+}
+
 // Inject official icon and metadata into Testino.exe
 const rceditExe = path.join(rootDir, "node_modules", "electron-winstaller", "vendor", "rcedit.exe");
 const icoPath = path.join(rootDir, "public", "app-icon.ico");
 if (fs.existsSync(rceditExe) && fs.existsSync(icoPath)) {
   console.log("🎨 تزریق آیکون رسمی و مشخصات برنامه به فایل Testino.exe...");
   try {
-    execSync(`"${rceditExe}" "${targetExe}" --set-icon "${icoPath}" --set-version-string "FileDescription" "تستینو" --set-version-string "ProductName" "تستینو" --set-version-string "CompanyName" "Testino"`, { stdio: "ignore" });
+    execSync(`"${rceditExe}" "${targetExe}" --set-icon "${icoPath}" --set-version-string "FileDescription" "تستیونو" --set-version-string "ProductName" "تستیونو" --set-version-string "CompanyName" "Testino"`, { stdio: "ignore" });
     console.log("✅ آیکون و برندینگ فایل اجرایی Testino.exe با موفقیت تنظیم شد.");
   } catch (err) {
     console.warn("⚠️ خطا در تزریق آیکون به Testino.exe:", err.message);
@@ -67,22 +95,69 @@ fs.cpSync(path.join(rootDir, "out"), path.join(appDir, "out"), { recursive: true
 // Copy public assets
 fs.cpSync(path.join(rootDir, "public"), path.join(appDir, "public"), { recursive: true });
 
-console.log("4️⃣ ایجاد فایل فشرده پرتابل Testino-Windows.zip...");
+console.log("4️⃣ ایجاد فایل فشرده پرتابل Testino-Windows-x64.zip...");
 const zipOutput = path.join(distDir, "Testino-Windows-x64.zip");
 if (fs.existsSync(zipOutput)) {
   fs.rmSync(zipOutput, { force: true });
 }
 
+let zipped = false;
+
+// Strategy A: PowerShell (Default on Windows CI runners)
+if (!zipped) {
+  try {
+    execSync(`powershell -NoProfile -Command "Compress-Archive -Path '${outputAppDir}' -DestinationPath '${zipOutput}' -Force"`, { stdio: "ignore" });
+    if (fs.existsSync(zipOutput) && fs.statSync(zipOutput).size > 1000000) {
+      zipped = true;
+      console.log(`📦 فایل زیپ پرتابل با PowerShell آماده شد: ${zipOutput}`);
+    }
+  } catch {
+    // try next strategy
+  }
+}
+
+// Strategy B: tar (Built-in on Windows 10/11 & Linux)
+if (!zipped) {
+  try {
+    execSync(`tar -a -c -f "${zipOutput}" -C "${distDir}" "Testino-win-x64"`, { stdio: "ignore" });
+    if (fs.existsSync(zipOutput) && fs.statSync(zipOutput).size > 1000000) {
+      zipped = true;
+      console.log(`📦 فایل زیپ پرتابل با tar آماده شد: ${zipOutput}`);
+    }
+  } catch {
+    // try next strategy
+  }
+}
+
+// Strategy C: PowerShell Core (pwsh)
+if (!zipped) {
+  try {
+    execSync(`pwsh -NoProfile -Command "Compress-Archive -Path '${outputAppDir}' -DestinationPath '${zipOutput}' -Force"`, { stdio: "ignore" });
+    if (fs.existsSync(zipOutput) && fs.statSync(zipOutput).size > 1000000) {
+      zipped = true;
+      console.log(`📦 فایل زیپ پرتابل با pwsh آماده شد: ${zipOutput}`);
+    }
+  } catch {
+    // try next strategy
+  }
+}
+
+if (!zipped) {
+  console.warn("⚠️ ایجاد فایل فشرده با موفقیت انجام نشد، اما پوشه اجرایی Testino-win-x64 آماده است.");
+}
+
+console.log("5️⃣ ساخت فایل نصبی حرفه‌ای ویندوز (NSIS Installer)...");
 try {
-  // Use pwsh Compress-Archive for reliable zip creation
-  execSync(`pwsh -NoProfile -Command "Compress-Archive -Path '${outputAppDir}' -DestinationPath '${zipOutput}' -Force"`, { stdio: "inherit" });
-  if (fs.existsSync(zipOutput)) {
-    console.log(`📦 فایل زیپ پرتابل آماده شد: ${zipOutput}`);
+  execSync("npx electron-builder --win nsis --x64", { stdio: "inherit" });
+  const setupExe = path.join(distDir, "Testino-Setup-x64.exe");
+  if (fs.existsSync(setupExe)) {
+    console.log(`📦 فایل نصبی Installer آماده شد: ${setupExe}`);
   }
 } catch (e) {
-  console.warn("ایجاد فایل فشرده با خطا مواجه شد، اما پوشه اجرایی آماده است:", e.message);
+  console.warn("⚠️ ساخت فایل نصبی با electron-builder انجام نشد (بسته پرتابل آماده است):", e.message);
 }
 
 console.log("\n🎉 بیلد نسخه ویندوز دسکتاپ با موفقیت کامل انجام شد!");
 console.log(`📁 پوشه برنامه: ${outputAppDir}`);
 console.log(`🚀 فایل اجرایی مستقیم: ${targetExe}\n`);
+

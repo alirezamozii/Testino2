@@ -251,7 +251,7 @@ export class SyncCoordinator {
 
     if (!isAuthed) {
       this.setStatus("unconfigured");
-      return {
+      const unauthReport: SyncReport = {
         pushedCount: 0,
         pulledCount: 0,
         errors: ["کاربر وارد حساب ابری نشده است (ذخیره‌سازی به صورت محلی)."],
@@ -259,7 +259,13 @@ export class SyncCoordinator {
         reconciledCount: 0,
         completedAt: Date.now(),
       };
+      this.lastReport = unauthReport;
+      this.notifyListeners();
+      return unauthReport;
     }
+
+    // Auto-ensure cloud owner exists on Supabase before push/pull
+    await this.ensureCloudOwner(targetOwnerId);
 
     this.isSyncing = true;
     this.setStatus("pushing");
@@ -298,13 +304,30 @@ export class SyncCoordinator {
       // Drain all currently eligible outbox pages. A hard cap prevents a broken
       // transport from keeping the foreground task alive forever.
       for (let page = 0; page < 100; page += 1) {
-        const pushRes = await executePush(
+        let pushRes = await executePush(
           targetOwnerId,
           this.deviceId,
           this.outboxRepo,
           this.transport,
           { batchSize: this.config.batchSize }
         );
+
+        // Auto-heal if server rejected due to OwnerNotFound
+        if (
+          pushRes.errors.some(
+            (e) => e.includes("OwnerNotFound") || e.includes("پروفایل مالک برای کاربر یافت نشد")
+          )
+        ) {
+          await this.ensureCloudOwner(targetOwnerId);
+          pushRes = await executePush(
+            targetOwnerId,
+            this.deviceId,
+            this.outboxRepo,
+            this.transport,
+            { batchSize: this.config.batchSize }
+          );
+        }
+
         pushedCount += pushRes.pushedCount;
         conflictCount += pushRes.conflictCount;
         pushErrors.push(...pushRes.errors);
@@ -315,13 +338,30 @@ export class SyncCoordinator {
       // 2. Pull Phase: downloads remote mutations
       this.setStatus("pulling");
       for (let page = 0; page < 100; page += 1) {
-        const pullRes = await executePull(
+        let pullRes = await executePull(
           targetOwnerId,
           this.db,
           this.outboxRepo,
           this.transport,
           { limit: this.config.batchSize }
         );
+
+        // Auto-heal if server rejected due to OwnerNotFound
+        if (
+          pullRes.errors.some(
+            (e) => e.includes("OwnerNotFound") || e.includes("پروفایل مالک برای کاربر یافت نشد")
+          )
+        ) {
+          await this.ensureCloudOwner(targetOwnerId);
+          pullRes = await executePull(
+            targetOwnerId,
+            this.db,
+            this.outboxRepo,
+            this.transport,
+            { limit: this.config.batchSize }
+          );
+        }
+
         pulledCount += pullRes.pulledCount;
         pullErrors.push(...pullRes.errors);
         allErrors.push(...pullRes.errors);
@@ -390,5 +430,25 @@ export class SyncCoordinator {
       }
     }
     return report;
+  }
+
+  private async ensureCloudOwner(targetOwnerId: string): Promise<void> {
+    if (!this.transport.claimLocalOwner) return;
+    try {
+      const rows = await this.db.query<{ id: string; display_name: string }>(
+        "SELECT id, display_name FROM owners WHERE id=? LIMIT 1",
+        [targetOwnerId]
+      );
+      const displayName = rows[0]?.display_name || "دانش‌آموز";
+      const res = await this.transport.claimLocalOwner(targetOwnerId, displayName);
+      if (res?.ownerId) {
+        await this.db.execute(
+          "UPDATE owners SET kind='account', updated_at=? WHERE id=?",
+          [Date.now(), targetOwnerId]
+        );
+      }
+    } catch (err) {
+      console.warn("Auto-claim cloud owner failed or skipped:", err);
+    }
   }
 }
