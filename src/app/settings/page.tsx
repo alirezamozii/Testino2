@@ -235,7 +235,7 @@ export default function SettingsPage() {
         targetPercentage: newSubjTarget,
         coefficient: newSubjCoefficient,
         questionCount: newSubjQuestions,
-        scoreGroup: newSubjScoreGroup || null,
+        scoreGroup: null,
       });
       await queryClient.invalidateQueries({ queryKey: ["profiles"] });
       setNewSubjName("");
@@ -1108,31 +1108,6 @@ export default function SettingsPage() {
                     <Plus size={16} />
                     <span className="text-[10px] font-black">افزودن</span>
                   </button>
-                </div>
-
-                {/* Optional Score Group */}
-                <div className="pt-1">
-                  {addGroupEnabled ? (
-                    <div className="flex items-center gap-2 text-xs font-bold text-[var(--muted)] bg-[var(--surface)] p-2 rounded-xl border border-[var(--line-strong)]/20">
-                      <span className="shrink-0 text-[11px]">گروه مشترک:</span>
-                      <input
-                        type="text"
-                        value={newSubjScoreGroup}
-                        onChange={(e) => setNewSubjScoreGroup(e.target.value)}
-                        placeholder="نام درس مشترک؛ مثلاً: اقتصاد"
-                        className="min-w-0 flex-1 bg-[var(--surface-2)] border border-[var(--line-strong)]/40 rounded-lg px-2 py-1 text-xs font-bold text-[var(--ink)] focus:outline-none focus:border-sky-500"
-                      />
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setAddGroupEnabled(true)}
-                      className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors py-0.5"
-                    >
-                      <Link2 size={12} className="text-sky-500 shrink-0" />
-                      <span>این درس با درس دیگری هم‌گروه تراز است؟ (اختیاری)</span>
-                    </button>
-                  )}
                 </div>
               </form>
               {subjectError && <p className="text-[10px] text-red-600 font-bold">{subjectError}</p>}

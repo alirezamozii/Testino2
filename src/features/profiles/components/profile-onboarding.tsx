@@ -504,16 +504,7 @@ export function ProfileOnboarding() {
       setSuggestionsLoading(false);
     }
 
-    // Auto-detect compound subjects (containing " و " or common merged pairs)
-    const normalized = trimmed.replace(/\s+/g, " ");
-    if (normalized.includes(" و ") || normalized.includes("خرد") || normalized.includes("کلان")) {
-      setShowGroupMerge(true);
-      setIsGroupMergeEnabled(true);
-      if (!newSubjScoreGroup) {
-        setNewSubjScoreGroup(normalized);
-        setSelectedExistingGroup(normalized);
-      }
-    }
+    // Subject name updated
   };
 
   const selectSuggestion = (name: string) => {
@@ -521,16 +512,6 @@ export function ProfileOnboarding() {
     setNewSubjName(canonical);
     setShowSuggestions(false);
     setSubjectError("");
-
-    // Auto-detect compound subject suggestions
-    if (canonical.includes(" و ") || canonical.includes("خرد") || canonical.includes("کلان")) {
-      setShowGroupMerge(true);
-      setIsGroupMergeEnabled(true);
-      if (!newSubjScoreGroup) {
-        setNewSubjScoreGroup(canonical);
-        setSelectedExistingGroup(canonical);
-      }
-    }
   };
 
   function handleAddCustomSubject(e?: React.FormEvent) {
@@ -544,21 +525,14 @@ export function ProfileOnboarding() {
       setSubjectError("این درس قبلاً در لیست وجود دارد.");
       return;
     }
-    const resolvedGroup = isGroupMergeEnabled
-      ? (selectedExistingGroup.trim() || newSubjScoreGroup.trim() || name)
-      : "";
-    const normalizedGroup = resolvedGroup.trim().toLocaleLowerCase("fa-IR");
-    const groupPeer = normalizedGroup
-      ? selectedSubjects.find((s) => s.scoreGroup.trim().toLocaleLowerCase("fa-IR") === normalizedGroup)
-      : undefined;
     setSelectedSubjects((prev) => [
       ...prev,
       {
         name,
-        coefficient: groupPeer?.coefficient ?? Math.max(1, newSubjCoeff),
+        coefficient: Math.max(1, newSubjCoeff),
         targetPercentage: Math.max(0, Math.min(100, newSubjTarget)),
         questionCount: Math.max(1, Math.min(200, newSubjQuestions)),
-        scoreGroup: resolvedGroup,
+        scoreGroup: "",
         selected: true,
       },
     ]);
@@ -1247,135 +1221,6 @@ export function ProfileOnboarding() {
                       <span className="text-[11px] font-bold text-[var(--muted)] shrink-0">٪</span>
                     </div>
                   </div>
-
-                  {/* Shared score group — compact, clean toggle */}
-                  {!showGroupMerge ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowGroupMerge(true);
-                        setIsGroupMergeEnabled(true);
-                        if (!newSubjScoreGroup && newSubjName.trim()) {
-                          setNewSubjScoreGroup(newSubjName.trim());
-                        }
-                      }}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--muted)] hover:text-[var(--testino-orange)] transition-colors cursor-pointer py-1"
-                    >
-                      <Link2 size={14} className="text-[var(--testino-orange)]" />
-                      <span>ادغام در یک گروه درسی مشترک (اختیاری)</span>
-                    </button>
-                  ) : (
-                    <div className="p-3 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line)] space-y-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <label className="flex items-center gap-2 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={isGroupMergeEnabled}
-                            onChange={(e) => {
-                              setIsGroupMergeEnabled(e.target.checked);
-                              if (!e.target.checked) {
-                                setSelectedExistingGroup("");
-                                setNewSubjScoreGroup("");
-                              }
-                            }}
-                            className="w-4 h-4 rounded border-2 border-[var(--line)] text-[var(--testino-orange)] focus:ring-[var(--testino-orange)] cursor-pointer accent-[var(--testino-orange)]"
-                          />
-                          <span className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5">
-                            <Link2 size={13} className="text-[var(--testino-orange)]" />
-                            <span>ادغام در گروه مشترک</span>
-                          </span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowGroupMerge(false);
-                            setIsGroupMergeEnabled(false);
-                            setSelectedExistingGroup("");
-                            setNewSubjScoreGroup("");
-                          }}
-                          className="text-[10px] font-bold text-[var(--muted)] hover:text-[var(--ink)]"
-                        >
-                          بستن
-                        </button>
-                      </div>
-
-                      {isGroupMergeEnabled && (
-                        <div className="space-y-2 pt-1 border-t border-[var(--line)]/20 animate-in fade-in-50 duration-200">
-                          {/* Existing active subjects to merge with */}
-                          {selectedSubjects.length > 0 && (
-                            <div className="space-y-1">
-                              <span className="text-[10px] font-black text-[var(--muted)] block">
-                                انتخاب از درس‌های افزوده شده:
-                              </span>
-                              <div className="flex flex-wrap gap-1.5">
-                                {selectedSubjects.map((s) => {
-                                  const groupName = s.scoreGroup || s.name;
-                                  const isSelected = selectedExistingGroup === groupName;
-                                  return (
-                                    <button
-                                      key={s.name}
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedExistingGroup(groupName);
-                                        setNewSubjScoreGroup(groupName);
-                                      }}
-                                      className={cn(
-                                        "px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer",
-                                        isSelected
-                                          ? "bg-[var(--testino-orange)] text-white border-[var(--line-strong)] shadow-[1px_1px_0px_var(--neo-shadow)]"
-                                          : "bg-[var(--surface-2)] text-[var(--ink)] border-[var(--line)] hover:border-[var(--testino-orange)]"
-                                      )}
-                                    >
-                                      {s.name}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Common presets */}
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-black text-[var(--muted)] block">
-                              پیشنهادهای پرتکرار:
-                            </span>
-                            <div className="flex flex-wrap gap-1.5">
-                              {["اقتصاد خرد و کلان", "ریاضی و آمار", "مدیریت مالی"].map((preset) => (
-                                <button
-                                  key={preset}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedExistingGroup(preset);
-                                    setNewSubjScoreGroup(preset);
-                                  }}
-                                  className={cn(
-                                    "px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer",
-                                    selectedExistingGroup === preset
-                                      ? "bg-amber-100 text-amber-900 border-amber-400 dark:bg-amber-950 dark:text-amber-200"
-                                      : "bg-[var(--surface-2)] text-[var(--muted)] border-[var(--line)] hover:text-[var(--ink)]"
-                                  )}
-                                >
-                                  {preset}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Custom group name input */}
-                          <input
-                            type="text"
-                            value={newSubjScoreGroup}
-                            onChange={(e) => {
-                              setNewSubjScoreGroup(e.target.value);
-                              setSelectedExistingGroup(e.target.value);
-                            }}
-                            placeholder="نام گروه (مثلاً: اقتصاد خرد و کلان)"
-                            className="w-full bg-[var(--surface-2)] border border-[var(--line)] rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--ink)] placeholder:text-[var(--muted)]"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
 
                   {/* Community / Popular Subjects Chips */}
                   {popularSubjects.length > 0 && (
