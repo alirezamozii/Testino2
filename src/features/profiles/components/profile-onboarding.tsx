@@ -1,14 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { searchSubjects, registerSubject, getPopularSubjects } from "@/platform/shared-subjects";
 import {
   ArrowLeft,
-  Calendar,
   Check,
   ChevronRight,
-  Clock,
   Plus,
   Target,
   Sparkles,
@@ -19,10 +17,12 @@ import {
   Lock,
   Eye,
   EyeOff,
+  Link2,
 } from "lucide-react";
 import { useDatabase } from "@/providers/database-provider";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { withTimeout } from "@/lib/with-timeout";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { calculateWeightedTarget } from "@/features/profiles/domain/score-groups";
 import { canonicalizeSubject, isSameSubject } from "@/features/questions/domain/subject-registry";
@@ -33,7 +33,11 @@ import {
   signUpWithEmail,
   signOut,
   getCurrentAuthUser,
+  exchangeOAuthCode,
 } from "@/platform/auth/supabase-client";
+
+/** Auth requests must never hang the onboarding spinner forever. */
+const AUTH_REQUEST_TIMEOUT_MS = 15_000;
 
 export function ProfileOnboarding() {
   const { db } = useDatabase();
@@ -50,6 +54,9 @@ export function ProfileOnboarding() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authTab, setAuthTab] = useState<"email" | "google">("email");
+  const [manualOAuthCode, setManualOAuthCode] = useState("");
+  const [showManualCodeInput, setShowManualCodeInput] = useState(false);
+  const [isManualExchanging, setIsManualExchanging] = useState(false);
 
   // Email+Password fields
   const [emailInput, setEmailInput] = useState("");
@@ -74,7 +81,10 @@ export function ProfileOnboarding() {
   const [newSubjCoeff, setNewSubjCoeff] = useState(3);
   const [newSubjTarget, setNewSubjTarget] = useState(70);
   const [newSubjQuestions, setNewSubjQuestions] = useState(25);
+  const [isGroupMergeEnabled, setIsGroupMergeEnabled] = useState(false);
+  const [showGroupMerge, setShowGroupMerge] = useState(false);
   const [newSubjScoreGroup, setNewSubjScoreGroup] = useState("");
+  const [selectedExistingGroup, setSelectedExistingGroup] = useState("");
   const [subjectError, setSubjectError] = useState("");
 
   // Autocomplete & Community Suggestions from Supabase shared subjects
@@ -84,12 +94,14 @@ export function ProfileOnboarding() {
   const [popularSubjects, setPopularSubjects] = useState<string[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  const googlePollRef = useRef<number | null>(null);
 
-  // Step 4: Study Timeline
-  const [timeRemainingMode, setTimeRemainingMode] = useState<"preset" | "custom">("preset");
-  const [timePreset, setTimePreset] = useState("۶ ماه");
-  const [customTimeMonths, setCustomTimeMonths] = useState(6);
-  const [dailyHours, setDailyHours] = useState(6);
+  // Clear any running Google session polling when the page unmounts.
+  useEffect(() => {
+    return () => {
+      if (googlePollRef.current) window.clearInterval(googlePollRef.current);
+    };
+  }, []);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -170,9 +182,6 @@ export function ProfileOnboarding() {
   const totalCoeff = weightedTarget.totalCoefficient;
   const weightedAverage = Math.round(weightedTarget.percentage ?? 0);
 
-  const finalTimeRemaining =
-    timeRemainingMode === "preset" ? timePreset : `${customTimeMonths} ماه`;
-
   // === Auth handlers ===
 
   async function handleEmailAuth(e: React.FormEvent) {
@@ -189,33 +198,91 @@ export function ProfileOnboarding() {
     }
 
     setIsAuthLoading(true);
-    const finalName = userName.trim() || cleanEmail.split("@")[0] || "کاربر تستینو";
+    const finalName = userName.trim() || cleanEmail.split("@")[0] || "دانش‌آموز";
 
+    // Network calls are timeout-bounded: a hung auth request must release the
+    // button spinner (isAuthLoading) instead of blocking onboarding forever.
     let cloudSynced = false;
     let authenticatedUserId = "";
     const config = getSupabaseConfig();
 
     if (config.isConfigured) {
       try {
-        const signInResult = await signInWithEmail(cleanEmail, passwordInput);
-        const authResult = signInResult.user ? signInResult : await signUpWithEmail(cleanEmail, passwordInput);
-        if (!authResult.user) throw authResult.error || new Error("ایمیل یا رمز عبور نادرست است؛ اگر قبلاً با گوگل وارد شده‌اید، ورود با گوگل را انتخاب کنید.");
+        const signInResult = await withTimeout(
+          signInWithEmail(cleanEmail, passwordInput),
+          AUTH_REQUEST_TIMEOUT_MS,
+          "ورود با ایمیل"
+        );
+        let authResult = signInResult;
+        if (!authResult.user) {
+          const signInErrMsg = authResult.error?.message || "";
+          const lowerMsg = signInErrMsg.toLowerCase();
+
+          // Check if failure is due to incorrect credentials
+          if (
+            lowerMsg.includes("invalid login credentials") ||
+            lowerMsg.includes("invalid credentials") ||
+            lowerMsg.includes("invalid password")
+          ) {
+            // Attempt signup in case this is a brand new user
+            const signUpResult = await withTimeout(
+              signUpWithEmail(cleanEmail, passwordInput),
+              AUTH_REQUEST_TIMEOUT_MS,
+              "ساخت حساب"
+            );
+            if (signUpResult.user) {
+              authResult = signUpResult;
+            } else {
+              const signUpErrMsg = signUpResult.error?.message?.toLowerCase() || "";
+              if (
+                signUpErrMsg.includes("already registered") ||
+                signUpErrMsg.includes("user already registered") ||
+                signUpErrMsg.includes("already exist")
+              ) {
+                setError("رمز عبور وارد شده نادرست است. لطفاً رمز عبور را بررسی کرده و مجدداً تلاش کنید.");
+                setIsAuthLoading(false);
+                return;
+              }
+              setError(signUpResult.error?.message || "رمز عبور نادرست است یا حساب کاربری یافت نشد.");
+              setIsAuthLoading(false);
+              return;
+            }
+          } else {
+            setError(authResult.error?.message || "ایمیل یا رمز عبور نامعتبر است.");
+            setIsAuthLoading(false);
+            return;
+          }
+        }
+
+        if (!authResult.user) {
+          setError(authResult.error?.message || "خطا در احراز هویت با ایمیل و رمز عبور.");
+          setIsAuthLoading(false);
+          return;
+        }
+
         cloudSynced = true;
         authenticatedUserId = authResult.user.id;
         setAuthUserId(authResult.user.id);
-      } catch {
-        // Network or server error - continue in offline mode
+      } catch (authErr) {
+        setError(authErr instanceof Error ? authErr.message : "خطا در برقراری ارتباط با سرور احراز هویت.");
+        setIsAuthLoading(false);
+        return;
       }
     }
 
-    // Always register locally in SQLite & memory (Offline-First)
+    // Always register locally in SQLite & memory (Offline-First).
+    // When the cloud is unreachable or unconfigured we still keep a local
+    // owner so onboarding can complete; sync links it later.
     try {
-      if (!authenticatedUserId) throw new Error("ورود ابری کامل نشد؛ برای همگام‌سازی اینترنت را بررسی کنید.");
-      await db.linkAuthenticatedAccount(authenticatedUserId, finalName);
+      if (authenticatedUserId) {
+        await db.linkAuthenticatedAccount(authenticatedUserId, finalName);
+      } else {
+        await db.saveOwner(finalName, "local");
+      }
       await queryClient.invalidateQueries({ queryKey: ["owner"] });
       await queryClient.invalidateQueries({ queryKey: ["owner-shell"] });
 
-      if (!cloudSynced) {
+      if (!cloudSynced && !authenticatedUserId && config.isConfigured) {
         localStorage.setItem("testino_pending_auth", JSON.stringify({
           email: cleanEmail,
           password: passwordInput,
@@ -247,19 +314,110 @@ export function ProfileOnboarding() {
 
     setIsAuthLoading(true);
     try {
+      const isNative =
+        Boolean((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.());
+      const isElectron =
+        typeof window !== "undefined" &&
+        (Boolean((window as unknown as { testinoDesktop?: { isElectron?: boolean } }).testinoDesktop?.isElectron) ||
+          window.navigator.userAgent.includes("Electron"));
       const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const redirectUrl = origin ? `${origin}/onboarding/` : undefined;
-      const { data, error: authError } = await signInWithGoogle(redirectUrl);
+      const redirectUrl = (!isNative && !isElectron && origin) ? `${origin}/auth/callback` : undefined;
+
+      const { data, error: authError } = await withTimeout(
+        signInWithGoogle(redirectUrl),
+        AUTH_REQUEST_TIMEOUT_MS,
+        "شروع ورود با گوگل"
+      );
       if (authError) {
         setError(authError.message);
         setIsAuthLoading(false);
+      } else if (isNative || isElectron) {
+        // Native and Electron already opened system browser once inside signInWithGoogle
+        setError("صفحهٔ ورود با گوگل در مرورگر باز شد. پس از تأیید، به‌صورت خودکار به برنامه بازمی‌گردید.");
+        setShowManualCodeInput(true);
+        startGoogleSessionPolling();
+        // Give 5 seconds then allow interaction so user is never locked
+        setTimeout(() => setIsAuthLoading(false), 5000);
       } else if (data?.url) {
-        window.location.href = data.url;
+        const opened = window.open(data.url, "_blank");
+        if (!opened) {
+          window.location.assign(data.url);
+          return;
+        }
+        setError("پنجرهٔ ورود گوگل در تب جدید باز شد. پس از تأیید، به‌صورت خودکار به این صفحه بازمی‌گردید.");
+        setShowManualCodeInput(true);
+        startGoogleSessionPolling();
+        setTimeout(() => setIsAuthLoading(false), 5000);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "خطا در برقراری اتصال با گوگل");
       setIsAuthLoading(false);
     }
+  }
+
+  async function handleManualOAuthSubmit() {
+    if (!manualOAuthCode.trim()) return;
+    setIsManualExchanging(true);
+    setError("");
+    try {
+      const { user, error: exError } = await exchangeOAuthCode(manualOAuthCode);
+      if (exError || !user) {
+        setError(exError?.message || "کد یا آدرس نامعتبر است. لطفاً دوباره تلاش کنید.");
+      } else {
+        if (googlePollRef.current) window.clearInterval(googlePollRef.current);
+        googlePollRef.current = null;
+        setIsAuthenticated(true);
+        setAuthEmail(user.email || "");
+        setAuthUserId(user.id);
+        const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
+        setUserName((prev) => prev || metaName || (user.email ? user.email.split("@")[0] : ""));
+        const avatar = user.user_metadata?.avatar_url as string | undefined;
+        if (avatar) setAvatarUrl(avatar);
+        setShowManualCodeInput(false);
+        setError("");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "خطا در بررسی کد ورود");
+    } finally {
+      setIsManualExchanging(false);
+      setIsAuthLoading(false);
+    }
+  }
+
+  /**
+   * After the OAuth tab flow, the session is persisted by supabase-js in
+   * shared localStorage. Poll briefly so this tab picks it up without a
+   * manual reload.
+   */
+  function startGoogleSessionPolling() {
+    if (googlePollRef.current) window.clearInterval(googlePollRef.current);
+    let elapsed = 0;
+    googlePollRef.current = window.setInterval(async () => {
+      elapsed += 1500;
+      if (elapsed > 120000) {
+        if (googlePollRef.current) window.clearInterval(googlePollRef.current);
+        googlePollRef.current = null;
+        setIsAuthLoading(false);
+        return;
+      }
+      try {
+        const user = await getCurrentAuthUser();
+        if (user?.email) {
+          if (googlePollRef.current) window.clearInterval(googlePollRef.current);
+          googlePollRef.current = null;
+          setIsAuthenticated(true);
+          setAuthEmail(user.email);
+          const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
+          setUserName((prev) => prev || metaName || user.email!.split("@")[0]);
+          const avatar = user.user_metadata?.avatar_url as string | undefined;
+          if (avatar) setAvatarUrl(avatar);
+          setIsAuthLoading(false);
+          setError("");
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 1500);
   }
 
   async function handleDisconnectAuth() {
@@ -278,7 +436,7 @@ export function ProfileOnboarding() {
     if (step === 1) {
       const cleanEmail = emailInput.trim().toLowerCase();
       const cleanName = userName.trim();
-      const finalName = cleanName || (cleanEmail ? cleanEmail.split("@")[0] : "") || (authEmail ? authEmail.split("@")[0] : "") || "کاربر تستینو";
+      const finalName = cleanName || (cleanEmail ? cleanEmail.split("@")[0] : "") || (authEmail ? authEmail.split("@")[0] : "") || "دانش‌آموز";
 
       if (!cleanName && !cleanEmail && !authEmail) {
         setError("لطفاً نام یا آدرس ایمیل خود را وارد کنید.");
@@ -345,35 +503,34 @@ export function ProfileOnboarding() {
       setShowSuggestions(false);
       setSuggestionsLoading(false);
     }
+
+    // Auto-detect compound subjects (containing " و " or common merged pairs)
+    const normalized = trimmed.replace(/\s+/g, " ");
+    if (normalized.includes(" و ") || normalized.includes("خرد") || normalized.includes("کلان")) {
+      setShowGroupMerge(true);
+      setIsGroupMergeEnabled(true);
+      if (!newSubjScoreGroup) {
+        setNewSubjScoreGroup(normalized);
+        setSelectedExistingGroup(normalized);
+      }
+    }
   };
 
   const selectSuggestion = (name: string) => {
-    setNewSubjName(canonicalizeSubject(name));
+    const canonical = canonicalizeSubject(name);
+    setNewSubjName(canonical);
     setShowSuggestions(false);
     setSubjectError("");
-  };
 
-  const addSubjectDirectly = (name: string) => {
-    const trimmed = canonicalizeSubject(name);
-    if (!trimmed) return;
-    if (selectedSubjects.some((s) => isSameSubject(s.name, trimmed))) {
-      setSubjectError(`درس «${trimmed}» قبلاً به لیست شما اضافه شده است.`);
-      return;
+    // Auto-detect compound subject suggestions
+    if (canonical.includes(" و ") || canonical.includes("خرد") || canonical.includes("کلان")) {
+      setShowGroupMerge(true);
+      setIsGroupMergeEnabled(true);
+      if (!newSubjScoreGroup) {
+        setNewSubjScoreGroup(canonical);
+        setSelectedExistingGroup(canonical);
+      }
     }
-    setSelectedSubjects((prev) => [
-      ...prev,
-      {
-        name: trimmed,
-        coefficient: 3,
-        targetPercentage: 70,
-        questionCount: 25,
-        scoreGroup: "",
-        selected: true,
-      },
-    ]);
-    setSubjectError("");
-    // Register or increment usage in Supabase in background
-    registerSubject(trimmed);
   };
 
   function handleAddCustomSubject(e?: React.FormEvent) {
@@ -387,7 +544,10 @@ export function ProfileOnboarding() {
       setSubjectError("این درس قبلاً در لیست وجود دارد.");
       return;
     }
-    const normalizedGroup = newSubjScoreGroup.trim().toLocaleLowerCase("fa-IR");
+    const resolvedGroup = isGroupMergeEnabled
+      ? (selectedExistingGroup.trim() || newSubjScoreGroup.trim() || name)
+      : "";
+    const normalizedGroup = resolvedGroup.trim().toLocaleLowerCase("fa-IR");
     const groupPeer = normalizedGroup
       ? selectedSubjects.find((s) => s.scoreGroup.trim().toLocaleLowerCase("fa-IR") === normalizedGroup)
       : undefined;
@@ -398,7 +558,7 @@ export function ProfileOnboarding() {
         coefficient: groupPeer?.coefficient ?? Math.max(1, newSubjCoeff),
         targetPercentage: Math.max(0, Math.min(100, newSubjTarget)),
         questionCount: Math.max(1, Math.min(200, newSubjQuestions)),
-        scoreGroup: newSubjScoreGroup.trim(),
+        scoreGroup: resolvedGroup,
         selected: true,
       },
     ]);
@@ -409,7 +569,9 @@ export function ProfileOnboarding() {
     setNewSubjCoeff(3);
     setNewSubjTarget(70);
     setNewSubjQuestions(25);
+    setIsGroupMergeEnabled(false);
     setNewSubjScoreGroup("");
+    setSelectedExistingGroup("");
     setSubjectError("");
   }
 
@@ -453,36 +615,64 @@ export function ProfileOnboarding() {
       }
 
       // 1. Save Owner
-      const cleanOwnerName = userName.trim() || (isAuthenticated ? authEmail.split("@")[0] : "کاربر تستینو");
-       if (isAuthenticated && authUserId) {
-         await db.linkAuthenticatedAccount(authUserId, cleanOwnerName);
-      } else {
-        await db.saveOwner(cleanOwnerName, "local");
-      }
-
+      const cleanOwnerName = userName.trim() || (isAuthenticated ? authEmail.split("@")[0] : "دانش‌آموز");
       // 2. Create Profile
       const examTitle = examType.trim() || "آزمون تحصیلی";
 
-      const profileId = await db.createProfile({
-        name: `${examTitle} - ${effectiveTrack}`,
-        targetTrack: effectiveTrack,
-        subjects: activeSubjects,
-      });
+      // Cold-start OPFS/worker hiccups are transient (worker restart + re-open);
+      // one retry turns a rare first-run failure into a self-heal instead of an
+      // error screen that loses the whole wizard input.
+      let profileId = "";
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (isAuthenticated && authUserId) {
+            await db.linkAuthenticatedAccount(authUserId, cleanOwnerName);
+          } else {
+            await db.saveOwner(cleanOwnerName, "local");
+          }
+
+          profileId = await db.createProfile({
+            name: `${examTitle} - ${effectiveTrack}`,
+            targetTrack: effectiveTrack,
+            subjects: activeSubjects,
+          });
+
+          const persistedProfiles = await db.listProfiles();
+          if (persistedProfiles.some((profile) => profile.id === profileId)) break;
+          throw new Error("persist-verify-failed");
+        } catch (attemptError) {
+          if (attempt === 1) {
+            if (attemptError instanceof Error && attemptError.message === "persist-verify-failed") {
+              throw new Error("پروفایل روی حافظهٔ پایدار تأیید نشد. دوباره تلاش کنید.");
+            }
+            throw attemptError;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+      }
 
       // 3. Register any new subjects to Supabase catalog so other users can see them
       activeSubjects.forEach((sub) => {
         void registerSubject(sub.name);
       });
 
-      const persistedProfiles = await db.listProfiles();
-      if (!persistedProfiles.some((profile) => profile.id === profileId)) {
-        throw new Error("پروفایل روی حافظهٔ پایدار تأیید نشد. دوباره تلاش کنید.");
-      }
+      // Cache refreshes must NOT gate navigation: an awaited invalidate could
+      // hang on a busy DB and strand the wizard on step 4. The dashboard
+      // refetches on mount anyway.
+      void queryClient
+        .invalidateQueries({ queryKey: ["owner"] })
+        .then(() => queryClient.invalidateQueries({ queryKey: ["owner-shell"] }))
+        .then(() => queryClient.invalidateQueries({ queryKey: ["profiles"] }))
+        .then(() => queryClient.invalidateQueries({ queryKey: ["dashboard"] }))
+        .catch(() => undefined);
 
-      await queryClient.invalidateQueries({ queryKey: ["owner"] });
-      await queryClient.invalidateQueries({ queryKey: ["owner-shell"] });
-      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
-      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      // Mark onboarding complete so splash/redirect logic treats the user
+      // as fully registered on future visits.
+      try {
+        localStorage.setItem("testino_onboarding_completed", "true");
+      } catch {
+        // ignore
+      }
 
       router.push("/");
       router.refresh();
@@ -497,7 +687,6 @@ export function ProfileOnboarding() {
     { num: 1, label: "مشخصات و حساب" },
     { num: 2, label: "آزمون و رشته" },
     { num: 3, label: "درس‌ها و هدف" },
-    { num: 4, label: "برنامه و تکمیل" },
   ];
 
   return (
@@ -601,19 +790,11 @@ export function ProfileOnboarding() {
                   {effectiveTrack}
                 </strong>
               </div>
-              <div className="flex justify-between items-center py-1.5 border-b border-[var(--line-strong)]/40">
+              <div className="flex justify-between items-center py-1.5">
                 <span className="text-[var(--muted)]">دروس فعال:</span>
                 <strong className="text-emerald-600 dark:text-emerald-400 font-black">
                   {activeSelectedSubjects.length} درس
                 </strong>
-              </div>
-              <div className="flex justify-between items-center py-1.5 border-b border-[var(--line-strong)]/40">
-                <span className="text-[var(--muted)]">فرصت باقی‌مانده:</span>
-                <strong className="text-[var(--ink)] font-black">{finalTimeRemaining}</strong>
-              </div>
-              <div className="flex justify-between items-center py-1.5">
-                <span className="text-[var(--muted)]">مطالعه روزانه:</span>
-                <strong className="text-[var(--ink)] font-black">{dailyHours} ساعت</strong>
               </div>
             </div>
 
@@ -809,17 +990,19 @@ export function ProfileOnboarding() {
                                 required
                                 value={passwordInput}
                                 onChange={(e) => setPasswordInput(e.target.value)}
-                                placeholder="حداقل ۶ کاراکتر"
+                                placeholder="••••••"
                                 className="w-full bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2.5 text-xs font-bold text-[var(--ink)] text-left dir-ltr focus:outline-none focus:ring-2 focus:ring-[var(--testino-orange)] pl-10"
                               />
                               <button
                                 type="button"
                                 onClick={() => setShowPassword(!showPassword)}
                                 className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--ink)]"
+                                title={showPassword ? "پنهان کردن رمز" : "نمایش رمز"}
                               >
                                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                               </button>
                             </div>
+                            <span className="block text-[10px] font-bold text-[var(--muted)]">حداقل ۶ کاراکتر</span>
                           </div>
                           <button
                             type="submit"
@@ -833,7 +1016,7 @@ export function ProfileOnboarding() {
                               </>
                             ) : (
                               <>
-                                <span>ثبت حساب و رفتن به مرحله بعد</span>
+                                <span>ادامه</span>
                                 <ArrowLeft size={16} />
                               </>
                             )}
@@ -870,6 +1053,32 @@ export function ProfileOnboarding() {
                               </>
                             )}
                           </button>
+
+                          {showManualCodeInput && (
+                            <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-2 mt-2">
+                              <label className="text-[11px] font-bold text-[var(--ink)] block">
+                                اگر مرورگر خودکار به برنامه بازنگشت، آدرس یا کد صفحه مرورگر را اینجا قرار دهید:
+                              </label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={manualOAuthCode}
+                                  onChange={(e) => setManualOAuthCode(e.target.value)}
+                                  placeholder="http://localhost:3000/?code=... یا کد"
+                                  className="flex-1 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-1.5 text-xs font-mono text-[var(--ink)]"
+                                  dir="ltr"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleManualOAuthSubmit}
+                                  disabled={isManualExchanging || !manualOAuthCode.trim()}
+                                  className="btn-neo-orange px-3 py-1.5 text-xs font-black rounded-xl disabled:opacity-50"
+                                >
+                                  {isManualExchanging ? "تأیید…" : "تأیید"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </>
@@ -937,7 +1146,7 @@ export function ProfileOnboarding() {
               <div className="space-y-4">
                 <div className="text-right space-y-1">
                   <span className="inline-block text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[#6CCB7F] text-[var(--ink)] border-2 border-[var(--line)]">
-                    مرحله ۳ از ۴
+                    مرحله ۳ از ۳ • درس‌ها و هدف
                   </span>
                   <h2 className="text-xl sm:text-2xl font-black text-[var(--ink)] pt-1">
                     درس‌های فعال آزمون
@@ -951,10 +1160,10 @@ export function ProfileOnboarding() {
                 <div className="p-4 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line)] space-y-3">
                   <div className="flex items-center justify-between">
                     <strong className="text-xs font-black text-[var(--ink)] block">
-                      + افزودن درس جدید به آزمون:
+                      + افزودن درس جدید:
                     </strong>
                     <span className="text-[10px] font-bold text-[var(--muted)]">
-                      جستجو خودکار در بانک دروس
+                      جستجو در بانک دروس
                     </span>
                   </div>
 
@@ -1039,21 +1248,134 @@ export function ProfileOnboarding() {
                     </div>
                   </div>
 
-                  <label className="block space-y-1">
-                    <span className="text-[11px] font-bold text-[var(--muted)]">
-                      گروه محاسباتی مشترک (اختیاری)
-                    </span>
-                    <input
-                      type="text"
-                      value={newSubjScoreGroup}
-                      onChange={(e) => setNewSubjScoreGroup(e.target.value)}
-                      placeholder="مثلاً اقتصاد؛ برای خرد و کلان دقیقاً یکسان وارد کنید"
-                      className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-3 py-2 text-xs font-bold text-[var(--ink)]"
-                    />
-                    <span className="block text-[10px] text-[var(--muted)]">
-                      اعضای یک گروه جدا تمرین می‌شوند، اما ضریب گروه در نتیجهٔ کل فقط یک‌بار حساب می‌شود.
-                    </span>
-                  </label>
+                  {/* Shared score group — compact, clean toggle */}
+                  {!showGroupMerge ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowGroupMerge(true);
+                        setIsGroupMergeEnabled(true);
+                        if (!newSubjScoreGroup && newSubjName.trim()) {
+                          setNewSubjScoreGroup(newSubjName.trim());
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--muted)] hover:text-[var(--testino-orange)] transition-colors cursor-pointer py-1"
+                    >
+                      <Link2 size={14} className="text-[var(--testino-orange)]" />
+                      <span>ادغام در یک گروه درسی مشترک (اختیاری)</span>
+                    </button>
+                  ) : (
+                    <div className="p-3 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line)] space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={isGroupMergeEnabled}
+                            onChange={(e) => {
+                              setIsGroupMergeEnabled(e.target.checked);
+                              if (!e.target.checked) {
+                                setSelectedExistingGroup("");
+                                setNewSubjScoreGroup("");
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-2 border-[var(--line)] text-[var(--testino-orange)] focus:ring-[var(--testino-orange)] cursor-pointer accent-[var(--testino-orange)]"
+                          />
+                          <span className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5">
+                            <Link2 size={13} className="text-[var(--testino-orange)]" />
+                            <span>ادغام در گروه مشترک</span>
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowGroupMerge(false);
+                            setIsGroupMergeEnabled(false);
+                            setSelectedExistingGroup("");
+                            setNewSubjScoreGroup("");
+                          }}
+                          className="text-[10px] font-bold text-[var(--muted)] hover:text-[var(--ink)]"
+                        >
+                          بستن
+                        </button>
+                      </div>
+
+                      {isGroupMergeEnabled && (
+                        <div className="space-y-2 pt-1 border-t border-[var(--line)]/20 animate-in fade-in-50 duration-200">
+                          {/* Existing active subjects to merge with */}
+                          {selectedSubjects.length > 0 && (
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-black text-[var(--muted)] block">
+                                انتخاب از درس‌های افزوده شده:
+                              </span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {selectedSubjects.map((s) => {
+                                  const groupName = s.scoreGroup || s.name;
+                                  const isSelected = selectedExistingGroup === groupName;
+                                  return (
+                                    <button
+                                      key={s.name}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedExistingGroup(groupName);
+                                        setNewSubjScoreGroup(groupName);
+                                      }}
+                                      className={cn(
+                                        "px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer",
+                                        isSelected
+                                          ? "bg-[var(--testino-orange)] text-white border-[var(--line-strong)] shadow-[1px_1px_0px_var(--neo-shadow)]"
+                                          : "bg-[var(--surface-2)] text-[var(--ink)] border-[var(--line)] hover:border-[var(--testino-orange)]"
+                                      )}
+                                    >
+                                      {s.name}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Common presets */}
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-black text-[var(--muted)] block">
+                              پیشنهادهای پرتکرار:
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {["اقتصاد خرد و کلان", "ریاضی و آمار", "مدیریت مالی"].map((preset) => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedExistingGroup(preset);
+                                    setNewSubjScoreGroup(preset);
+                                  }}
+                                  className={cn(
+                                    "px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer",
+                                    selectedExistingGroup === preset
+                                      ? "bg-amber-100 text-amber-900 border-amber-400 dark:bg-amber-950 dark:text-amber-200"
+                                      : "bg-[var(--surface-2)] text-[var(--muted)] border-[var(--line)] hover:text-[var(--ink)]"
+                                  )}
+                                >
+                                  {preset}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Custom group name input */}
+                          <input
+                            type="text"
+                            value={newSubjScoreGroup}
+                            onChange={(e) => {
+                              setNewSubjScoreGroup(e.target.value);
+                              setSelectedExistingGroup(e.target.value);
+                            }}
+                            placeholder="نام گروه (مثلاً: اقتصاد خرد و کلان)"
+                            className="w-full bg-[var(--surface-2)] border border-[var(--line)] rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--ink)] placeholder:text-[var(--muted)]"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Community / Popular Subjects Chips */}
                   {popularSubjects.length > 0 && (
@@ -1061,7 +1383,7 @@ export function ProfileOnboarding() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5 text-[11px] font-black text-[var(--muted)]">
                           <Sparkles size={12} className="text-amber-500" />
-                          <span>دروس پیشنهادی و پرکاربرد (کلیک جهت انتخاب و درج در فرم):</span>
+                          <span>درس‌های پرکاربرد (برای درج کلیک کنید):</span>
                         </div>
                         <span className="text-[10px] text-[var(--muted)] font-bold">
                           {popularSubjects.length} درس
@@ -1141,19 +1463,16 @@ export function ProfileOnboarding() {
                             : "border-[var(--line-strong)] bg-[var(--surface-2)] opacity-50"
                         )}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => toggleSubject(idx)}
-                            className={cn(
-                              "w-6 h-6 rounded-lg border-2 border-[var(--line)] flex items-center justify-center shrink-0 transition-all",
-                              s.selected ? "bg-[#6CCB7F] text-[var(--ink)]" : "bg-[var(--surface)]"
-                            )}
-                          >
-                            {s.selected && <Check size={14} strokeWidth={3} />}
-                          </button>
-                          <div className="min-w-0">
-                            <strong className="block text-xs sm:text-sm font-black text-[var(--ink)] truncate">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <input
+                            type="checkbox"
+                            checked={s.selected}
+                            onChange={() => toggleSubject(idx)}
+                            className="w-4 h-4 rounded border-2 border-[var(--line)] text-[#6CCB7F] focus:ring-[#6CCB7F] cursor-pointer accent-[#6CCB7F] shrink-0"
+                            aria-label={`انتخاب ${s.name}`}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <strong className="block text-xs sm:text-sm font-black text-[var(--ink)] break-words">
                               {s.name}
                             </strong>
                             <div className="text-[11px] font-bold text-[var(--muted)] flex flex-wrap items-center gap-2 mt-0.5">
@@ -1167,7 +1486,7 @@ export function ProfileOnboarding() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <button
                             type="button"
                             onClick={() => handleRemoveSubject(idx)}
@@ -1265,159 +1584,6 @@ export function ProfileOnboarding() {
               </div>
             )}
 
-            {/* =================================================================== */}
-            {/* STEP 4: برنامه زمانی و تأیید نهایی */}
-            {/* =================================================================== */}
-            {step === 4 && (
-              <div className="space-y-5">
-                <div className="text-right space-y-1">
-                  <span className="inline-block text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[#FFE173] text-[var(--ink)] border-2 border-[var(--line)]">
-                    مرحله ۴ از ۴ • برنامه و تکمیل
-                  </span>
-                  <h2 className="text-xl sm:text-2xl font-black text-[var(--ink)] pt-1">
-                    برنامه زمانی مطالعه
-                  </h2>
-                  <p className="text-xs text-[var(--muted)] font-bold">
-                    زمان باقی‌مانده و ساعت مطالعه روزانه را تعیین کنید، سپس پروفایل خود را ثبت کنید.
-                  </p>
-                </div>
-
-                {/* Flexible Time & Daily Hours */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Time Remaining */}
-                  <div className="p-3.5 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line)] space-y-2">
-                    <label className="text-xs font-black text-[var(--ink)] flex items-center gap-2">
-                      <Calendar size={14} className="text-[var(--testino-orange)]" />
-                      <span>زمان باقی‌مانده تا آزمون</span>
-                    </label>
-
-                    <div className="flex items-center gap-1.5 pb-1">
-                      {["۳ ماه", "۶ ماه", "۱ سال"].map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => {
-                            setTimeRemainingMode("preset");
-                            setTimePreset(preset);
-                          }}
-                          className={cn(
-                            "flex-1 py-1.5 text-[10px] font-black rounded-xl border-2 transition-all",
-                            timeRemainingMode === "preset" && timePreset === preset
-                              ? "bg-[var(--testino-orange)] text-white border-[var(--line)]"
-                              : "bg-[var(--surface)] text-[var(--muted)] border-[var(--line-strong)]"
-                          )}
-                        >
-                          {preset}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setTimeRemainingMode("custom")}
-                        className={cn(
-                          "px-2.5 py-1.5 text-[10px] font-black rounded-xl border-2 transition-all",
-                          timeRemainingMode === "custom"
-                            ? "bg-[var(--testino-orange)] text-white border-[var(--line)]"
-                            : "bg-[var(--surface)] text-[var(--muted)] border-[var(--line-strong)]"
-                        )}
-                      >
-                        دلخواه
-                      </button>
-                    </div>
-
-                    {timeRemainingMode === "custom" && (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="1"
-                          max="48"
-                          value={customTimeMonths}
-                          onChange={(e) => setCustomTimeMonths(Number(e.target.value))}
-                          className="w-20 p-2 text-xs font-black bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl text-center text-[var(--ink)]"
-                        />
-                        <span className="text-xs font-bold text-[var(--muted)]">ماه باقی‌مانده</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Daily study hours */}
-                  <div className="p-3.5 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line)] space-y-2">
-                    <div className="flex justify-between items-center">
-                      <label className="text-xs font-black text-[var(--ink)] flex items-center gap-2">
-                        <Clock size={14} className="text-[#6CCB7F]" />
-                        <span>ساعت مطالعه روزانه</span>
-                      </label>
-                      <strong className="text-xs font-black px-2 py-0.5 rounded-lg bg-[var(--surface)] text-[var(--ink)] border border-[var(--line)]">
-                        {dailyHours} ساعت در روز
-                      </strong>
-                    </div>
-
-                    <input
-                      type="range"
-                      min="2"
-                      max="14"
-                      step="1"
-                      value={dailyHours}
-                      onChange={(e) => setDailyHours(Number(e.target.value))}
-                      className="w-full accent-[#6CCB7F] cursor-pointer h-2 bg-[var(--surface-3)] rounded-lg border border-[var(--line)]"
-                    />
-                    <div className="flex justify-between text-[10px] text-[var(--muted)] font-black">
-                      <span>۲ ساعت</span>
-                      <span>۶ ساعت</span>
-                      <span>۱۰ ساعت</span>
-                      <span>۱۴ ساعت</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Final Summary Card */}
-                <div className="card-neo p-5 sm:p-6 text-right space-y-3 bg-[var(--surface-2)]">
-                  <div className="flex items-center gap-2 pb-2 border-b border-[var(--line-strong)]/30">
-                    <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white border-2 border-[var(--line)] flex items-center justify-center shadow-[2px_2px_0px_var(--line)]">
-                      <Check size={20} strokeWidth={3} />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-black text-[var(--ink)]">خلاصه پروفایل شما</h3>
-                      <span className="text-[10px] text-[var(--muted)] font-bold">آماده ثبت</span>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div className="flex justify-between items-center p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/30">
-                      <span className="text-[var(--muted)]">کاربر:</span>
-                      <strong className="font-black text-[var(--ink)]">
-                        {userName || (isAuthenticated ? authEmail : "کاربر تستینو")}
-                      </strong>
-                    </div>
-                    <div className="flex justify-between items-center p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/30">
-                      <span className="text-[var(--muted)]">حساب کاربری:</span>
-                      <strong className={cn("font-black", isAuthenticated ? "text-blue-600 dark:text-blue-400" : "text-[var(--ink)]")}>
-                        {isAuthenticated ? `متصل (${authEmail})` : "پروفایل محلی"}
-                      </strong>
-                    </div>
-                    <div className="flex justify-between items-center p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/30">
-                      <span className="text-[var(--muted)]">آزمون و رشته:</span>
-                      <strong className="font-black text-[var(--ink)] truncate max-w-[170px]">{examType || "—"} — {effectiveTrack}</strong>
-                    </div>
-                    <div className="flex justify-between items-center p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/30">
-                      <span className="text-[var(--muted)]">تعداد درس‌های فعال:</span>
-                      <strong className="font-black text-emerald-600 dark:text-emerald-400">
-                        {activeSelectedSubjects.length} درس
-                      </strong>
-                    </div>
-                    {activeSelectedSubjects.length > 0 && (
-                      <div className="flex justify-between items-center p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/30">
-                        <span className="text-[var(--muted)]">میانگین هدف کل (محاسبه وزنی):</span>
-                        <strong className="font-black text-[var(--testino-orange)]">{weightedAverage}٪</strong>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/30">
-                      <span className="text-[var(--muted)]">برنامه مطالعه:</span>
-                      <strong className="font-black text-[var(--ink)]">{finalTimeRemaining} • روزی {dailyHours} ساعت</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Wizard Navigation Buttons */}
             <div className="flex items-center gap-3 pt-4 border-t border-[var(--line-strong)]/30">
               {step > 1 && (
@@ -1431,7 +1597,7 @@ export function ProfileOnboarding() {
                 </button>
               )}
 
-              {step < 4 ? (
+              {step < 3 ? (
                 <button
                   type="button"
                   onClick={handleNextStep}
@@ -1444,10 +1610,10 @@ export function ProfileOnboarding() {
                 <button
                   type="button"
                   onClick={handleComplete}
-                  disabled={saving}
-                  className="btn-neo-orange flex-1 py-4 text-xs sm:text-sm font-black flex items-center justify-center gap-2"
+                  disabled={saving || activeSelectedSubjects.length === 0}
+                  className="btn-neo-orange flex-1 py-4 text-xs sm:text-sm font-black flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <span>{saving ? "در حال ثبت اطلاعات…" : "ورود به داشبورد"}</span>
+                  <span>{saving ? "در حال ثبت اطلاعات…" : "تکمیل و ورود به داشبورد"}</span>
                   <ArrowLeft size={18} />
                 </button>
               )}

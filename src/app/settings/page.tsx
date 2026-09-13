@@ -9,8 +9,9 @@ import {
   Target,
   Sun,
   Moon,
-  LogOut,
+  RotateCcw,
   CheckCircle2,
+  Link2,
   HardDrive,
   Calculator,
   Download,
@@ -77,6 +78,21 @@ export default function SettingsPage() {
   const [showAbout, setShowAbout] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [actionError, setActionError] = useState("");
+  // Only subjects whose group editor is explicitly opened show the group input —
+  // the vast majority of users never use shared score groups.
+  const [groupEditorFor, setGroupEditorFor] = useState<string | null>(null);
+  const [addGroupEnabled, setAddGroupEnabled] = useState(false);
+
+  function showStatus(message: string) {
+    setSaveStatus(message);
+    setTimeout(() => setSaveStatus(""), 3000);
+  }
+
+  function failAction(err: unknown, fallback: string) {
+    setActionError(err instanceof Error ? err.message : fallback);
+    setTimeout(() => setActionError(""), 6000);
+  }
 
   // Update checking state
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -108,10 +124,16 @@ export default function SettingsPage() {
     setIsDeleting(true);
     try {
       await database.db.deleteAllData();
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch {
+        // ignore storage errors
+      }
       await queryClient.clear();
-      router.push("/onboarding/");
+      router.replace("/onboarding/");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "خطا در پاک‌سازی داده‌ها");
+      failAction(err, "خطا در پاک‌سازی داده‌ها");
       setIsDeleting(false);
       setShowDeleteConfirm(false);
     }
@@ -147,7 +169,7 @@ export default function SettingsPage() {
       setSaveStatus(`فایل پشتیبان با موفقیت دانلود شد (${manifest.counts.questions} سؤال، ${manifest.counts.media} تصویر).`);
       setTimeout(() => setSaveStatus(""), 4000);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "خطا در تهیه فایل پشتیبان");
+      failAction(err, "خطا در تهیه فایل پشتیبان");
     } finally {
       setBackingUp(false);
     }
@@ -165,7 +187,7 @@ export default function SettingsPage() {
       setSaveStatus(`بازیابی با موفقیت انجام شد (${report.counts.profiles} پروفایل، ${report.counts.questions} سؤال، ${report.counts.sessions} آزمون).`);
       setTimeout(() => setSaveStatus(""), 4000);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "خطا در بازیابی فایل پشتیبان");
+      failAction(err, "خطا در بازیابی فایل پشتیبان");
     } finally {
       setRestoring(false);
     }
@@ -181,10 +203,9 @@ export default function SettingsPage() {
       await queryClient.invalidateQueries({ queryKey: ["owner"] });
       await queryClient.invalidateQueries({ queryKey: ["profiles"] });
       setEditingName(false);
-      setSaveStatus("اطلاعات کاربری با موفقیت به‌روزرسانی شد.");
-      setTimeout(() => setSaveStatus(""), 3000);
+      showStatus("اطلاعات کاربری به‌روزرسانی شد.");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "خطا در ذخیره نام");
+      failAction(err, "خطا در ذخیره نام");
     }
   }
 
@@ -215,8 +236,8 @@ export default function SettingsPage() {
       setNewSubjQuestions(25);
       setNewSubjCoefficient(1);
       setNewSubjScoreGroup("");
-      setSaveStatus(`درس «${name}» افزوده شد.`);
-      setTimeout(() => setSaveStatus(""), 3000);
+      setAddGroupEnabled(false);
+      showStatus(`درس «${name}» افزوده شد.`);
     } catch (err) {
       setSubjectError(err instanceof Error ? err.message : "خطا در افزودن درس");
     }
@@ -227,23 +248,38 @@ export default function SettingsPage() {
     try {
       await database.db.removeProfileSubject(subjectId);
       await queryClient.invalidateQueries({ queryKey: ["profiles"] });
-      setSaveStatus(`درس «${subjectName}» حذف شد.`);
-      setTimeout(() => setSaveStatus(""), 3000);
+      showStatus(`درس «${subjectName}» حذف شد.`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "خطا در حذف درس");
+      failAction(err, "خطا در حذف درس");
     }
   }
 
-  async function handleUpdateSubject(subjectId: string, field: "targetPercentage" | "coefficient" | "questionCount", value: number) {
-    await database.db.updateProfileSubject(subjectId, { [field]: value });
-    await queryClient.invalidateQueries({ queryKey: ["profiles"] });
-    setSaveStatus("تنظیمات درس ذخیره شد.");
+  async function handleUpdateSubject(
+    subjectId: string,
+    field: "targetPercentage" | "coefficient" | "questionCount",
+    value: number,
+    previousValue: number,
+  ) {
+    // Tabbing through the input must not fire a spurious DB write + toast.
+    if (!Number.isFinite(value) || value === previousValue) return;
+    try {
+      await database.db.updateProfileSubject(subjectId, { [field]: value });
+      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      showStatus("تنظیمات درس ذخیره شد.");
+    } catch (err) {
+      failAction(err, "خطا در ذخیره تنظیمات درس");
+    }
   }
 
-  async function handleUpdateScoreGroup(subjectId: string, value: string) {
-    await database.db.updateProfileSubject(subjectId, { scoreGroup: value || null });
-    await queryClient.invalidateQueries({ queryKey: ["profiles"] });
-    setSaveStatus("گروه محاسباتی ذخیره شد.");
+  async function handleUpdateScoreGroup(subjectId: string, value: string, previousValue: string) {
+    if (value === previousValue) return;
+    try {
+      await database.db.updateProfileSubject(subjectId, { scoreGroup: value || null });
+      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      showStatus(value ? "گروه ذخیره شد." : "گروه حذف شد.");
+    } catch (err) {
+      failAction(err, "خطا در ذخیره گروه");
+    }
   }
 
   const username = ownerQuery.data?.displayName || "کاربر تستیونو";
@@ -278,6 +314,13 @@ export default function SettingsPage() {
         <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 rounded-2xl border-2 border-[var(--line-strong)] text-xs font-black flex items-center gap-2 shadow-[2px_2px_0px_var(--neo-shadow)]">
           <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
           <span>{saveStatus}</span>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="p-3.5 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 rounded-2xl border-2 border-red-300 text-xs font-black flex items-center gap-2 shadow-[2px_2px_0px_#EF4444]">
+          <AlertTriangle size={18} className="shrink-0" />
+          <span>{actionError}</span>
         </div>
       )}
 
@@ -508,10 +551,10 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <span className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                    ماندگاری دائم حافظه SQLite (OPFS)
+                    حافظهٔ دائمی روی دستگاه
                   </span>
                   <span className="text-[11px] text-[var(--muted)] font-bold">
-                    {persisted ? "تضمین‌شده توسط مرورگر بدون پاک‌سازی خودکار" : "ذخیرهٔ استاندارد روی دستگاه"}
+                    {persisted ? "مرورگر اجازهٔ پاک‌سازی خودکار داده‌ها را ندارد" : "ذخیرهٔ استاندارد روی دستگاه"}
                   </span>
                 </div>
               </div>
@@ -556,8 +599,8 @@ export default function SettingsPage() {
               href="/onboarding/"
               className="card-neo w-full p-4 rounded-3xl bg-amber-50 dark:bg-amber-950/30 border-2 border-[var(--line-strong)] text-amber-800 dark:text-amber-300 font-black text-xs sm:text-sm flex items-center justify-center gap-2 hover:bg-amber-100 transition-colors shadow-[3px_3px_0px_var(--neo-shadow)]"
             >
-              <LogOut size={18} />
-              <span>تنظیم مجدد پروفایل و درس‌های آزمون</span>
+              <RotateCcw size={18} />
+              <span>راه‌اندازی مجدد پروفایل و درس‌ها</span>
             </Link>
 
             <button
@@ -596,69 +639,86 @@ export default function SettingsPage() {
                       key={s.id}
                       className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-2 shadow-[2px_2px_0px_var(--neo-shadow)]"
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-black text-xs text-[var(--ink)] truncate max-w-[130px]">{s.name}</span>
-                        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                          <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
-                            <span>سؤال:</span>
-                            <input
-                              aria-label={`تعداد سؤالات ${s.name}`}
-                              type="number"
-                              min="1"
-                              max="200"
-                              defaultValue={qCount}
-                              onBlur={(event) => handleUpdateSubject(s.id, "questionCount", Number(event.currentTarget.value))}
-                              className="w-12 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-1 py-0.5 text-center text-xs font-black text-[var(--ink)]"
-                              title="تعداد سؤالات این درس در آزمون کنکور"
-                            />
-                          </label>
-                          <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
-                            <span>ضریب:</span>
-                            <input
-                              aria-label={`ضریب ${s.name}`}
-                              type="number"
-                              min="0"
-                              max="20"
-                              defaultValue={s.coefficient}
-                              onBlur={(event) => handleUpdateSubject(s.id, "coefficient", Number(event.currentTarget.value))}
-                              className="w-11 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-1 py-0.5 text-center text-xs font-black text-[var(--ink)]"
-                            />
-                          </label>
-                          <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
-                            <span>هدف:</span>
-                            <input
-                              aria-label={`هدف ${s.name}`}
-                              type="number"
-                              min="0"
-                              max="100"
-                              defaultValue={s.targetPercentage}
-                              onBlur={(event) => handleUpdateSubject(s.id, "targetPercentage", Number(event.currentTarget.value))}
-                              className="w-11 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-1 py-0.5 text-center text-xs font-black text-[var(--ink)]"
-                            />
-                            <span>٪</span>
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveSubject(s.id, s.name)}
-                            className="w-7 h-7 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-300 text-red-600 flex items-center justify-center hover:bg-red-100 transition-colors"
-                            title="حذف درس"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
+                      {/* Top Row: Full Subject Name & Delete Button */}
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-black text-xs sm:text-sm text-[var(--ink)] leading-snug break-words">
+                          {s.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSubject(s.id, s.name)}
+                          className="w-7 h-7 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-300 text-red-600 flex items-center justify-center hover:bg-red-100 transition-colors shrink-0"
+                          title="حذف درس"
+                        >
+                          <Trash2 size={13} />
+                        </button>
                       </div>
 
-                      <label className="flex items-center gap-2 text-[10px] font-bold text-[var(--muted)]">
-                        <span className="shrink-0">گروه محاسباتی:</span>
-                        <input
-                          aria-label={`گروه محاسباتی ${s.name}`}
-                          type="text"
-                          defaultValue={s.scoreGroup ?? ""}
-                          onBlur={(event) => handleUpdateScoreGroup(s.id, event.currentTarget.value.trim())}
-                          placeholder="مستقل؛ یا مثلاً اقتصاد"
-                          className="min-w-0 flex-1 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-2 py-1 text-xs font-bold text-[var(--ink)]"
-                        />
-                      </label>
+                      {/* Middle Row: Question Count, Coefficient, and Target Inputs */}
+                      <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-[var(--line-strong)]/15">
+                        <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
+                          <span>سؤال:</span>
+                          <input
+                            aria-label={`تعداد سؤالات ${s.name}`}
+                            type="number"
+                            min="1"
+                            max="200"
+                            defaultValue={qCount}
+                            onBlur={(event) => handleUpdateSubject(s.id, "questionCount", Number(event.currentTarget.value), qCount)}
+                            className="w-12 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-1 py-0.5 text-center text-xs font-black text-[var(--ink)]"
+                            title="تعداد سؤالات این درس در آزمون کنکور"
+                          />
+                        </label>
+                        <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
+                          <span>ضریب:</span>
+                          <input
+                            aria-label={`ضریب ${s.name}`}
+                            type="number"
+                            min="0"
+                            max="20"
+                            defaultValue={s.coefficient}
+                            onBlur={(event) => handleUpdateSubject(s.id, "coefficient", Number(event.currentTarget.value), s.coefficient)}
+                            className="w-11 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-1 py-0.5 text-center text-xs font-black text-[var(--ink)]"
+                          />
+                        </label>
+                        <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
+                          <span>هدف:</span>
+                          <input
+                            aria-label={`هدف ${s.name}`}
+                            type="number"
+                            min="0"
+                            max="100"
+                            defaultValue={s.targetPercentage}
+                            onBlur={(event) => handleUpdateSubject(s.id, "targetPercentage", Number(event.currentTarget.value), s.targetPercentage)}
+                            className="w-12 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-1 py-0.5 text-center text-xs font-black text-[var(--ink)]"
+                          />
+                          <span>٪</span>
+                        </label>
+                      </div>
+
+                      {/* Shared score group — collapsed by default; most subjects are standalone. */}
+                      {s.scoreGroup || groupEditorFor === s.id ? (
+                        <label className="flex items-center gap-2 text-[10px] font-bold text-[var(--muted)]">
+                          <span className="shrink-0">گروه مشترک با:</span>
+                          <input
+                            aria-label={`گروه مشترک ${s.name}`}
+                            type="text"
+                            defaultValue={s.scoreGroup ?? ""}
+                            onBlur={(event) => handleUpdateScoreGroup(s.id, event.currentTarget.value.trim(), s.scoreGroup ?? "")}
+                            placeholder="مثلاً: اقتصاد"
+                            className="min-w-0 flex-1 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-2 py-1 text-xs font-bold text-[var(--ink)]"
+                          />
+                        </label>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setGroupEditorFor(s.id)}
+                          className="flex items-center gap-1 text-[10px] font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors"
+                        >
+                          <Link2 size={11} />
+                          <span>گروه مشترک با درس دیگر (اختیاری)</span>
+                        </button>
+                      )}
 
                       {/* Positive and Negative values per test */}
                       <div className="flex items-center justify-between text-[10px] font-bold text-[var(--muted)] pt-1 border-t border-[var(--line-strong)]/15">
@@ -680,56 +740,76 @@ export default function SettingsPage() {
                 })}
               </div>
 
-              {/* Inline Add Subject */}
+              {/* Inline Add Subject — stacked grid so it never overflows on phones */}
               <form onSubmit={handleAddSubject} className="space-y-2 pt-3 border-t-2 border-[var(--line-strong)]/20">
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-[1fr_auto_auto_auto_auto] gap-2">
                   <input
                     type="text"
                     value={newSubjName}
                     onChange={(e) => setNewSubjName(e.target.value)}
                     placeholder="نام درس جدید..."
-                    className="flex-1 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2 text-xs font-bold text-[var(--ink)]"
+                    className="col-span-2 sm:col-span-1 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2 text-xs font-bold text-[var(--ink)]"
                   />
-                  <input
-                    type="number"
-                    min="1"
-                    max="200"
-                    value={newSubjQuestions}
-                    onChange={(e) => setNewSubjQuestions(Math.max(1, Number(e.target.value)))}
-                    className="w-16 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
-                    title="تعداد سؤالات در کنکور"
-                    placeholder="سؤال"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={newSubjCoefficient}
-                    onChange={(e) => setNewSubjCoefficient(Math.max(0, Number(e.target.value)))}
-                    className="w-14 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
-                    title="ضریب یا ضریب مشترک گروه"
-                    placeholder="ضریب"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={newSubjTarget}
-                    onChange={(e) => setNewSubjTarget(Number(e.target.value))}
-                    className="w-16 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
-                    title="درصد هدف"
-                  />
-                  <button type="submit" className="btn-neo-orange py-2 px-3 text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
+                  <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
+                    <span>سؤال:</span>
+                    <input
+                      aria-label="تعداد سؤال درس جدید"
+                      type="number"
+                      min="1"
+                      max="200"
+                      value={newSubjQuestions}
+                      onChange={(e) => setNewSubjQuestions(Math.max(1, Number(e.target.value)))}
+                      className="w-14 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
+                    />
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
+                    <span>ضریب:</span>
+                    <input
+                      aria-label="ضریب درس جدید"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={newSubjCoefficient}
+                      onChange={(e) => setNewSubjCoefficient(Math.max(0, Number(e.target.value)))}
+                      className="w-12 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
+                    />
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] font-bold text-[var(--muted)]">
+                    <span>هدف:</span>
+                    <input
+                      aria-label="هدف درصدی درس جدید"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={newSubjTarget}
+                      onChange={(e) => setNewSubjTarget(Math.max(0, Math.min(100, Number(e.target.value))))}
+                      className="w-14 bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
+                    />
+                    <span>٪</span>
+                  </label>
+                  <button type="submit" title="افزودن درس" className="btn-neo-orange py-2 px-3 text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
                     <Plus size={16} />
                   </button>
                 </div>
-                <input
-                  type="text"
-                  value={newSubjScoreGroup}
-                  onChange={(e) => setNewSubjScoreGroup(e.target.value)}
-                  placeholder="گروه محاسباتی اختیاری؛ مثلاً اقتصاد برای خرد و کلان"
-                  className="w-full bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2 text-xs font-bold text-[var(--ink)]"
-                />
+
+                {addGroupEnabled ? (
+                  <input
+                    type="text"
+                    value={newSubjScoreGroup}
+                    onChange={(e) => setNewSubjScoreGroup(e.target.value)}
+                    placeholder="نام گروه مشترک؛ مثلاً: اقتصاد"
+                    className="w-full bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2 text-xs font-bold text-[var(--ink)]"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAddGroupEnabled(true)}
+                    className="flex items-center gap-1 text-[10px] font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors"
+                  >
+                    <Link2 size={11} />
+                    <span>این درس با درس دیگری یک گروه است؟ (اختیاری)</span>
+                  </button>
+                )}
               </form>
               {subjectError && <p className="text-[10px] text-red-600 font-bold">{subjectError}</p>}
             </div>
