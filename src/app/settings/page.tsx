@@ -24,12 +24,16 @@ import {
   AlertTriangle,
   Upload,
   RefreshCw,
+  Layers,
+  Unlink,
+  GripVertical,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDatabase } from "@/providers/database-provider";
 import { useTheme, ACCENT_OPTIONS } from "@/providers/theme-provider";
 import { cn } from "@/lib/utils";
 import { canonicalizeSubject, isSameSubject } from "@/features/questions/domain/subject-registry";
+import { partitionSubjectsForDisplay, getSanjeshMetrics, normalizeScoreGroup } from "@/features/profiles/domain/score-groups";
 import { CloudSyncCard } from "@/features/account/components/cloud-sync-card";
 import { createBackup, restoreBackup } from "@/features/backup/domain/backup-service";
 import { MediaService } from "@/features/media/domain/media-service";
@@ -83,6 +87,9 @@ export default function SettingsPage() {
   // the vast majority of users never use shared score groups.
   const [groupEditorFor, setGroupEditorFor] = useState<string | null>(null);
   const [addGroupEnabled, setAddGroupEnabled] = useState(false);
+  const [draggedSubjectId, setDraggedSubjectId] = useState<string | null>(null);
+  const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null);
+  const [mergePickerFor, setMergePickerFor] = useState<string | null>(null);
 
   function showStatus(message: string) {
     setSaveStatus(message);
@@ -279,6 +286,44 @@ export default function SettingsPage() {
       showStatus(value ? "گروه ذخیره شد." : "گروه حذف شد.");
     } catch (err) {
       failAction(err, "خطا در ذخیره گروه");
+    }
+  }
+
+  async function handleMergeSubjects(sourceId: string, targetId: string) {
+    if (!activeProfile || sourceId === targetId) return;
+    const source = activeProfile.subjects.find((s) => s.id === sourceId);
+    const target = activeProfile.subjects.find((s) => s.id === targetId);
+    if (!source || !target) return;
+
+    // Use target's existing score group if any, or source's, or compose a combined name
+    const groupName =
+      normalizeScoreGroup(target.scoreGroup) ||
+      normalizeScoreGroup(source.scoreGroup) ||
+      `${target.name} و ${source.name}`;
+
+    try {
+      await database.db.updateProfileSubject(source.id, { scoreGroup: groupName });
+      if (normalizeScoreGroup(target.scoreGroup) !== groupName) {
+        await database.db.updateProfileSubject(target.id, { scoreGroup: groupName });
+      }
+      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      showStatus(`درس‌های «${source.name}» و «${target.name}» در گروه «${groupName}» ادغام شدند.`);
+    } catch (err) {
+      failAction(err, "خطا در ادغام دروس");
+    } finally {
+      setDraggedSubjectId(null);
+      setDragOverTargetId(null);
+      setMergePickerFor(null);
+    }
+  }
+
+  async function handleUngroupSubject(subjectId: string, subjectName: string) {
+    try {
+      await database.db.updateProfileSubject(subjectId, { scoreGroup: null });
+      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      showStatus(`درس «${subjectName}» از گروه خارج شد.`);
+    } catch (err) {
+      failAction(err, "خطا در خروج از گروه");
     }
   }
 
@@ -629,19 +674,237 @@ export default function SettingsPage() {
                 <span className="text-[11px] font-bold text-[var(--muted)]">ضریب و هدف</span>
               </div>
 
-              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                {activeProfile.subjects.map((s) => {
-                  const qCount = s.questionCount ?? 25;
-                  const correctVal = (100 / qCount).toFixed(2);
-                  const wrongVal = (100 / (3 * qCount)).toFixed(2);
+              {/* Subject List with Visual Grouping & Drag-and-Drop */}
+              <div className="space-y-3.5 max-h-[440px] overflow-y-auto pr-1">
+                {partitionSubjectsForDisplay(activeProfile.subjects).map((entry) => {
+                  if (entry.type === "group") {
+                    const isDragTarget = dragOverTargetId && entry.subjects.some((s) => s.id === dragOverTargetId);
+                    return (
+                      <div
+                        key={entry.groupName}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          if (draggedSubjectId && !entry.subjects.some((s) => s.id === draggedSubjectId)) {
+                            setDragOverTargetId(entry.subjects[0].id);
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (entry.subjects.some((s) => s.id === dragOverTargetId)) {
+                            setDragOverTargetId(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (draggedSubjectId && !entry.subjects.some((s) => s.id === draggedSubjectId)) {
+                            handleMergeSubjects(draggedSubjectId, entry.subjects[0].id);
+                          }
+                        }}
+                        className={cn(
+                          "p-4 rounded-3xl border-2 space-y-3 transition-all",
+                          isDragTarget
+                            ? "border-sky-500 bg-sky-500/10 shadow-[4px_4px_0px_#0284c7] scale-[1.01]"
+                            : "border-sky-600/40 dark:border-sky-500/30 bg-[var(--surface)] shadow-[3px_3px_0px_var(--neo-shadow)]"
+                        )}
+                      >
+                        {/* Group Header Banner */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-[var(--line-strong)]/20">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-8 h-8 rounded-xl bg-sky-500/20 border-2 border-sky-600 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0 shadow-sm">
+                              <Layers size={16} />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-black text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded-md bg-sky-100 dark:bg-sky-950/60 border border-sky-300 dark:border-sky-800">
+                                  گروه کنکوری
+                                </span>
+                                <strong className="text-xs sm:text-sm font-black text-[var(--ink)]">
+                                  {entry.groupName}
+                                </strong>
+                              </div>
+                              <div className="text-[11px] font-bold text-[var(--muted)] flex items-center gap-2 mt-0.5">
+                                <span>مجموع دفترچه: {entry.totalQuestions} سؤال</span>
+                                <span>•</span>
+                                <span className="text-[var(--ink)] font-black">ضریب مشترک: ×{entry.coefficient}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Shared Group Coefficient Input */}
+                          <div className="flex items-center gap-1.5 bg-[var(--surface-2)] p-1.5 rounded-xl border border-[var(--line-strong)]/20">
+                            <span className="text-[10px] font-bold text-[var(--muted)]">ضریب گروه:</span>
+                            <input
+                              aria-label={`ضریب گروه ${entry.groupName}`}
+                              type="number"
+                              min="0"
+                              max="20"
+                              defaultValue={entry.coefficient}
+                              onBlur={(event) => {
+                                const val = Number(event.currentTarget.value);
+                                if (Number.isFinite(val) && val !== entry.coefficient) {
+                                  handleUpdateSubject(entry.subjects[0].id, "coefficient", val, entry.coefficient);
+                                }
+                              }}
+                              className="w-10 bg-[var(--surface)] border border-[var(--line-strong)]/40 rounded-lg py-0.5 text-xs font-black text-center text-[var(--ink)] focus:outline-none focus:border-sky-500"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Sanjesh Official Formula Breakdown for this Group */}
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-bold bg-[var(--surface-2)]/70 p-2 rounded-xl border border-[var(--line-strong)]/15">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[var(--brand-green)] flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-300/40">
+                              <span>هر تست دفترچه کنکور:</span>
+                              <span dir="ltr" className="font-black">+{entry.correctValFormatted}٪</span>
+                            </span>
+                            <span className="text-red-500 flex items-center gap-1 bg-red-50 dark:bg-red-950/50 px-2 py-0.5 rounded-md border border-red-300/40">
+                              <span>نمره منفی:</span>
+                              <span dir="ltr" className="font-black">-{entry.wrongValFormatted}٪</span>
+                            </span>
+                          </div>
+                          <span className="text-sky-700 dark:text-sky-300 font-black px-2 py-0.5 rounded-md bg-sky-50 dark:bg-sky-950/50 border border-sky-300/40">
+                            هدف وزنی گروه: {entry.combinedTarget}٪
+                          </span>
+                        </div>
+
+                        {/* Sub-subjects inside the group */}
+                        <div className="space-y-2 pt-1">
+                          <span className="text-[10px] font-black text-[var(--muted)] block">
+                            زیردرس‌های این گروه (مطالعه و آزمون مجزا):
+                          </span>
+                          {entry.subjects.map((sub) => {
+                            const sharePct = entry.totalQuestions > 0 ? Math.round(((sub.questionCount ?? 25) / entry.totalQuestions) * 100) : 0;
+                            return (
+                              <div
+                                key={sub.id}
+                                className="p-3 rounded-2xl bg-[var(--surface-2)] border border-[var(--line-strong)]/30 space-y-2"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="w-2 h-2 rounded-full bg-sky-500 shrink-0" />
+                                    <strong className="text-xs font-black text-[var(--ink)] truncate">
+                                      {sub.name}
+                                    </strong>
+                                    <span className="text-[10px] font-bold text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 shrink-0">
+                                      سهم در دفترچه: {sharePct}٪
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUngroupSubject(sub.id, sub.name)}
+                                      className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-[var(--surface)] text-[var(--muted)] hover:text-amber-600 hover:border-amber-400 border border-[var(--line-strong)]/30 transition-all shadow-sm"
+                                      title="خروج از گروه و تبدیل به درس مستقل"
+                                    >
+                                      <Unlink size={11} className="text-amber-500" />
+                                      <span>انفصال از گروه</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveSubject(sub.id, sub.name)}
+                                      className="w-6 h-6 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-300 text-red-600 flex items-center justify-center hover:bg-red-100 transition-colors shrink-0"
+                                      title="حذف درس"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="flex items-center justify-between bg-[var(--surface)] px-2.5 py-1.5 rounded-xl border border-[var(--line-strong)]/20">
+                                    <span className="text-[10px] font-bold text-[var(--muted)]">سؤالات این بخش:</span>
+                                    <input
+                                      aria-label={`تعداد سؤالات ${sub.name}`}
+                                      type="number"
+                                      min="1"
+                                      max="200"
+                                      defaultValue={sub.questionCount ?? 25}
+                                      onBlur={(event) => handleUpdateSubject(sub.id, "questionCount", Number(event.currentTarget.value), sub.questionCount ?? 25)}
+                                      className="w-12 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
+                                    />
+                                  </div>
+                                  <div className="flex items-center justify-between bg-[var(--surface)] px-2.5 py-1.5 rounded-xl border border-[var(--line-strong)]/20">
+                                    <span className="text-[10px] font-bold text-[var(--muted)]">هدف درصدی:</span>
+                                    <div className="flex items-center gap-0.5">
+                                      <input
+                                        aria-label={`هدف ${sub.name}`}
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        defaultValue={sub.targetPercentage}
+                                        onBlur={(event) => handleUpdateSubject(sub.id, "targetPercentage", Number(event.currentTarget.value), sub.targetPercentage)}
+                                        className="w-12 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
+                                      />
+                                      <span className="text-[10px] font-black text-[var(--muted)]">٪</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Standalone Subject Entry
+                  const s = entry.subject;
+                  const isDraggingThis = draggedSubjectId === s.id;
+                  const isDragTarget = dragOverTargetId === s.id;
+                  const otherSubjects = activeProfile.subjects.filter((other) => other.id !== s.id);
+
                   return (
                     <div
                       key={s.id}
-                      className="p-3.5 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-3 shadow-[2px_2px_0px_var(--neo-shadow)]"
+                      draggable={true}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", s.id);
+                        setDraggedSubjectId(s.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedSubjectId(null);
+                        setDragOverTargetId(null);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (draggedSubjectId && draggedSubjectId !== s.id) {
+                          setDragOverTargetId(s.id);
+                        }
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverTargetId === s.id) {
+                          setDragOverTargetId(null);
+                        }
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedSubjectId && draggedSubjectId !== s.id) {
+                          handleMergeSubjects(draggedSubjectId, s.id);
+                        }
+                      }}
+                      className={cn(
+                        "p-3.5 rounded-2xl border-2 space-y-3 transition-all",
+                        isDraggingThis && "opacity-40 border-dashed border-sky-400",
+                        isDragTarget
+                          ? "border-sky-500 bg-sky-500/10 shadow-[4px_4px_0px_#0284c7] scale-[1.01]"
+                          : "border-[var(--line-strong)] bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--neo-shadow)]"
+                      )}
                     >
-                      {/* Top Row: Full Subject Name & Delete Button */}
+                      {/* Drop prompt overlay when dragging over */}
+                      {isDragTarget && (
+                        <div className="py-1 px-2.5 rounded-xl bg-sky-500 text-white text-center text-[11px] font-black animate-pulse">
+                          رها کنید تا با «{s.name}» در یک گروه کنکوری ادغام شوند
+                        </div>
+                      )}
+
+                      {/* Top Row: Full Subject Name & Action Controls */}
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="cursor-grab active:cursor-grabbing text-[var(--muted)] hover:text-[var(--ink)]"
+                            title="برای ادغام، این درس را بکشید و روی درس دیگر رها کنید"
+                          >
+                            <GripVertical size={16} />
+                          </span>
                           <span className="w-2.5 h-2.5 rounded-full bg-[var(--testino-orange)] shrink-0" />
                           <span className="font-black text-sm text-[var(--ink)] truncate">
                             {s.name}
@@ -657,7 +920,7 @@ export default function SettingsPage() {
                         </button>
                       </div>
 
-                      {/* 3-Column Metrics Grid: Question Count, Coefficient, Target Percentage */}
+                      {/* 3-Column Metrics Grid */}
                       <div className="grid grid-cols-3 gap-2 bg-[var(--surface)] p-2 rounded-xl border border-[var(--line-strong)]/20">
                         {/* Question Count */}
                         <div className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-[var(--surface-2)] border border-[var(--line-strong)]/15">
@@ -667,8 +930,8 @@ export default function SettingsPage() {
                             type="number"
                             min="1"
                             max="200"
-                            defaultValue={qCount}
-                            onBlur={(event) => handleUpdateSubject(s.id, "questionCount", Number(event.currentTarget.value), qCount)}
+                            defaultValue={entry.totalQuestions}
+                            onBlur={(event) => handleUpdateSubject(s.id, "questionCount", Number(event.currentTarget.value), entry.totalQuestions)}
                             className="w-full max-w-[64px] bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-1.5 py-1 text-center text-xs font-black text-[var(--ink)] focus:outline-none focus:border-sky-500 shadow-sm"
                             title="تعداد سؤالات این درس در آزمون کنکور"
                           />
@@ -710,11 +973,11 @@ export default function SettingsPage() {
                       <div className="flex items-center justify-between gap-1 text-[10px] font-bold pt-0.5 px-0.5">
                         <span className="text-[var(--brand-green)] flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-300/40">
                           <span>صحیح:</span>
-                          <span dir="ltr" className="font-black">+{correctVal}٪</span>
+                          <span dir="ltr" className="font-black">+{entry.correctValFormatted}٪</span>
                         </span>
                         <span className="text-red-500 flex items-center gap-1 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 rounded-md border border-red-300/40">
                           <span>غلط:</span>
-                          <span dir="ltr" className="font-black">-{wrongVal}٪</span>
+                          <span dir="ltr" className="font-black">-{entry.wrongValFormatted}٪</span>
                         </span>
                         <span className="text-[var(--ink)] flex items-center gap-1 bg-[var(--surface)] px-2 py-0.5 rounded-md border border-[var(--line-strong)]/20">
                           <span>ضریب:</span>
@@ -722,29 +985,48 @@ export default function SettingsPage() {
                         </span>
                       </div>
 
-                      {/* Shared Score Group Link */}
+                      {/* Quick Merge Button & Dropdown */}
                       <div className="pt-1 border-t border-[var(--line-strong)]/15">
-                        {s.scoreGroup || groupEditorFor === s.id ? (
-                          <div className="flex items-center gap-2 text-xs font-bold text-[var(--muted)] bg-[var(--surface)] p-1.5 rounded-xl border border-[var(--line-strong)]/20">
-                            <span className="shrink-0 text-[11px]">گروه مشترک با:</span>
-                            <input
-                              aria-label={`گروه مشترک ${s.name}`}
-                              type="text"
-                              defaultValue={s.scoreGroup ?? ""}
-                              onBlur={(event) => handleUpdateScoreGroup(s.id, event.currentTarget.value.trim(), s.scoreGroup ?? "")}
-                              placeholder="مثلاً: اقتصاد"
-                              className="min-w-0 flex-1 bg-[var(--surface-2)] border border-[var(--line-strong)]/40 rounded-lg px-2 py-1 text-xs font-bold text-[var(--ink)] focus:outline-none focus:border-sky-500"
-                            />
+                        {mergePickerFor === s.id ? (
+                          <div className="p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/30 space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-black text-[var(--ink)]">
+                                انتخاب درس برای ادغام با «{s.name}»:
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setMergePickerFor(null)}
+                                className="text-[10px] font-bold text-[var(--muted)] hover:text-[var(--ink)]"
+                              >
+                                انصراف
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                              {otherSubjects.map((other) => (
+                                <button
+                                  key={other.id}
+                                  type="button"
+                                  onClick={() => handleMergeSubjects(s.id, other.id)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-[var(--surface-2)] hover:bg-sky-500 hover:text-white border border-[var(--line-strong)]/30 transition-colors"
+                                >
+                                  <Link2 size={11} />
+                                  <span>{other.name}</span>
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => setGroupEditorFor(s.id)}
-                            className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors py-0.5"
-                          >
-                            <Link2 size={12} className="text-sky-500 shrink-0" />
-                            <span className="truncate">تعیین گروه مشترک تراز با درس دیگر (اختیاری)</span>
-                          </button>
+                          <div className="flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setMergePickerFor(s.id)}
+                              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[var(--muted)] hover:text-sky-600 dark:hover:text-sky-400 transition-colors py-0.5"
+                            >
+                              <Link2 size={12} className="text-sky-500 shrink-0" />
+                              <span>ادغام با درس دیگر (تشکیل گروه کنکوری)...</span>
+                            </button>
+                            <span className="text-[10px] text-[var(--muted)]">یا بکشید روی درس دیگر</span>
+                          </div>
                         )}
                       </div>
                     </div>

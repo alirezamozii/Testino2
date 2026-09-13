@@ -22,6 +22,7 @@ import { SignedPercent } from "@/components/ui/signed-number";
 import { useDatabase } from "@/providers/database-provider";
 import { cn } from "@/lib/utils";
 import { canonicalizeSubject } from "@/features/questions/domain/subject-registry";
+import { normalizeScoreGroup, getSanjeshMetrics } from "@/features/profiles/domain/score-groups";
 
 export function Dashboard() {
   const router = useRouter();
@@ -476,10 +477,18 @@ export function Dashboard() {
                   </Link>
                 </div>
               ) : (
-                profile.subjects.slice(0, 6).map((subject) => {
+                profile.subjects.slice(0, 8).map((subject) => {
                   const qCount = subject.questionCount ?? 25;
-                  const correctVal = (100 / qCount).toFixed(1);
-                  const wrongVal = (100 / (3 * qCount)).toFixed(1);
+                  const normGroup = normalizeScoreGroup(subject.scoreGroup);
+                  const groupMembers = normGroup
+                    ? profile.subjects.filter((s) => normalizeScoreGroup(s.scoreGroup)?.toLowerCase() === normGroup.toLowerCase())
+                    : [subject];
+                  const isGrouped = groupMembers.length > 1;
+                  const groupTotalQuestions = groupMembers.reduce((sum, s) => sum + Math.max(1, s.questionCount ?? 25), 0);
+                  const metrics = getSanjeshMetrics(groupTotalQuestions);
+                  const correctVal = metrics.correctVal.toFixed(1);
+                  const wrongVal = metrics.wrongVal.toFixed(1);
+
                   const stats = statsBySubject.get(canonicalizeSubject(subject.name));
                   const accuracy = stats?.accuracyPct ?? 0;
                   const hasSubjectAttempts = Boolean(stats && stats.total > 0);
@@ -490,15 +499,24 @@ export function Dashboard() {
                           <span className="font-black text-[var(--ink)] truncate max-w-[150px] sm:max-w-none">
                             {subject.name}
                           </span>
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[var(--surface)] text-[var(--muted)] border border-[var(--line)] shrink-0">
-                            {qCount} سؤال کنکور
-                          </span>
+                          {isGrouped ? (
+                            <span
+                              className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-800 shrink-0"
+                              title={`بخشی از گروه «${normGroup}» (مجموع ${groupTotalQuestions} سؤال در دفترچه کنکور)`}
+                            >
+                              {qCount} از {groupTotalQuestions} سؤال دفترچه
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[var(--surface)] text-[var(--muted)] border border-[var(--line)] shrink-0">
+                              {qCount} سؤال کنکور
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-[10px] font-bold text-[var(--brand-green)]" title="ارزش هر تست درست">
+                          <span className="text-[10px] font-bold text-[var(--brand-green)]" title="ارزش هر تست درست در آزمون دفترچه کنکور">
                             <SignedPercent value={parseFloat(correctVal)} showPlus={true} />
                           </span>
-                          <span className="text-[10px] font-bold text-red-500" title="نمره منفی هر پاسخ غلط">
+                          <span className="text-[10px] font-bold text-red-500" title="نمره منفی هر پاسخ غلط در آزمون دفترچه کنکور">
                             <SignedPercent value={-parseFloat(wrongVal)} showPlus={false} />
                           </span>
                           <span className="font-black text-[var(--ink)]">
