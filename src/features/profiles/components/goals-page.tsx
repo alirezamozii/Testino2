@@ -69,14 +69,26 @@ export function GoalsPage() {
   const [newDays, setNewDays] = useState(14);
   const [newSubject, setNewSubject] = useState("");
 
-  // Initial custom goals in state, augmented with actual profile subjects
+  // Custom goals (user-created) + dismissed auto goals — restored lazily.
+  // Safe for SSR: this page renders the loading state on the server, so the
+  // localStorage read only ever runs on the client.
   const [customGoals, setCustomGoals] = useState<StudyGoal[]>(() => {
     if (typeof window === "undefined") return [];
     try {
       const saved = localStorage.getItem("testino_custom_goals");
-      if (saved) return JSON.parse(saved);
+      if (saved) return JSON.parse(saved) as StudyGoal[];
     } catch {
-      // ignore
+      // ignore corrupt storage
+    }
+    return [];
+  });
+  const [dismissedAutoIds, setDismissedAutoIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem("testino_dismissed_auto_goals");
+      if (saved) return JSON.parse(saved) as string[];
+    } catch {
+      // ignore corrupt storage
     }
     return [];
   });
@@ -89,43 +101,65 @@ export function GoalsPage() {
     }
   }, [customGoals]);
 
-  // Merge profile subjects as dynamic goals if they have target percentages
+  useEffect(() => {
+    try {
+      localStorage.setItem("testino_dismissed_auto_goals", JSON.stringify(dismissedAutoIds));
+    } catch {
+      // ignore
+    }
+  }, [dismissedAutoIds]);
+
+  function handleDismissAutoGoal(goalId: string) {
+    setDismissedAutoIds((prev) => (prev.includes(goalId) ? prev : [...prev, goalId]));
+    setSelectedGoalId((cur) => (cur === goalId ? null : cur));
+  }
+
+  function handleRestoreAutoGoals() {
+    setDismissedAutoIds([]);
+  }
+
+  // Auto subject goals — created ONLY for subjects the student has actually practiced.
+  // Subjects without any recorded attempts would otherwise get fabricated study plans
+  // (the "study group for every course" problem). They can be restored manually below.
   const allGoals = useMemo(() => {
     const goals = [...customGoals];
     if (profile?.subjects) {
       const subjectAnalyticsList = analyticsQuery.data?.bySubject ?? [];
-      profile.subjects.forEach((sub, idx) => {
-        if (!goals.some((g) => g.id === `sub-goal-${sub.id}`)) {
-          const stats = subjectAnalyticsList.find((item) => isSameSubject(item.subject, sub.name));
-          const currentPct = stats?.percentage ? Math.round(stats.percentage) : 0;
-          const qCount = sub.questionCount ?? 25;
-          const targetPct = sub.targetPercentage || 70;
-          const neededCorrect = Math.min(qCount, Math.ceil((targetPct / 100) * qCount));
+      profile.subjects.forEach((sub) => {
+        const autoId = `sub-goal-${sub.id}`;
+        if (dismissedAutoIds.includes(autoId)) return;
+        if (goals.some((g) => g.id === autoId)) return;
+        const stats = subjectAnalyticsList.find((item) => isSameSubject(item.subject, sub.name));
+        // Gate: only practiced subjects get an auto goal
+        if (!stats || !stats.total || stats.total <= 0) return;
+        const currentPct = Math.max(0, stats.percentage ? Math.round(stats.percentage) : 0);
+        const qCount = sub.questionCount ?? 25;
+        const targetPct = sub.targetPercentage || 70;
+        const neededCorrect = Math.min(qCount, Math.ceil((targetPct / 100) * qCount));
 
-          goals.push({
-            id: `sub-goal-${sub.id}`,
-            subjectId: sub.id,
-            title: `هدف درس ${sub.name}`,
-            subjectName: sub.name,
-            questionCount: qCount,
-            coefficient: sub.coefficient,
-            category: idx % 2 === 0 ? "medium" : "long",
-            currentValue: currentPct,
-            targetValue: targetPct,
-            unit: "درصد",
-            deadlineDays: 60,
-            completed: currentPct >= targetPct,
-            milestones: [
-              { title: "مطالعه مفاهیم و حل ۵۰ تست مقدماتی", target: "۵۰ تست", status: currentPct >= 30 ? "done" : "current" },
-              { title: `تسلط نسبی (${Math.ceil(neededCorrect * 0.7)} تست درست از ${qCount} تست)`, target: `${Math.round(targetPct * 0.7)}٪`, status: currentPct >= Math.round(targetPct * 0.7) ? "done" : "upcoming" },
-              { title: `تحقق هدف: ${neededCorrect} تست درست از ${qCount} سؤال دفترچه`, target: `${targetPct}٪`, status: currentPct >= targetPct ? "done" : "upcoming" },
-            ],
-          });
-        }
+        goals.push({
+          id: autoId,
+          subjectId: sub.id,
+          title: `هدف درس ${sub.name}`,
+          subjectName: sub.name,
+          questionCount: qCount,
+          coefficient: sub.coefficient,
+          category: "long",
+          currentValue: currentPct,
+          targetValue: targetPct,
+          unit: "درصد",
+          deadlineDays: 120,
+          completed: currentPct >= targetPct,
+          milestones: [
+            { title: "شروع تمرین منظم در این درس", target: "اولین جلسه‌ها", status: "done" },
+            { title: `تسلط نسبی (${Math.ceil(neededCorrect * 0.7)} تست درست از ${qCount} تست)`, target: `${Math.round(targetPct * 0.7)}٪`, status: currentPct >= Math.round(targetPct * 0.7) ? "done" : "current" },
+            { title: `تحقق هدف: ${neededCorrect} تست درست از ${qCount} سؤال دفترچه`, target: `${targetPct}٪`, status: currentPct >= targetPct ? "done" : "upcoming" },
+          ],
+        });
       });
     }
     return goals;
-  }, [customGoals, profile, analyticsQuery.data]);
+  }, [customGoals, profile, analyticsQuery.data, dismissedAutoIds]);
 
   const filteredGoals = useMemo(() => {
     if (activeTab === "all") return allGoals;
@@ -182,6 +216,8 @@ export function GoalsPage() {
   }
 
   function handleDeleteGoal(goalId: string) {
+    // Destructive action — never delete without an explicit confirmation.
+    if (!window.confirm("این هدف حذف شود؟ این عمل قابل بازگشت نیست.")) return;
     setCustomGoals((prev) => prev.filter((g) => g.id !== goalId));
     if (selectedGoalId === goalId) {
       setSelectedGoalId(null);
@@ -196,15 +232,15 @@ export function GoalsPage() {
     <div className="page goals-page space-y-6 pb-12">
       {/* Top Header & Mascot Banner */}
       <MascotBanner
-        badge="اهداف من (Goals)"
-        title="هدف‌های بزرگ، با قدم‌های کوچک! 🌱"
+        badge="اهداف من"
+        title="هدف‌های بزرگ، با قدم‌های کوچک!"
         description="هدف بذار، مسیرت رو ببین و هر روز یک گام به رتبهٔ دلخواهت نزدیک‌تر شو. تستینو قدم به قدم کنار توست."
         mood="happy"
         action={
           <button
             type="button"
             onClick={() => setShowAddModal(true)}
-            className="btn-primary-orange py-2.5 px-4 text-xs font-black flex items-center gap-1.5 shadow-md"
+            className="btn-neo-orange py-2.5 px-4 text-xs font-black flex items-center gap-1.5 shadow-[2px_2px_0px_var(--neo-shadow)]"
           >
             <Plus size={16} />
             <span>تعریف هدف جدید</span>
@@ -237,9 +273,25 @@ export function GoalsPage() {
         </div>
 
         <span className="text-xs font-bold text-[var(--muted)] whitespace-nowrap">
-          {new Intl.NumberFormat("fa-IR").format(filteredGoals.length)} هدف فعال
+          {new Intl.NumberFormat("fa-IR").format(filteredGoals.filter((g) => !g.completed).length)} هدف فعال
         </span>
       </div>
+
+      {/* Restore hint for dismissed auto goals */}
+      {dismissedAutoIds.length > 0 && (
+        <div className="flex items-center justify-between gap-2 px-4 py-2.5 rounded-2xl bg-[var(--surface-2)] border border-dashed border-[var(--line)]">
+          <span className="text-[11px] font-bold text-[var(--muted)]">
+            {new Intl.NumberFormat("fa-IR").format(dismissedAutoIds.length)} هدف درسی پنهان شده است.
+          </span>
+          <button
+            type="button"
+            onClick={handleRestoreAutoGoals}
+            className="text-[11px] font-black text-[var(--brand-orange)] hover:underline shrink-0"
+          >
+            نمایش همه
+          </button>
+        </div>
+      )}
 
       {/* Main Content Layout: Grid of Goals (Left) + Detail Card / Timeline (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -256,7 +308,7 @@ export function GoalsPage() {
                   <button
                     type="button"
                     onClick={() => setShowAddModal(true)}
-                    className="btn-primary-orange py-2 px-4 text-xs font-black"
+                    className="btn-neo-orange py-2 px-4 text-xs font-black"
                   >
                     + افزودن هدف جدید
                   </button>
@@ -265,8 +317,9 @@ export function GoalsPage() {
             </div>
           ) : (
             filteredGoals.map((goal) => {
-              const pct = Math.min(100, Math.round((goal.currentValue / goal.targetValue) * 100));
+              const pct = Math.max(0, Math.min(100, Math.round((goal.currentValue / (goal.targetValue || 1)) * 100)));
               const isSelected = selectedGoal?.id === goal.id;
+              const isAutoGoal = goal.id.startsWith("sub-goal-");
 
               return (
                 <div
@@ -321,18 +374,34 @@ export function GoalsPage() {
                       </div>
                     </div>
 
-                    <span
-                      className={cn(
-                        "testino-chip text-[11px] font-black shrink-0",
-                        pct >= 100
-                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
-                          : pct >= 50
-                          ? "bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300"
-                          : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span
+                        className={cn(
+                          "testino-chip text-[11px] font-black",
+                          pct >= 100
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                            : pct >= 50
+                            ? "bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300"
+                            : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                        )}
+                      >
+                        {new Intl.NumberFormat("fa-IR").format(pct)}٪
+                      </span>
+                      {isAutoGoal && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDismissAutoGoal(goal.id);
+                          }}
+                          className="p-1.5 rounded-lg text-[var(--muted)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors"
+                          title="پنهان کردن این هدف خودکار"
+                          aria-label="پنهان کردن این هدف خودکار"
+                        >
+                          <X size={14} />
+                        </button>
                       )}
-                    >
-                      {new Intl.NumberFormat("fa-IR").format(pct)}٪
-                    </span>
+                    </div>
                   </div>
 
                   {/* Progress bar */}
@@ -358,7 +427,7 @@ export function GoalsPage() {
                           ? "میان‌مدت"
                           : "بلندمدت"}
                       </span>
-                      <span>{new Intl.NumberFormat("fa-IR").format(goal.deadlineDays)} روز مانده</span>
+                      <span>افق زمانی: {new Intl.NumberFormat("fa-IR").format(goal.deadlineDays)} روز</span>
                     </div>
                   </div>
                 </div>
@@ -392,7 +461,7 @@ export function GoalsPage() {
                 <div className="text-center shrink-0 bg-[var(--surface-2)] p-3 rounded-2xl border border-[var(--line)]">
                   <span className="block text-xl sm:text-2xl font-black text-[var(--brand-orange)]">
                     {new Intl.NumberFormat("fa-IR").format(
-                      Math.min(100, Math.round((selectedGoal.currentValue / selectedGoal.targetValue) * 100))
+                      Math.max(0, Math.min(100, Math.round((selectedGoal.currentValue / (selectedGoal.targetValue || 1)) * 100)))
                     )}
                     ٪
                   </span>
@@ -401,7 +470,7 @@ export function GoalsPage() {
               </div>
 
               {/* 3 Quick Stat Cards */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
                 <div className="p-3 bg-[var(--surface-2)] rounded-2xl border border-[var(--line)] text-center">
                   <span className="block text-xs text-[var(--muted)] font-bold">انجام شده</span>
                   <strong className="block text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400 mt-1">
@@ -421,7 +490,7 @@ export function GoalsPage() {
                 </div>
 
                 <div className="p-3 bg-[var(--surface-2)] rounded-2xl border border-[var(--line)] text-center">
-                  <span className="block text-xs text-[var(--muted)] font-bold">زمان باقی‌مانده</span>
+                  <span className="block text-xs text-[var(--muted)] font-bold">افق زمانی</span>
                   <strong className="block text-sm sm:text-base font-black text-[var(--ink)] mt-1">
                     {new Intl.NumberFormat("fa-IR").format(selectedGoal.deadlineDays)}
                   </strong>
@@ -432,13 +501,13 @@ export function GoalsPage() {
               {/* Konkur Subject Specifications & Question Count Breakdown */}
               {selectedGoal.questionCount && (
                 <div className="p-4 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line)] space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5">
-                      <Target size={15} className="text-[var(--brand-orange)]" />
-                      <span>مشخصات درس {selectedGoal.subjectName} در کنکور</span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5 min-w-0">
+                      <Target size={15} className="text-[var(--brand-orange)] shrink-0" />
+                      <span className="truncate">مشخصات درس {selectedGoal.subjectName} در کنکور</span>
                     </h4>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)]">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)] shrink-0">
                         {selectedGoal.questionCount} سؤال در دفترچه آزمون
                       </span>
                       {selectedGoal.subjectId && !isEditingSubject && (
@@ -485,13 +554,17 @@ export function GoalsPage() {
                     </div>
                   </div>
 
-                  {/* Calculated Needed Net Correct Questions for Target */}
-                  <div className="p-3 rounded-xl bg-orange-50/70 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 text-xs font-bold text-orange-900 dark:text-orange-200 leading-relaxed">
-                    💡 برای دستیابی به درصد هدف <strong>{selectedGoal.targetValue}٪</strong>، باید حداقل{" "}
-                    <span className="underline font-black text-orange-700 dark:text-orange-300">
-                      {Math.min(selectedGoal.questionCount, Math.ceil((selectedGoal.targetValue / 100) * selectedGoal.questionCount))} تست درست خالص
-                    </span>{" "}
-                    از کل {selectedGoal.questionCount} سؤال کنکور (بدون نمره منفی) را پاسخ دهی.
+                  {/* Calculated Needed Correct Questions for Target */}
+                  <div className="p-3 rounded-xl bg-orange-50/70 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 text-xs font-bold text-orange-900 dark:text-orange-200 leading-relaxed flex items-start gap-2">
+                    <Lightbulb size={15} className="text-[var(--testino-orange)] shrink-0 mt-0.5" />
+                    <div>
+                      برای رسیدن به درصد هدف <strong>{selectedGoal.targetValue}٪</strong>، اگر هیچ غلطی نزنی باید{" "}
+                      <span className="underline font-black text-orange-700 dark:text-orange-300">
+                        {Math.min(selectedGoal.questionCount, Math.ceil((selectedGoal.targetValue / 100) * selectedGoal.questionCount))} تست درست
+                      </span>{" "}
+                      از {selectedGoal.questionCount} سؤال دفترچه را بزنی. هر غلط حدود{" "}
+                      {(100 / selectedGoal.questionCount).toFixed(1)}٪ از درصدها را کم می‌کند.
+                    </div>
                   </div>
 
                   {/* Inline Subject Editor */}
@@ -549,7 +622,7 @@ export function GoalsPage() {
                         <button
                           type="submit"
                           disabled={isSavingSubject}
-                          className="btn-primary-orange py-1.5 px-4 text-xs font-black"
+                          className="btn-neo-orange py-1.5 px-4 text-xs font-black"
                         >
                           {isSavingSubject ? "در حال ذخیره…" : "ذخیره تغییرات"}
                         </button>
@@ -564,7 +637,7 @@ export function GoalsPage() {
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs sm:text-sm font-black text-[var(--ink)] flex items-center gap-1.5">
                     <Compass size={16} className="text-[var(--brand-orange)]" />
-                    <span>مسیر گام‌به‌گام تا هدف (Milestones)</span>
+                    <span>مسیر گام‌به‌گام تا هدف</span>
                   </h3>
                   <span className="text-[11px] font-bold text-[var(--muted)]">
                     {selectedGoal.milestones.filter((m) => m.status === "done").length} از {selectedGoal.milestones.length} مرحله
@@ -596,11 +669,11 @@ export function GoalsPage() {
                             : "bg-[var(--surface-2)] border-[var(--line)]"
                         )}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-black text-[var(--ink)]">
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <span className="text-xs font-black text-[var(--ink)] min-w-0">
                             {ms.title}
                           </span>
-                          <span className="testino-chip text-[10px] font-bold bg-[var(--surface)] text-[var(--ink)]">
+                          <span className="testino-chip text-[10px] font-bold bg-[var(--surface)] text-[var(--ink)] shrink-0">
                             {ms.target}
                           </span>
                         </div>
@@ -618,11 +691,19 @@ export function GoalsPage() {
                     پیشنهاد هوشمند تستینو برای این هدف:
                   </strong>
                   <p className="font-bold text-amber-800/90 dark:text-amber-300 leading-relaxed">
-                    برای رسیدن به این هدف در موعد مقرر، روزانه حداقل{" "}
-                    <span className="font-black underline">
-                      {Math.max(5, Math.round((selectedGoal.targetValue - selectedGoal.currentValue) / selectedGoal.deadlineDays))}
-                    </span>{" "}
-                    {selectedGoal.unit} تمرین کن. تداوم راز اصلی موفقیت است! 🌱
+                    {selectedGoal.unit === "درصد" ? (
+                      <>
+                        برای رسیدن به این هدف، این درس را در برنامهٔ روزانهٔ خودت نگه دار و هر روز چند تست از آن حل کن. تداوم راز اصلی موفقیت است!
+                      </>
+                    ) : (
+                      <>
+                        برای رسیدن به این هدف، روزانه حداقل{" "}
+                        <span className="font-black underline">
+                          {Math.max(1, Math.ceil((Math.max(0, selectedGoal.targetValue - selectedGoal.currentValue)) / (selectedGoal.deadlineDays || 1)))}
+                        </span>{" "}
+                        {selectedGoal.unit} تمرین کن. تداوم راز اصلی موفقیت است!
+                      </>
+                    )}
                   </p>
                 </div>
               </div>
@@ -631,28 +712,41 @@ export function GoalsPage() {
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--line)]">
                 <Link
                   href={selectedGoal.subjectName ? `/sessions/new/?subject=${encodeURIComponent(selectedGoal.subjectName)}` : "/sessions/new"}
-                  className="btn-primary-orange py-2.5 px-5 text-xs font-black shadow-sm flex items-center gap-1.5"
+                  className="btn-neo-orange py-2.5 px-5 text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5"
                 >
                   <Sparkles size={16} />
-                  <span>شروع تمرین اختصاصی برای این هدف</span>
+                  <span>تمرین اختصاصی این هدف</span>
                 </Link>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomGoals((prev) =>
-                      prev.map((g) =>
-                        g.id === selectedGoal.id
-                          ? { ...g, currentValue: Math.min(g.targetValue, g.currentValue + 10) }
-                          : g
-                      )
-                    );
-                  }}
-                  className="btn-secondary-clean py-2.5 px-3.5 text-xs font-bold flex items-center gap-1"
-                >
-                  <Plus size={14} />
-                  <span>ثبت ۱۰ {selectedGoal.unit} پیشرفت</span>
-                </button>
+                {selectedGoal.id.startsWith("goal-") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomGoals((prev) =>
+                        prev.map((g) =>
+                          g.id === selectedGoal.id
+                            ? { ...g, currentValue: Math.min(g.targetValue, g.currentValue + 10) }
+                            : g
+                        )
+                      );
+                    }}
+                    className="btn-secondary-clean py-2.5 px-3.5 text-xs font-bold flex items-center gap-1"
+                  >
+                    <Plus size={14} />
+                    <span>ثبت ۱۰ {selectedGoal.unit} پیشرفت</span>
+                  </button>
+                )}
+
+                {selectedGoal.id.startsWith("sub-goal-") && (
+                  <button
+                    type="button"
+                    onClick={() => handleDismissAutoGoal(selectedGoal.id)}
+                    className="btn-secondary-clean py-2.5 px-3.5 text-xs font-bold flex items-center gap-1"
+                  >
+                    <X size={14} />
+                    <span>پنهان کردن این هدف</span>
+                  </button>
+                )}
 
                 {selectedGoal.id.startsWith("goal-") && (
                   <button
@@ -759,7 +853,7 @@ export function GoalsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-[var(--ink)]">مقدار هدف *</label>
                   <input
@@ -809,7 +903,7 @@ export function GoalsPage() {
                 </button>
                 <button
                   type="submit"
-                  className="btn-primary-orange py-2 px-5 text-xs font-black shadow-sm"
+                  className="btn-neo-orange py-2 px-5 text-xs font-black"
                 >
                   ذخیره هدف
                 </button>

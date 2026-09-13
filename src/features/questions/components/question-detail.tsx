@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   BookOpen,
@@ -10,6 +11,8 @@ import {
   Lightbulb,
   Play,
   Edit3,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { EmptyState, LoadingState } from "@/components/ui/testino-ui";
@@ -19,8 +22,26 @@ import { QuestionEditorModal } from "./question-editor-modal";
 import { QuestionTrustActions } from "./question-trust-actions";
 
 export function QuestionDetail({ id }: { id: string }) {
+  const router = useRouter();
+  const cache = useQueryClient();
   const { db, status } = useDatabase();
   const [editorOpen, setEditorOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  async function handleDelete() {
+    setIsDeleting(true);
+    try {
+      await db.deleteQuestion(id);
+      await cache.invalidateQueries({ queryKey: ["questions"] });
+      await cache.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+      await cache.invalidateQueries({ queryKey: ["analytics"] });
+      router.push("/bank/");
+    } catch (e) {
+      console.error(e);
+      setIsDeleting(false);
+    }
+  }
 
   const query = useQuery({
     queryKey: ["question", id],
@@ -69,6 +90,15 @@ export function QuestionDetail({ id }: { id: string }) {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={() => setDeleteModalOpen(true)}
+            className="p-2 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 font-black cursor-pointer transition-all shadow-[1px_1px_0px_var(--neo-shadow)]"
+            title="حذف سؤال از بانک"
+          >
+            <Trash2 size={16} />
+          </button>
+
+          <button
+            type="button"
             onClick={() => setEditorOpen(true)}
             className="btn-neo-orange py-2 px-3.5 text-xs font-black flex items-center gap-1.5 shadow-[2px_2px_0px_var(--neo-shadow)] cursor-pointer"
             title="ویرایش این سؤال (دستی یا با JSON)"
@@ -79,7 +109,7 @@ export function QuestionDetail({ id }: { id: string }) {
 
           <Link
             href={`/sessions/new/?subject=${encodeURIComponent(question.subject)}`}
-            className="btn-primary-orange py-2 px-4 text-xs font-black flex items-center gap-1.5 shadow-sm"
+            className="btn-neo-orange py-2 px-4 text-xs font-black flex items-center gap-1.5"
           >
             <Play size={14} className="fill-current" />
             <span>آزمون از درس {question.subject}</span>
@@ -206,6 +236,46 @@ export function QuestionDetail({ id }: { id: string }) {
         onClose={() => setEditorOpen(false)}
         initialQuestion={question}
       />
+
+      {/* Delete Confirmation Modal */}
+      {deleteModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md rounded-3xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-6 space-y-4 shadow-[6px_6px_0_var(--neo-shadow)] animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-300">
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[var(--ink)]">حذف سؤال از بانک</h3>
+                <p className="text-xs text-[var(--muted)] font-bold">آیا از حذف این سؤال مطمئن هستید؟ این عملیات قابل بازگشت نیست.</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeleteModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] text-xs font-black text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => void handleDelete()}
+                className="px-4 py-2.5 rounded-xl border-2 border-rose-600 bg-rose-600 hover:bg-rose-700 text-xs font-black text-white transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {isDeleting ? "در حال حذف…" : "بله، حذف شود"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

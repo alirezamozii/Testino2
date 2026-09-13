@@ -7,6 +7,12 @@ import { executePull } from "./pull";
 import { syncPendingOfflineAuth } from "@/platform/auth/supabase-client";
 import { reconcileLocalMutations } from "./aggregate-snapshots";
 import { downloadRemoteMedia, uploadLocalMedia } from "./media-sync";
+import { withTimeout } from "@/lib/with-timeout";
+
+/** Hard cap on 250ms→8s backoff continuation cycles per dirty queue. */
+const MAX_CONTINUATION_CYCLES = 20;
+/** Network calls must never wedge syncNow forever (dead socket / captive portal). */
+const AUTH_TIMEOUT_MS = 15_000;
 
 export class SyncCoordinator {
   private db: DatabasePort;
@@ -21,10 +27,11 @@ export class SyncCoordinator {
   private listeners = new Set<(status: SyncStatus, report: SyncReport | null) => void>();
   private intervalTimer: ReturnType<typeof setInterval> | null = null;
   private continuationTimer: ReturnType<typeof setTimeout> | null = null;
+  private continuationCycles = 0;
   private activeOwnerId: string | undefined;
   private readonly handleOnline = () => {
     this.setStatus("idle");
-    syncPendingOfflineAuth()
+    withTimeout(syncPendingOfflineAuth(), AUTH_TIMEOUT_MS, "بازگردانی ورود آفلاین")
       .catch(() => {})
       .finally(() => this.syncNow(this.activeOwnerId).catch(() => {}));
   };
@@ -123,6 +130,9 @@ export class SyncCoordinator {
         this.setStatus("offline");
         return;
       }
+      // Battery/CPU: don't churn the network while the tab is hidden —
+      // visibilitychange triggers a sync the moment it becomes visible again.
+      if (typeof document !== "undefined" && document.hidden) return;
       this.syncNow(ownerId).catch(() => {});
     }, this.config.autoSyncIntervalMs);
   }
@@ -150,6 +160,11 @@ export class SyncCoordinator {
 
   /**
    * Executes a single push-then-pull synchronization cycle with phase updates.
+   *
+   * The in-flight guard is set SYNCHRONOUSLY before any await — three triggers
+   * (online event, visibilitychange, 30s interval) can fire in the same tick,
+   * and a guard set after a network await let two syncs interleave on the same
+   * outbox/pull cursors (duplicate forks/conflict rows).
    */
   async syncNow(ownerId?: string): Promise<SyncReport> {
     if (this.isSyncing) {
@@ -163,6 +178,15 @@ export class SyncCoordinator {
       };
     }
 
+    this.isSyncing = true;
+    try {
+      return await this.runSync(ownerId);
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  private async runSync(ownerId?: string): Promise<SyncReport> {
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       this.setStatus("offline");
       return {
@@ -177,7 +201,7 @@ export class SyncCoordinator {
 
     // Try linking pending offline authentication before checking transport
     try {
-      await syncPendingOfflineAuth();
+      await withTimeout(syncPendingOfflineAuth(), AUTH_TIMEOUT_MS, "بازگردانی ورود آفلاین");
     } catch {
       // ignore
     }
@@ -214,7 +238,17 @@ export class SyncCoordinator {
       };
     }
 
-    const isAuthed = await this.transport.isAuthenticated();
+    let isAuthed = false;
+    try {
+      isAuthed = await withTimeout(
+        this.transport.isAuthenticated(),
+        AUTH_TIMEOUT_MS,
+        "بررسی وضعیت ورود"
+      );
+    } catch {
+      isAuthed = false;
+    }
+
     if (!isAuthed) {
       this.setStatus("unconfigured");
       return {
@@ -231,6 +265,8 @@ export class SyncCoordinator {
     this.setStatus("pushing");
 
     const allErrors: string[] = [];
+    const pushErrors: string[] = [];
+    const pullErrors: string[] = [];
     let pushedCount = 0;
     let pulledCount = 0;
     let reconciledCount = 0;
@@ -239,6 +275,18 @@ export class SyncCoordinator {
     let downloadedMediaCount = 0;
 
     try {
+      // Crash recovery: mutations left in 'sending' state by a crashed/closed
+      // tab would otherwise be stranded forever (listPending only reads 'pending')
+      // → silent permanent sync loss of user answers.
+      try {
+        await this.db.execute(
+          "UPDATE outbox SET state='pending' WHERE state='sending' AND (owner_id IS NULL OR owner_id=?)",
+          [targetOwnerId]
+        );
+      } catch {
+        // table may not exist on very old schemas — not fatal
+      }
+
       const mediaUpload = await uploadLocalMedia(this.db, this.transport);
       uploadedMediaCount += mediaUpload.uploaded;
       allErrors.push(...mediaUpload.errors);
@@ -259,6 +307,7 @@ export class SyncCoordinator {
         );
         pushedCount += pushRes.pushedCount;
         conflictCount += pushRes.conflictCount;
+        pushErrors.push(...pushRes.errors);
         allErrors.push(...pushRes.errors);
         if (pushRes.pushedCount === 0 || pushRes.errors.length > 0) break;
       }
@@ -274,8 +323,13 @@ export class SyncCoordinator {
           { limit: this.config.batchSize }
         );
         pulledCount += pullRes.pulledCount;
+        pullErrors.push(...pullRes.errors);
         allErrors.push(...pullRes.errors);
         if (!pullRes.hasMore || pullRes.errors.length > 0) break;
+        // Cursor must advance: a server that keeps returning hasMore=true with
+        // an unchanged cursor would otherwise re-apply the same page up to 100×
+        // (creating a junk fork per page on divergent RUNNING sessions).
+        if (pullRes.pulledCount === 0) break;
       }
 
       if (pulledCount > 0) {
@@ -286,7 +340,12 @@ export class SyncCoordinator {
       downloadedMediaCount += mediaDownload.downloaded;
       allErrors.push(...mediaDownload.errors);
 
-      this.setStatus(allErrors.length > 0 ? "error" : "idle");
+      // Determine final sync status:
+      // - If critical mutations (push/pull) had errors, mark "error" for retry.
+      // - If push and pull succeeded cleanly, mark "idle" even if a non-critical
+      //   media asset failed or is missing (media retries are backed off independently).
+      const hasCriticalError = pushErrors.length > 0 || pullErrors.length > 0;
+      this.setStatus(hasCriticalError ? "error" : "idle");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       allErrors.push(message);
@@ -310,17 +369,24 @@ export class SyncCoordinator {
     this.notifyListeners();
 
     // Large first-time libraries are reconciled in bounded chunks so one sync
-    // cannot freeze the UI. Continue promptly in the background until the
-    // durable dirty queue is empty instead of waiting for the 30-second tick.
-    if (allErrors.length === 0 && this.isOnline()) {
+    // cannot freeze the UI. Continue in the background until the durable dirty
+    // queue is empty — with a cycle cap + exponential backoff so an unstable
+    // payload field (triggers re-dirtying every write) can NEVER loop at 4 Hz
+    // forever. Skip while hidden; the visibility handler catches up.
+    if (allErrors.length === 0 && this.isOnline() && !(typeof document !== "undefined" && document.hidden)) {
       const pending = await this.db.query<{ pending: number }>(
         "SELECT COUNT(*) AS pending FROM sync_dirty_entities"
       );
-      if (Number(pending[0]?.pending ?? 0) > 0 && !this.continuationTimer) {
+      const pendingCount = Number(pending[0]?.pending ?? 0);
+      if (pendingCount === 0) {
+        this.continuationCycles = 0;
+      } else if (!this.continuationTimer && this.continuationCycles < MAX_CONTINUATION_CYCLES) {
+        this.continuationCycles += 1;
+        const delay = Math.min(250 * 2 ** (this.continuationCycles - 1), 8_000);
         this.continuationTimer = setTimeout(() => {
           this.continuationTimer = null;
           this.syncNow(targetOwnerId).catch(() => {});
-        }, 250);
+        }, delay);
       }
     }
     return report;

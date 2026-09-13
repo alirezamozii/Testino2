@@ -15,7 +15,6 @@ import {
   ChevronRight,
   ClipboardList,
   Clock,
-  Columns,
   Download,
   FileText,
   HelpCircle,
@@ -23,6 +22,7 @@ import {
   Laptop,
   Lightbulb,
   List,
+  Loader2,
   Pause,
   Pin,
   PinOff,
@@ -32,6 +32,8 @@ import {
   Timer,
   Wrench,
   X,
+  XCircle,
+  Zap,
 } from "lucide-react";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { calculateScore } from "../domain/scoring";
@@ -41,7 +43,6 @@ import { simulateOverallConfidence } from "@/features/analytics/domain/confidenc
 import { SignedNumber, SignedPercent, formatSignedPercentString } from "@/components/ui/signed-number";
 import { useDatabase } from "@/providers/database-provider";
 import { cn } from "@/lib/utils";
-import { QuestionTrustActions } from "@/features/questions/components/question-trust-actions";
 
 const PERSIAN_LETTERS = ["الف", "ب", "ج", "د"];
 
@@ -60,16 +61,43 @@ export function SessionPlayer() {
 
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [isFinishing, setIsFinishing] = useState(false);
   const [error, setError] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [flaggedIndices, setFlaggedIndices] = useState<Set<number>>(new Set());
+  // Scratchpad + bookmark flags are restored lazily — safe for SSR because the
+  // server render of this component is always the loading state.
+  const [flaggedIndices, setFlaggedIndices] = useState<Set<number>>(() => {
+    if (typeof window === "undefined" || !id) return new Set();
+    try {
+      const raw = localStorage.getItem(`testino_exam_tools_${id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { flags?: unknown };
+        if (Array.isArray(parsed.flags)) return new Set(parsed.flags as number[]);
+      }
+    } catch {
+      // ignore corrupt storage
+    }
+    return new Set();
+  });
   const [showNavSheet, setShowNavSheet] = useState(false);
   const [showToolsSheet, setShowToolsSheet] = useState(false);
   const [isExamPaper, setIsExamPaper] = useState(false);
   const [isPassagePinned, setIsPassagePinned] = useState(true);
-  const [passageSplitMode, setPassageSplitMode] = useState(false);
   const [fontSize, setFontSize] = useState<"normal" | "large" | "xlarge">("normal");
-  const [quickNote, setQuickNote] = useState("");
+  const [quickNote, setQuickNote] = useState(() => {
+    if (typeof window === "undefined" || !id) return "";
+    try {
+      const raw = localStorage.getItem(`testino_exam_tools_${id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { note?: unknown };
+        if (typeof parsed.note === "string") return parsed.note;
+      }
+    } catch {
+      // ignore corrupt storage
+    }
+    return "";
+  });
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
   const [resultFilter, setResultFilter] = useState<"all" | "correct" | "wrong" | "unanswered">("all");
   const [navFilter, setNavFilter] = useState<"all" | "sure" | "doubtful" | "guess" | "skipped" | "unvisited">("all");
@@ -87,6 +115,13 @@ export function SessionPlayer() {
   const current = session.data?.questions[index];
   const persistedSeconds = Math.floor((session.data?.questions.reduce((sum, item) => sum + item.activeMs, 0) ?? 0) / 1000);
 
+  // Exam time limit (minutes) — when set, the timer chip counts DOWN instead of up
+  const durationMinutes = session.data?.config?.durationMinutes ?? null;
+  const remainingSeconds = durationMinutes && durationMinutes > 0
+    ? Math.max(0, durationMinutes * 60 - (persistedSeconds + elapsedSeconds))
+    : null;
+  const isTimeLow = remainingSeconds !== null && remainingSeconds <= 5 * 60;
+
   const isOpenEnded = Boolean(session.data?.config?.isOpenEnded || session.data?.config?.mode === "continuous");
   const isInstantFeedback = Boolean(
     session.data?.config?.instantFeedback || session.data?.config?.feedbackMode === "instant"
@@ -103,14 +138,27 @@ export function SessionPlayer() {
         .filter((q) => Boolean(q.selectedOptionId))
         .map((q) => q.id);
       if (answered.length > 0) {
-        setRevealedIds((prev) => {
-          const next = new Set(prev);
-          for (const qid of answered) next.add(qid);
-          return next;
+        queueMicrotask(() => {
+          setRevealedIds((prev) => {
+            const next = new Set(prev);
+            for (const qid of answered) next.add(qid);
+            return next;
+          });
         });
       }
     }
   }, [isInstantFeedback, session.data?.questions]);
+
+  // Persist scratchpad + bookmark flags for this session (survive reloads / accidental closes)
+  // Values are seeded in the lazy initializers above; this only writes them out.
+  const persistExamTools = (flags: Set<number>, note: string) => {
+    if (!id) return;
+    try {
+      localStorage.setItem(`testino_exam_tools_${id}`, JSON.stringify({ flags: [...flags], note }));
+    } catch {
+      // ignore quota errors
+    }
+  };
 
   const hasPassage = Boolean(
     current?.snapshot.groupContent && current.snapshot.groupContent.length > 0
@@ -276,37 +324,66 @@ export function SessionPlayer() {
       const next = new Set(prev);
       if (next.has(qIdx)) next.delete(qIdx);
       else next.add(qIdx);
+      persistExamTools(next, quickNote);
       return next;
     });
   }
 
   async function begin() {
     if (!id) return;
-    await database.db.startOrResumeSession(id);
-    openedAt.current = performance.now();
-    await session.refetch();
+    setIsStarting(true);
+    setError("");
+    try {
+      await database.db.startOrResumeSession(id);
+      // SW-update guard reads this: a deploying service worker must NOT
+      // SKIP_WAITING mid-exam (route was renamed to /sessions/run long ago).
+      try { sessionStorage.setItem("testino_session_running", "true"); } catch { /* ignore */ }
+      openedAt.current = performance.now();
+      await session.refetch();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "خطا در شروع آزمون.");
+    } finally {
+      setIsStarting(false);
+    }
   }
 
   async function pause() {
     if (!id) return;
-    await save(current?.selectedOptionId ?? null, current?.confidence ?? null, index);
-    await database.db.pauseSession(id);
-    await session.refetch();
+    try {
+      await save(current?.selectedOptionId ?? null, current?.confidence ?? null, index);
+      await database.db.pauseSession(id);
+      await session.refetch();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "خطا در متوقف کردن آزمون.");
+    }
   }
 
   async function finish() {
     if (!id) return;
-    await save(current?.selectedOptionId ?? null, current?.confidence ?? null, index);
-    await database.db.finishSession(id);
-    await session.refetch();
-    await cache.invalidateQueries({ queryKey: ["sessions"] });
-    await cache.invalidateQueries({ queryKey: ["dashboard"] });
+    setIsFinishing(true);
+    setError("");
+    try {
+      await save(current?.selectedOptionId ?? null, current?.confidence ?? null, index);
+      await database.db.finishSession(id);
+      try { sessionStorage.removeItem("testino_session_running"); } catch { /* ignore */ }
+      await session.refetch();
+      await cache.invalidateQueries({ queryKey: ["sessions"] });
+      await cache.invalidateQueries({ queryKey: ["dashboard"] });
+      setShowFinishConfirm(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "خطا در پایان و ثبت آزمون.");
+    } finally {
+      setIsFinishing(false);
+    }
   }
 
   const formatTimer = (totalSec: number) => {
-    const mins = Math.floor(totalSec / 60);
+    // H:MM:SS past one hour so a 90-minute exam never wraps around confusingly
+    const hrs = Math.floor(totalSec / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
     const secs = totalSec % 60;
-    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    const mmss = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    return hrs > 0 ? `${hrs}:${mmss}` : mmss;
   };
 
   if (!id || session.isLoading) {
@@ -325,7 +402,7 @@ export function SessionPlayer() {
       <div className="max-w-md mx-auto py-12 px-4 text-center space-y-4">
         <AlertCircle size={40} className="mx-auto text-amber-500" />
         <h2 className="text-lg font-black">آزمون یافت نشد</h2>
-        <Link href="/sessions/" className="btn-primary-orange inline-flex">
+        <Link href="/sessions/" className="btn-neo-orange inline-flex px-4 py-2 text-xs font-black">
           بازگشت به فهرست آزمون‌ها
         </Link>
       </div>
@@ -412,7 +489,11 @@ export function SessionPlayer() {
               </div>
               <span className="text-[var(--muted)] font-bold">مدت زمان</span>
             </div>
-            <strong className="font-black text-[var(--ink)]">{Math.max(10, Math.round(totalQuestions * 1.5))} دقیقه</strong>
+            <strong className="font-black text-[var(--ink)]">
+              {sData.config?.durationMinutes
+                ? `${sData.config.durationMinutes.toLocaleString("fa-IR")} دقیقه`
+                : "بدون محدودیت زمانی"}
+            </strong>
           </div>
 
           <div className="flex items-center justify-between text-xs">
@@ -423,7 +504,7 @@ export function SessionPlayer() {
               <span className="text-[var(--muted)] font-bold">موضوعات</span>
             </div>
             <strong className="font-black text-[var(--ink)] max-w-[180px] truncate">
-              {sData.config?.subjectFilter || "تمام دروس تخصصی"}
+              {sData.config?.subjectFilter || "تمام دروس"}
             </strong>
           </div>
         </div>
@@ -431,10 +512,20 @@ export function SessionPlayer() {
         <button
           type="button"
           onClick={begin}
-          className="btn-neo-orange w-full py-4 text-base font-black flex items-center justify-center gap-2"
+          disabled={isStarting}
+          className="btn-neo-orange w-full py-4 text-base font-black flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
         >
-          <Play size={20} className="fill-current" />
-          <span>شروع آزمون</span>
+          {isStarting ? (
+            <>
+              <Loader2 size={20} className="animate-spin" />
+              <span>در حال راه‌اندازی آزمون…</span>
+            </>
+          ) : (
+            <>
+              <Play size={20} className="fill-current" />
+              <span>شروع آزمون</span>
+            </>
+          )}
         </button>
       </div>
     );
@@ -500,7 +591,6 @@ export function SessionPlayer() {
     const doubtfulAttempts = sData.questions.filter((q) => q.selectedOptionId && q.confidence === "doubtful");
     const guessAttempts = sData.questions.filter((q) => q.selectedOptionId && q.confidence === "guess");
     const skippedAttempts = sData.questions.filter((q) => !q.selectedOptionId && q.visited);
-    const unvisitedAttempts = sData.questions.filter((q) => !q.visited);
 
     const sureCorrect = sureAttempts.filter((q) => q.selectedOptionId === q.snapshot.correctOptionId).length;
     const doubtfulCorrect = doubtfulAttempts.filter((q) => q.selectedOptionId === q.snapshot.correctOptionId).length;
@@ -859,20 +949,20 @@ export function SessionPlayer() {
                           if (q.confidence === "doubtful") {
                             return (
                               <span className="text-[11px] font-black px-2.5 py-1 rounded-xl border-2 border-amber-400 bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200">
-                                صحیح با شک ⭕
+                                صحیح با شک
                               </span>
                             );
                           }
                           if (q.confidence === "guess") {
                             return (
                               <span className="text-[11px] font-black px-2.5 py-1 rounded-xl border-2 border-purple-400 bg-purple-100 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200">
-                                شانس تصادفی (حدس) ⚡
+                                شانس تصادفی (حدس)
                               </span>
                             );
                           }
                           return (
                             <span className="text-[11px] font-black px-2.5 py-1 rounded-xl border-2 border-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200">
-                              تسلط مطمئن ✓
+                              تسلط مطمئن
                             </span>
                           );
                         }
@@ -880,20 +970,20 @@ export function SessionPlayer() {
                         if (q.confidence === "doubtful") {
                           return (
                             <span className="text-[11px] font-black px-2.5 py-1 rounded-xl border-2 border-amber-400 bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200">
-                              خطای تردید (شک) ⭕
+                              خطای تردید (شک)
                             </span>
                           );
                         }
                         if (q.confidence === "guess") {
                           return (
                             <span className="text-[11px] font-black px-2.5 py-1 rounded-xl border-2 border-rose-400 bg-rose-100 dark:bg-rose-950/60 text-rose-900 dark:text-rose-200">
-                              ریسک غلط (حدس منفی) ⚡
+                              ریسک غلط (حدس منفی)
                             </span>
                           );
                         }
                         return (
                           <span className="text-[11px] font-black px-2.5 py-1 rounded-xl border-2 border-rose-500 bg-rose-200 dark:bg-rose-950 text-rose-950 dark:text-rose-100 shadow-[1px_1px_0px_#e11d48]">
-                            تله علمی (غلط مطمئن) ⚠️
+                            تله علمی (غلط مطمئن)
                           </span>
                         );
                       })()}
@@ -1159,7 +1249,8 @@ export function SessionPlayer() {
   // =========================================================================
   // VIEW 3: RUNNING (ACTIVE SOLVING ENVIRONMENT - MATCHING SHEET 1 PHONE 3)
   // =========================================================================
-  const isDoubtful = current?.confidence === "doubtful" || flaggedIndices.has(index);
+  // Bookmark is a pure visual marker (persisted locally); confidence is the persisted state.
+  const isFlagged = flaggedIndices.has(index);
 
   return (
     <div
@@ -1182,7 +1273,7 @@ export function SessionPlayer() {
       </div>
 
       {/* Top Nav Bar (Timer, Pause, Counter, Exam Paper Toggle, Tools, Nav Grid) */}
-      <div className="flex items-center justify-between gap-2 px-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
         {/* Pause & Timer */}
         <div className="flex items-center gap-2">
           <button
@@ -1193,16 +1284,27 @@ export function SessionPlayer() {
           >
             {sData.state === "RUNNING" ? <Pause size={16} /> : <Play size={16} />}
           </button>
-          <div className="flex items-center gap-1.5 text-xs font-black text-[var(--ink)] bg-[var(--surface)] px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-            <Clock size={14} className="text-[var(--brand-orange)]" />
-            <span>{formatTimer(persistedSeconds + elapsedSeconds)}</span>
+          <div
+            className={cn(
+              "flex items-center gap-1.5 text-xs font-black bg-[var(--surface)] px-3 py-2 rounded-2xl border-2 shadow-[2px_2px_0px_var(--neo-shadow)] transition-colors",
+              isTimeLow
+                ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-400"
+                : "text-[var(--ink)] bg-[var(--surface)] border-[var(--line-strong)]"
+            )}
+          >
+            <Clock size={14} className={isTimeLow ? "text-red-600" : "text-[var(--brand-orange)]"} />
+            <span>
+              {remainingSeconds !== null
+                ? `${formatTimer(remainingSeconds)} باقی‌مانده`
+                : formatTimer(persistedSeconds + elapsedSeconds)}
+            </span>
           </div>
         </div>
 
         {/* Counter & Action Drawers */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-black text-[var(--ink-on-color)] bg-[var(--pastel-yellow)] px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-            {isOpenEnded ? `سؤال ${index + 1} (پیوسته)` : `${index + 1} از ${totalQuestions}`}
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <span className="text-xs font-black text-[var(--ink-on-color)] bg-[var(--pastel-yellow)] px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] whitespace-nowrap">
+            {isOpenEnded ? `سؤال ${index + 1}` : `${index + 1} از ${totalQuestions}`}
           </span>
           {/* Exam Paper Mode Toggle */}
           <button
@@ -1219,12 +1321,22 @@ export function SessionPlayer() {
             <FileText size={15} />
             <span className="hidden sm:inline">دفترچه</span>
           </button>
-          {current && <QuestionTrustActions question={current.snapshot} compact />}
           {pending && (
             <span className="text-[10px] font-black text-[var(--muted)] animate-pulse hidden sm:inline">
               در حال ذخیره…
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => setShowToolsSheet(!showToolsSheet)}
+            className={cn(
+              "w-10 h-10 rounded-2xl border-2 border-[var(--line-strong)] flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all",
+              showToolsSheet ? "bg-[var(--brand-orange)] text-white" : "bg-[var(--surface)] text-[var(--ink)]"
+            )}
+            title="ابزارهای آزمون (اندازه متن، چرک‌نویس)"
+          >
+            <Wrench size={16} />
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -1245,7 +1357,7 @@ export function SessionPlayer() {
             <AlertCircle size={18} className="text-amber-600 flex-shrink-0" />
             <span>
               {gapNotice
-                ? "وقفه یا جابه‌جایی طولانی شناسایی شد؛ آزمون برای عدم محاسبه زمان غیرفعال، متوقف شد."
+                ? "به‌خاطر ترک صفحه، آزمون موقتاً متوقف شد تا زمانی ثبت نشود."
                 : "آزمون در وضعیت توقف موقت قرار دارد. زمان‌سنج متوقف شده است."}
             </span>
           </div>
@@ -1265,19 +1377,17 @@ export function SessionPlayer() {
         </div>
       )}
 
-      {current && <div className="flex justify-end"><QuestionTrustActions question={current.snapshot} compact /></div>}
-
       {/* Error Banner with Retry */}
       {error && (
-        <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border-2 border-rose-400 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center justify-between gap-3 shadow-[2px_2px_0px_var(--neo-shadow)]">
+        <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/50 border-2 border-red-400 text-red-800 dark:text-red-200 text-xs font-bold flex items-center justify-between gap-3 shadow-[2px_2px_0px_var(--neo-shadow)]">
           <div className="flex items-center gap-2">
-            <AlertCircle size={16} className="text-rose-600 flex-shrink-0" />
+            <AlertCircle size={16} className="text-red-600 flex-shrink-0" />
             <span>{error}</span>
           </div>
           <button
             type="button"
             onClick={() => save(current?.selectedOptionId ?? null, current?.confidence ?? null, index)}
-            className="px-3 py-1.5 rounded-xl bg-rose-600 text-white font-black text-xs hover:bg-rose-700 transition-colors shrink-0"
+            className="px-3 py-1.5 rounded-xl bg-red-600 text-white font-black text-xs hover:bg-red-700 transition-colors shrink-0"
           >
             تلاش مجدد
           </button>
@@ -1332,7 +1442,10 @@ export function SessionPlayer() {
             <label className="text-xs font-black text-[var(--muted)] block">یادداشت سریع (چرک‌نویس):</label>
             <textarea
               value={quickNote}
-              onChange={(e) => setQuickNote(e.target.value)}
+              onChange={(e) => {
+                setQuickNote(e.target.value);
+                persistExamTools(flaggedIndices, e.target.value);
+              }}
               placeholder="محاسبات سریع یا نکته را اینجا بنویسید..."
               rows={2}
               className="w-full p-2.5 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-xs font-bold text-[var(--ink)] focus:outline-none shadow-[2px_2px_0px_var(--neo-shadow)]"
@@ -1348,7 +1461,7 @@ export function SessionPlayer() {
             }}
             className="w-full py-2.5 rounded-xl bg-[var(--pastel-red)] text-white border-2 border-[var(--line-strong)] font-black text-xs shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
           >
-            پایان و تحویل آزمون
+            تحویل آزمون
           </button>
         </div>
       )}
@@ -1373,7 +1486,7 @@ export function SessionPlayer() {
           <div className="card-neo p-5 space-y-4 bg-[var(--surface)]">
             <div className="flex items-center justify-between pb-2 border-b border-[var(--line)]">
               <strong className="text-xs sm:text-sm font-black text-[var(--ink)]">
-                ناوبری سؤالات آزمون (وضعیت پاسخ‌برگ)
+                پاسخ‌برگ و ناوبری سؤالات
               </strong>
               <button
                 onClick={() => setShowNavSheet(false)}
@@ -1384,58 +1497,30 @@ export function SessionPlayer() {
               </button>
             </div>
 
-            {/* Header Summary Badges: 4 Cognitive States + Unvisited */}
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center text-[10px] font-black">
-              <div className="p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--line)]">
-                <span className="text-[var(--muted)] block">لودشده</span>
-                <span className="text-xs text-[var(--ink)] font-black">{totalQuestions}</span>
-              </div>
-              <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 text-emerald-700 dark:text-emerald-300">
-                <span className="block">مطمئن (✓)</span>
-                <span className="text-xs font-black">{sureCount}</span>
-              </div>
-              <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 text-amber-700 dark:text-amber-300">
-                <span className="block">با شک (⭕)</span>
-                <span className="text-xs font-black">{doubtfulCount}</span>
-              </div>
-              <div className="p-2 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-300 text-purple-700 dark:text-purple-300">
-                <span className="block">حدس زده (⚡)</span>
-                <span className="text-xs font-black">{guessCount}</span>
-              </div>
-              <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-300 text-rose-700 dark:text-rose-300">
-                <span className="block">رد شده (⏭️)</span>
-                <span className="text-xs font-black">{skippedCount}</span>
-              </div>
-              <div className="p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--line)] text-[var(--muted)]">
-                <span className="block">دیده‌نشده</span>
-                <span className="text-xs font-black">{unvisitedCount}</span>
-              </div>
-            </div>
-
-            {/* Filter Chips: 4 Cognitive States + Unvisited */}
+            {/* Filter chips — the counts double as the summary, no duplicate stat badges */}
             <div className="flex items-center gap-1.5 p-1 bg-[var(--surface-cream)] rounded-2xl border-2 border-[var(--line-strong)] text-[11px] font-black overflow-x-auto">
-              {[
-                { id: "all", label: `همه (${totalQuestions})` },
-                { id: "sure", label: `مطمئن ✓ (${sureCount})` },
-                { id: "doubtful", label: `با شک ⭕ (${doubtfulCount})` },
-                { id: "guess", label: `حدس زده ⚡ (${guessCount})` },
-                { id: "skipped", label: `رد شده ⏭️ (${skippedCount})` },
-                { id: "unvisited", label: `دیده‌نشده (${unvisitedCount})` },
-              ].map((flt) => {
+              {([
+                { id: "all", label: "همه", count: totalQuestions, tone: "bg-[var(--surface)] text-[var(--ink)]" },
+                { id: "sure", label: "مطمئن", count: sureCount, tone: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" },
+                { id: "doubtful", label: "با شک", count: doubtfulCount, tone: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" },
+                { id: "guess", label: "حدس", count: guessCount, tone: "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300" },
+                { id: "skipped", label: "رد شده", count: skippedCount, tone: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" },
+                { id: "unvisited", label: "دیده‌نشده", count: unvisitedCount, tone: "bg-[var(--surface-2)] text-[var(--muted)]" },
+              ] as const).map((flt) => {
                 const isSelected = navFilter === flt.id;
                 return (
                   <button
                     key={flt.id}
                     type="button"
-                    onClick={() => setNavFilter(flt.id as "all" | "sure" | "doubtful" | "guess" | "skipped" | "unvisited")}
+                    onClick={() => setNavFilter(flt.id)}
                     className={cn(
                       "px-2.5 py-1.5 rounded-xl transition-all border-2 shrink-0 whitespace-nowrap",
                       isSelected
                         ? "bg-[var(--brand-orange)] text-white border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                        : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
+                        : cn("border-transparent", flt.tone, "hover:border-[var(--line-strong)]")
                     )}
                   >
-                    {flt.label}
+                    {flt.label} ({new Intl.NumberFormat("fa-IR").format(flt.count)})
                   </button>
                 );
               })}
@@ -1475,13 +1560,13 @@ export function SessionPlayer() {
                         : isSure
                         ? "border-[var(--line-strong)] bg-[var(--pastel-green)] text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)]"
                         : isSkipped
-                        ? "border-[var(--line-strong)] bg-rose-100 dark:bg-rose-950/60 text-rose-950 dark:text-rose-200 shadow-[2px_2px_0px_var(--neo-shadow)]"
+                        ? "border-[var(--line-strong)] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-[2px_2px_0px_var(--neo-shadow)]"
                         : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)] opacity-60"
                     )}
                   >
                     <span>{qIdx + 1}</span>
                     <span className="text-[10px] leading-none font-bold">
-                      {isDoubtful ? "⭕" : isGuess ? "⚡" : isSure ? "✓" : isSkipped ? "⏭️" : "—"}
+                      {isDoubtful ? "?" : isGuess ? "~" : isSure ? "✓" : isSkipped ? "-" : "—"}
                     </span>
                   </button>
                 );
@@ -1530,7 +1615,7 @@ export function SessionPlayer() {
                           save(current.selectedOptionId, current.confidence, pq.qIdx);
                         }}
                         className={cn(
-                          "w-6 h-6 rounded-md border text-[10px] font-black transition-all flex items-center justify-center",
+                          "w-8 h-8 rounded-md border text-[11px] font-black transition-all flex items-center justify-center shrink-0",
                           isCurrentPassageQ
                             ? "bg-[var(--brand-orange)] text-white border-[var(--line-strong)] shadow-[1px_1px_0px_var(--neo-shadow)] scale-110"
                             : isAnswered
@@ -1586,22 +1671,22 @@ export function SessionPlayer() {
               </span>
               {current.confidence === "doubtful" ? (
                 <span className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-amber-100 dark:bg-amber-950/60 border-2 border-amber-400 text-amber-950 dark:text-amber-200 shadow-[1px_1px_0px_var(--neo-shadow)] flex items-center gap-1">
-                  <span>⭕</span>
+                  <HelpCircle size={12} />
                   <span>با شک</span>
                 </span>
               ) : current.confidence === "guess" ? (
-                <span className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-rose-100 dark:bg-rose-950/60 border-2 border-rose-400 text-rose-950 dark:text-rose-200 shadow-[1px_1px_0px_var(--neo-shadow)] flex items-center gap-1">
-                  <span>❌</span>
+                <span className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-[var(--brand-purple)]/20 dark:bg-purple-950/60 border-2 border-[var(--brand-purple)] text-purple-950 dark:text-purple-200 shadow-[1px_1px_0px_var(--neo-shadow)] flex items-center gap-1">
+                  <Zap size={12} />
                   <span>حدس زدم</span>
                 </span>
               ) : current.selectedOptionId ? (
                 <span className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 border-2 border-emerald-400 text-emerald-950 dark:text-emerald-200 shadow-[1px_1px_0px_var(--neo-shadow)] flex items-center gap-1">
-                  <span>✓</span>
+                  <Check size={12} />
                   <span>مطمئن</span>
                 </span>
               ) : (
                 <span className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                  <span>❌</span>
+                  <XCircle size={12} />
                   <span>بی‌پاسخ</span>
                 </span>
               )}
@@ -1611,13 +1696,13 @@ export function SessionPlayer() {
               onClick={() => toggleFlag(index)}
               className={cn(
                 "p-2 rounded-xl border-2 transition-all",
-                isDoubtful
+                isFlagged
                   ? "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
                   : "bg-[var(--surface)] text-[var(--muted)] border-[var(--line)] hover:border-[var(--line-strong)]"
               )}
-              title="نشان‌گذاری سؤال"
+              title="نشان‌گذاری سؤال برای مرور بعدی"
             >
-              <Bookmark size={16} fill={isDoubtful ? "currentColor" : "none"} />
+              <Bookmark size={16} fill={isFlagged ? "currentColor" : "none"} />
             </button>
           </div>
 
@@ -1656,7 +1741,7 @@ export function SessionPlayer() {
                   isCorrect
                     ? "border-emerald-500 bg-[var(--pastel-green-soft)] text-emerald-950 dark:text-emerald-100 shadow-[3px_3px_0px_#10b981]"
                     : isUserWrong
-                    ? "border-rose-500 bg-[var(--pastel-red-soft)] text-rose-950 dark:text-rose-100 shadow-[3px_3px_0px_#f43f5e]"
+                    ? "border-red-500 bg-[var(--pastel-red-soft)] text-red-950 dark:text-red-100 shadow-[3px_3px_0px_#ef4444]"
                     : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)] opacity-60"
                 )}
               >
@@ -1667,7 +1752,7 @@ export function SessionPlayer() {
                     isCorrect
                       ? "bg-emerald-500 text-white border-emerald-600"
                       : isUserWrong
-                      ? "bg-rose-500 text-white border-rose-600"
+                      ? "bg-red-500 text-white border-red-600"
                       : "bg-[var(--surface)] text-[var(--muted)] border-[var(--line)]"
                   )}
                 >
@@ -1678,8 +1763,8 @@ export function SessionPlayer() {
                 <div
                   className={cn(
                     "flex-1 text-right font-bold",
-                    fontSize === "large" ? "text-sm sm:text-base" : fontSize === "xlarge" ? "text-base sm:text-lg" : "text-xs sm:text-sm",
-                    isCorrect ? "text-emerald-950 dark:text-emerald-100 font-black" : isUserWrong ? "text-rose-950 dark:text-rose-100 font-black" : "text-[var(--ink)]"
+                    fontSize === "large" ? "text-base sm:text-lg" : fontSize === "xlarge" ? "text-lg sm:text-xl" : "text-sm sm:text-base",
+                    isCorrect ? "text-emerald-950 dark:text-emerald-100 font-black" : isUserWrong ? "text-red-950 dark:text-red-100 font-black" : "text-[var(--ink)]"
                   )}
                 >
                   <ContentRenderer blocks={option.content} />
@@ -1693,7 +1778,7 @@ export function SessionPlayer() {
                   </span>
                 )}
                 {isUserWrong && (
-                  <span className="px-2.5 py-1 rounded-xl bg-rose-600 text-white text-[10px] sm:text-xs font-black shrink-0 flex items-center gap-1 shadow-sm">
+                  <span className="px-2.5 py-1 rounded-xl bg-red-600 text-white text-[10px] sm:text-xs font-black shrink-0 flex items-center gap-1 shadow-sm">
                     <X size={14} className="stroke-[3]" />
                     <span>انتخاب شما</span>
                   </span>
@@ -1736,7 +1821,7 @@ export function SessionPlayer() {
               <div
                 className={cn(
                   "flex-1 text-right font-bold text-[var(--ink)]",
-                  fontSize === "large" ? "text-sm sm:text-base" : fontSize === "xlarge" ? "text-base sm:text-lg" : "text-xs sm:text-sm"
+                  fontSize === "large" ? "text-base sm:text-lg" : fontSize === "xlarge" ? "text-lg sm:text-xl" : "text-sm sm:text-base"
                 )}
               >
                 <ContentRenderer blocks={option.content} />
@@ -1804,7 +1889,7 @@ export function SessionPlayer() {
                 <Check size={16} className="stroke-[3]" />
               </div>
               <div>
-                <span className="block font-black text-xs sm:text-sm">پاسخ شما کاملاً درست بود! 🎉</span>
+                <span className="block font-black text-xs sm:text-sm">پاسخ شما کاملاً درست بود!</span>
                 <span className="text-[10px] sm:text-[11px] opacity-85 font-medium">تسلط خوبی روی این تست دارید. تحلیل و نکته تستی زیر را هم مرور کنید.</span>
               </div>
             </div>
@@ -1814,7 +1899,7 @@ export function SessionPlayer() {
                 <AlertCircle size={16} />
               </div>
               <div>
-                <span className="block font-black text-xs sm:text-sm">پاسخ نادرست است! ⚠️</span>
+                <span className="block font-black text-xs sm:text-sm">پاسخ نادرست است!</span>
                 <span className="text-[10px] sm:text-[11px] opacity-85 font-medium">ایده، دام تستی و تحلیل ۳ گامی زیر را با دقت بخوانید.</span>
               </div>
             </div>
@@ -1835,16 +1920,15 @@ export function SessionPlayer() {
         </div>
       )}
 
-      {/* Confidence Action Pills & Clear Selection (only when not yet revealed): شک دارم (⭕) | حدس زدم (⚡) | پاک کردن (↺) */}
+      {/* Confidence Action Pills & Clear Selection (only when not yet revealed): شک دارم | حدس زدم | پاک کردن */}
       {!isCurrentRevealed && (
         <div className="flex items-center gap-2.5 pt-1">
-          {/* 1. شک دارم ⭕ */}
+          {/* 1. شک دارم */}
           <button
             type="button"
             onClick={() => {
               const nextConf = current?.confidence === "doubtful" ? (current?.selectedOptionId ? "sure" : null) : "doubtful";
               save(current?.selectedOptionId ?? null, nextConf, index);
-              toggleFlag(index);
             }}
             className={cn(
               "py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-1.5 text-xs font-black transition-all cursor-pointer",
@@ -1854,11 +1938,11 @@ export function SessionPlayer() {
             )}
             title="اگر بین دو یا سه گزینه تردید دارید"
           >
-            <span className="text-sm">⭕</span>
+            <HelpCircle size={15} />
             <span>{current?.confidence === "doubtful" ? "با شک پاسخ دادم" : "شک دارم"}</span>
           </button>
 
-          {/* 2. حدس زدم ⚡ */}
+          {/* 2. حدس زدم */}
           <button
             type="button"
             onClick={() => {
@@ -1873,7 +1957,7 @@ export function SessionPlayer() {
             )}
             title="اگر بدون اطمینان علمی و صرفاً بر پایه شانس گزینه زده‌اید"
           >
-            <span className="text-sm">⚡</span>
+            <Zap size={15} />
             <span>{current?.confidence === "guess" ? "حدسی پاسخ دادم" : "حدس زدم"}</span>
           </button>
 
@@ -1926,7 +2010,7 @@ export function SessionPlayer() {
             className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm flex items-center justify-center gap-2 font-black shadow-[3px_3px_0px_var(--neo-shadow)]"
           >
             <Sparkles size={18} />
-            <span>ثبت و بررسی پاسخ 🔍</span>
+            <span>ثبت و بررسی پاسخ</span>
           </button>
         ) : index < totalQuestions - 1 ? (
           <button
@@ -1946,7 +2030,7 @@ export function SessionPlayer() {
               disabled={pending}
               className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm flex items-center justify-center gap-2 font-black"
             >
-              <span>{pending ? "در حال دریافت سؤال بعدی…" : "سؤال بعدی (پیوسته)"}</span>
+              <span>{pending ? "در حال دریافت سؤال بعدی…" : "سؤال بعدی"}</span>
               <ChevronLeft size={18} />
             </button>
             <button
@@ -1966,7 +2050,7 @@ export function SessionPlayer() {
             className="py-3.5 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-green)] text-[var(--ink-on-color)] text-xs sm:text-sm font-black shadow-[3px_3px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-2 transition-all cursor-pointer"
           >
             <CheckCircle2 size={18} />
-            <span>{isCurrentRevealed ? "مشاهده کارنامه نهایی 🏆" : "پایان و ثبت آزمون"}</span>
+            <span>تحویل آزمون</span>
           </button>
         )}
       </div>
@@ -1991,12 +2075,18 @@ export function SessionPlayer() {
               {sData.questions.filter((item) => !item.selectedOptionId).length} سؤال بی‌پاسخ مانده است. نحوهٔ ثبت جلسه را انتخاب کنید:
             </p>
 
+            {error && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs font-bold text-right">
+                {error}
+              </div>
+            )}
+
             <div className="space-y-2.5 pt-1 text-right">
               {/* Option 1: ذخیره و بعداً ادامه می‌دهم */}
               <button
                 type="button"
-                className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-cream)] text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer"
-                disabled={pending}
+                className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-cream)] text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
+                disabled={pending || isFinishing}
                 onClick={async () => {
                   await pause();
                   setShowFinishConfirm(false);
@@ -2008,45 +2098,29 @@ export function SessionPlayer() {
                 </div>
                 <div>
                   <strong className="block text-xs font-black text-[var(--ink)]">ذخیره و خروج (ادامه بعداً)</strong>
-                  <span className="text-[11px] text-[var(--muted)] font-medium">وضعیت آزمون ذخیره شده و بعداً از همین سؤال ادامه می‌دهید.</span>
+                  <span className="text-[11px] text-[var(--muted)] font-medium">آزمون ذخیره می‌شود و بعداً از همین سؤال ادامه می‌دهی.</span>
                 </div>
               </button>
 
-              {/* Option 2: همین‌جا تمام کن (ارزیابی سؤالات دیده‌شده) */}
+              {/* Final submit — unanswered questions count as skipped (نزده).
+                  Previously two visually different buttons ran the identical
+                  finish() code path and implied different scoring; merged. */}
               <button
                 type="button"
-                className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer"
-                disabled={pending}
-                onClick={async () => {
-                  await finish();
-                  setShowFinishConfirm(false);
-                }}
-              >
-                <div className="w-8 h-8 rounded-xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0">
-                  <Check size={16} />
-                </div>
-                <div>
-                  <strong className="block text-xs font-black text-[var(--ink)]">همین‌جا تمام کن (محاسبه عملکرد تا اینجا)</strong>
-                  <span className="text-[11px] text-[var(--muted)] font-medium">آزمون به پایان می‌رسد و کارنامه سؤالات فعلی محاسبه می‌شود.</span>
-                </div>
-              </button>
-
-              {/* Option 3: تحویل کامل کنکوری */}
-              <button
-                type="button"
-                className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-green)] text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer"
-                disabled={pending}
-                onClick={async () => {
-                  await finish();
-                  setShowFinishConfirm(false);
-                }}
+                className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-green)] text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
+                disabled={pending || isFinishing}
+                onClick={() => void finish()}
               >
                 <div className="w-8 h-8 rounded-xl bg-white border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0 text-emerald-800">
-                  <CheckCircle2 size={16} />
+                  {isFinishing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
                 </div>
                 <div>
-                  <strong className="block text-xs font-black">تحویل کامل کنکوری</strong>
-                  <span className="text-[11px] opacity-90 font-medium">تمام سؤالات باقیمانده به عنوان سفید/نزده در کارنامه لحاظ می‌شوند.</span>
+                  <strong className="block text-xs font-black">
+                    {isFinishing ? "در حال ثبت و نهایی‌سازی…" : "تحویل آزمون و مشاهده کارنامه"}
+                  </strong>
+                  <span className="text-[11px] opacity-90 font-medium">
+                    آزمون تمام می‌شود؛ {sData.questions.filter((item) => !item.selectedOptionId).length > 0 ? "سؤالات بی‌پاسخ نزده لحاظ می‌شوند." : "همهٔ سؤالات پاسخ داده شده‌اند."}
+                  </span>
                 </div>
               </button>
             </div>

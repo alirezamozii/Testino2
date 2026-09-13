@@ -160,7 +160,7 @@ export function SubjectBrowser() {
 
           <Link
             href={`/sessions/new/?subject=${encodeURIComponent(name)}`}
-            className="btn-primary-orange py-2 px-4 text-xs font-black flex items-center gap-1.5 shadow-sm"
+            className="btn-neo-orange py-2 px-4 text-xs font-black flex items-center gap-1.5"
           >
             <Play size={14} className="fill-current" />
             <span>شروع آزمون از این درس</span>

@@ -51,20 +51,20 @@ export function SessionList() {
           <h1 className="text-xl sm:text-2xl font-black text-[var(--ink)]">جلسه‌های آزمون</h1>
           <p className="text-xs text-[var(--muted)] mt-0.5">تاریخچه و ادامه آزمون‌های ثبت‌شده</p>
         </div>
-        <div className="flex items-center gap-2"><Link className="btn-secondary-clean py-2.5 px-3 text-xs font-black" href="/history/"><History size={16} /><span className="hidden sm:inline">تاریخچه</span></Link><Link className="btn-primary-orange py-2.5 px-4 text-xs font-black shadow-lg" href="/sessions/new/"><Plus size={16} /><span>آزمون جدید</span></Link></div>
+        <div className="flex items-center gap-2"><Link className="btn-neo py-2.5 px-3 text-xs font-black" href="/history/"><History size={16} /><span className="hidden sm:inline">تاریخچه</span></Link><Link className="btn-neo-orange py-2.5 px-4 text-xs font-black" href="/sessions/new/"><Plus size={16} /><span>آزمون جدید</span></Link></div>
       </div>
 
       <div className="testino-card p-0 overflow-hidden">
         {database.status === "loading" || profiles.isLoading ? (
           <LoadingState label="در حال بارگذاری اطلاعات آزمون…" />
         ) : !profile ? (
-          <EmptyState icon={AlertCircle} tone="yellow" title="پروفایل آزمونی پیدا نشد" description="برای ساخت جلسه، ابتدا درس‌ها و هدف خودت را ثبت کن." action={<Link className="btn-primary-orange" href="/onboarding/">ساخت پروفایل</Link>} />
+          <EmptyState icon={AlertCircle} tone="yellow" title="پروفایل آزمونی پیدا نشد" description="برای ساخت جلسه، ابتدا درس‌ها و هدف خودت را ثبت کن." action={<Link className="btn-neo-orange px-5 py-2.5 text-xs font-black" href="/onboarding/">ساخت پروفایل</Link>} />
         ) : sessions.isLoading ? (
           <LoadingState label="در حال بارگذاری جلسه‌ها…" />
         ) : sessions.isError ? (
           <ErrorState message="جلسه‌ها خوانده نشدند." retry={() => void sessions.refetch()} />
         ) : !sessions.data?.length ? (
-          <EmptyState icon={Play} tone="blue" title="هنوز آزمونی ساخته نشده" description="از سؤال‌های آمادهٔ بانک، اولین جلسه را بساز." action={<Link className="btn-primary-orange" href="/sessions/new/">شروع اولین آزمون</Link>} />
+          <EmptyState icon={Play} tone="blue" title="هنوز آزمونی ساخته نشده" description="از سؤال‌های آمادهٔ بانک، اولین جلسه را بساز." action={<Link className="btn-neo-orange px-5 py-2.5 text-xs font-black" href="/sessions/new/">شروع اولین آزمون</Link>} />
         ) : (
           <div className="divide-y divide-[var(--line)]">
             {sessions.data.map((session) => {

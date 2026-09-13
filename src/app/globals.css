@@ -513,12 +513,45 @@ textarea { resize: vertical; }
 input:hover, textarea:hover, select:hover { border-color: var(--line-strong); }
 input:focus, textarea:focus, select:focus { border-color: var(--brand-blue); outline: 3px solid rgb(59 130 246 / .12); }
 
-.button, .btn-primary-orange, .btn-secondary-clean { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: var(--btn-radius); padding: 11px 19px; cursor: pointer; font-weight: 850; border: 1.5px solid transparent; transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
-/* Primary action = brand orange (accent-primary) so every CTA matches the Testino identity */
-.button, .btn-primary-orange { color: #fff; background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-hover)); box-shadow: 0 8px 18px rgb(249 87 33 / .25); }
-.button:hover, .btn-primary-orange:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgb(249 87 33 / .3); }
-.button.secondary, .btn-secondary-clean { color: var(--ink); background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-sm); }
-.button:disabled, .btn-primary-orange:disabled, .btn-secondary-clean:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.button, .btn-primary-orange, .btn-secondary-clean {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--btn-radius);
+  padding: 11px 19px;
+  cursor: pointer;
+  font-weight: 850;
+  border: 2px solid var(--line-strong);
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+}
+/* Primary action = brand orange (accent-primary) with solid crisp neo-shadow (no fuzzy colored glow) */
+.button, .btn-primary-orange {
+  color: var(--accent-primary-ink) !important;
+  background: var(--accent-primary) !important;
+  box-shadow: var(--shadow-sm);
+}
+.button:hover, .btn-primary-orange:hover {
+  background: var(--accent-primary-hover) !important;
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow);
+}
+.button:active, .btn-primary-orange:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px var(--line) !important;
+}
+.button.secondary, .btn-secondary-clean {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-sm);
+}
+.button:disabled, .btn-primary-orange:disabled, .btn-secondary-clean:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  transform: none;
+}
 
 .testino-chip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft); font-size: 11px; font-weight: 800; }
 .ui-icon-tile { width: 44px; height: 44px; flex: 0 0 auto; display: inline-grid; place-items: center; border-radius: 14px; }
@@ -702,7 +735,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-blue); out
 
 .option-card-testino { width: 100%; min-height: 58px; display: flex; align-items: center; gap: 13px; padding: 12px 15px; color: var(--ink); background: var(--surface); border: 1.5px solid var(--line); border-radius: 16px; cursor: pointer; text-align: right; transition: .16s ease; }
 .option-card-testino:hover { border-color: var(--brand-blue); background: var(--info-bg); }
-.option-card-testino.selected { border: 2px solid var(--brand-green); background: color-mix(in srgb, var(--brand-green) 8%, var(--surface)); box-shadow: 0 7px 20px rgb(34 197 94 / .13); }
+.option-card-testino.selected { border: 2px solid var(--brand-green); background: color-mix(in srgb, var(--brand-green) 8%, var(--surface)); box-shadow: 2px 2px 0px var(--brand-green); }
 .option-letter-badge { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--line); font-size: 13px; font-weight: 900; }
 .option-card-testino.selected .option-letter-badge { color: #fff; background: var(--brand-green); border-color: var(--brand-green); }
 .katex-display { margin: 12px 0 !important; direction: ltr !important; text-align: center !important; overflow-x: auto; padding: 6px 0; }
@@ -1106,18 +1139,19 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-blue); out
   border-radius: 9999px;
   font-weight: 900;
   font-size: 14px;
-  border: none;
+  border: 2px solid var(--line-strong);
   cursor: pointer;
-  box-shadow: 0 8px 20px rgb(255 107 61 / 0.28);
+  box-shadow: var(--shadow-sm);
   transition: all 0.2s ease;
 }
 .btn-pill-orange:hover {
   background: #ED5427;
-  transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgb(255 107 61 / 0.35);
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow);
 }
 .btn-pill-orange:active {
-  transform: translateY(0);
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px var(--line) !important;
 }
 
 .btn-pill-white {
@@ -1399,7 +1433,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-blue); out
   background: #F59E0B;
   color: #ffffff;
   border-color: #D97706;
-  box-shadow: 0 6px 16px rgb(245 158 11 / 0.3);
+  box-shadow: 2px 2px 0px #b45309;
 }
 
 .btn-confidence-guess {
@@ -1424,7 +1458,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-blue); out
   background: #0284C7;
   color: #ffffff;
   border-color: #0369A1;
-  box-shadow: 0 6px 16px rgb(2 132 199 / 0.3);
+  box-shadow: 2px 2px 0px #0284c7;
 }
 
 /* Question Navigator Grid (Sheet 10/20) */

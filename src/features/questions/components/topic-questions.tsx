@@ -79,7 +79,7 @@ export function TopicQuestions({ subject, topic }: { subject: string; topic: str
 
         <Link
           href={`/sessions/new/?subject=${encodeURIComponent(subject)}&topic=${encodeURIComponent(topic)}`}
-          className="btn-primary-orange py-2 px-4 text-xs font-black flex items-center gap-1.5 shadow-sm"
+          className="btn-neo-orange py-2 px-4 text-xs font-black flex items-center gap-1.5"
         >
           <Play size={14} className="fill-current" />
           <span>شروع آزمون از این مبحث</span>
@@ -141,7 +141,7 @@ export function TopicQuestions({ subject, topic }: { subject: string; topic: str
                 setSelectedOptionId(null);
                 setHasRevealedAnswer(false);
               }}
-              className="btn-primary-orange py-2.5 px-5 text-xs font-black shadow-sm flex items-center gap-1.5"
+              className="btn-neo-orange py-2.5 px-5 text-xs font-black flex items-center gap-1.5"
             >
               <Sparkles size={16} />
               <span>شروع حل فوری سؤال به سؤال</span>
@@ -379,7 +379,7 @@ export function TopicQuestions({ subject, topic }: { subject: string; topic: str
                   type="button"
                   disabled={!selectedOptionId}
                   onClick={() => setHasRevealedAnswer(true)}
-                  className="btn-primary-orange py-2 px-5 text-xs font-black shadow-sm disabled:opacity-40"
+                  className="btn-neo-orange py-2 px-5 text-xs font-black disabled:opacity-40"
                 >
                   ثبت و نمایش پاسخ
                 </button>
@@ -392,7 +392,7 @@ export function TopicQuestions({ subject, topic }: { subject: string; topic: str
                     setSelectedOptionId(null);
                     setHasRevealedAnswer(false);
                   }}
-                  className="btn-primary-orange py-2 px-5 text-xs font-black shadow-sm flex items-center gap-1 disabled:opacity-40"
+                  className="btn-neo-orange py-2 px-5 text-xs font-black flex items-center gap-1 disabled:opacity-40"
                 >
                   <span>سؤال بعدی</span>
                   <ArrowLeft size={14} />
