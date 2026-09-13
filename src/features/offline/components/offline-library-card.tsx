@@ -95,7 +95,7 @@ export function OfflineLibraryCard({
         </button>
       </div>
 
-      <div className="grid gap-2.5 sm:grid-cols-2">
+      <div className="w-full space-y-2.5">
         {subjects.map((subject) => {
           const item = state.data?.find((entry) => entry.subjectId === subject.id);
           const checked = enabledIds.has(subject.id);
@@ -103,10 +103,10 @@ export function OfflineLibraryCard({
             <label
               key={subject.id}
               className={cn(
-                "flex items-center justify-between gap-3 rounded-2xl border-2 p-3 transition-all cursor-pointer select-none",
+                "w-full flex items-center justify-between gap-3 rounded-2xl border-2 p-3 transition-all cursor-pointer select-none",
                 checked
                   ? "border-[var(--line-strong)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                  : "border-[var(--line-strong)]/40 bg-[var(--surface-2)] opacity-80 hover:opacity-100"
+                  : "border-[var(--line-strong)]/40 bg-[var(--surface-2)] opacity-90 hover:opacity-100"
               )}
             >
               <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -118,10 +118,10 @@ export function OfflineLibraryCard({
                   className="w-4 h-4 rounded border-2 border-[var(--line-strong)] text-sky-600 focus:ring-sky-500 shrink-0 cursor-pointer accent-sky-600"
                 />
                 <div className="min-w-0 flex-1">
-                  <span className="block text-xs font-black text-[var(--ink)] leading-snug break-words">
+                  <strong className="block text-xs sm:text-sm font-black text-[var(--ink)] leading-snug break-words">
                     {subject.name}
-                  </span>
-                  <span className="block text-[10px] font-bold text-[var(--muted)] mt-0.5">
+                  </strong>
+                  <span className="block text-[10px] sm:text-[11px] font-bold text-[var(--muted)] mt-0.5">
                     {state.isLoading
                       ? "در حال بررسی…"
                       : item?.status === "ready"
@@ -132,14 +132,14 @@ export function OfflineLibraryCard({
                   </span>
                 </div>
               </div>
-              <div className="shrink-0">
+              <div className="shrink-0 flex items-center">
                 {item?.status === "ready" ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 px-2 py-0.5 rounded-lg">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 px-2 py-1 rounded-lg">
                     <CheckCircle2 size={13} className="shrink-0" />
-                    <span>آماده</span>
+                    <span>آماده آفلاین</span>
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--muted)] bg-[var(--surface-3)] px-2 py-0.5 rounded-lg border border-[var(--line-strong)]/20">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--muted)] bg-[var(--surface-3)] px-2 py-1 rounded-lg border border-[var(--line-strong)]/20">
                     <WifiOff size={12} className="shrink-0" />
                     <span>آفلاین نیست</span>
                   </span>
