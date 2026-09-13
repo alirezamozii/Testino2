@@ -24,6 +24,7 @@ import {
 import { useDatabase } from "@/providers/database-provider";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { withTimeout } from "@/lib/with-timeout";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { calculateWeightedTarget } from "@/features/profiles/domain/score-groups";
 import { canonicalizeSubject, isSameSubject } from "@/features/questions/domain/subject-registry";
@@ -35,6 +36,9 @@ import {
   signOut,
   getCurrentAuthUser,
 } from "@/platform/auth/supabase-client";
+
+/** Auth requests must never hang the onboarding spinner forever. */
+const AUTH_REQUEST_TIMEOUT_MS = 15_000;
 
 export function ProfileOnboarding() {
   const { db } = useDatabase();
@@ -76,6 +80,7 @@ export function ProfileOnboarding() {
   const [newSubjTarget, setNewSubjTarget] = useState(70);
   const [newSubjQuestions, setNewSubjQuestions] = useState(25);
   const [isGroupMergeEnabled, setIsGroupMergeEnabled] = useState(false);
+  const [showGroupMerge, setShowGroupMerge] = useState(false);
   const [newSubjScoreGroup, setNewSubjScoreGroup] = useState("");
   const [selectedExistingGroup, setSelectedExistingGroup] = useState("");
   const [subjectError, setSubjectError] = useState("");
@@ -87,6 +92,14 @@ export function ProfileOnboarding() {
   const [popularSubjects, setPopularSubjects] = useState<string[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  const googlePollRef = useRef<number | null>(null);
+
+  // Clear any running Google session polling when the page unmounts.
+  useEffect(() => {
+    return () => {
+      if (googlePollRef.current) window.clearInterval(googlePollRef.current);
+    };
+  }, []);
 
   // Step 4: Study Timeline
   const [timeRemainingMode, setTimeRemainingMode] = useState<"preset" | "custom">("preset");
@@ -194,13 +207,19 @@ export function ProfileOnboarding() {
     setIsAuthLoading(true);
     const finalName = userName.trim() || cleanEmail.split("@")[0] || "دانش‌آموز";
 
+    // Network calls are timeout-bounded: a hung auth request must release the
+    // button spinner (isAuthLoading) instead of blocking onboarding forever.
     let cloudSynced = false;
     let authenticatedUserId = "";
     const config = getSupabaseConfig();
 
     if (config.isConfigured) {
       try {
-        const signInResult = await signInWithEmail(cleanEmail, passwordInput);
+        const signInResult = await withTimeout(
+          signInWithEmail(cleanEmail, passwordInput),
+          AUTH_REQUEST_TIMEOUT_MS,
+          "ورود با ایمیل"
+        );
         let authResult = signInResult;
         if (!authResult.user) {
           const signInErrMsg = authResult.error?.message || "";
@@ -213,7 +232,11 @@ export function ProfileOnboarding() {
             lowerMsg.includes("invalid password")
           ) {
             // Attempt signup in case this is a brand new user
-            const signUpResult = await signUpWithEmail(cleanEmail, passwordInput);
+            const signUpResult = await withTimeout(
+              signUpWithEmail(cleanEmail, passwordInput),
+              AUTH_REQUEST_TIMEOUT_MS,
+              "ساخت حساب"
+            );
             if (signUpResult.user) {
               authResult = signUpResult;
             } else {
@@ -254,14 +277,19 @@ export function ProfileOnboarding() {
       }
     }
 
-    // Always register locally in SQLite & memory (Offline-First)
+    // Always register locally in SQLite & memory (Offline-First).
+    // When the cloud is unreachable or unconfigured we still keep a local
+    // owner so onboarding can complete; sync links it later.
     try {
-      if (!authenticatedUserId) throw new Error("ورود ابری کامل نشد؛ برای همگام‌سازی اینترنت را بررسی کنید.");
-      await db.linkAuthenticatedAccount(authenticatedUserId, finalName);
+      if (authenticatedUserId) {
+        await db.linkAuthenticatedAccount(authenticatedUserId, finalName);
+      } else {
+        await db.saveOwner(finalName, "local");
+      }
       await queryClient.invalidateQueries({ queryKey: ["owner"] });
       await queryClient.invalidateQueries({ queryKey: ["owner-shell"] });
 
-      if (!cloudSynced) {
+      if (!cloudSynced && !authenticatedUserId && config.isConfigured) {
         localStorage.setItem("testino_pending_auth", JSON.stringify({
           email: cleanEmail,
           password: passwordInput,
@@ -293,19 +321,77 @@ export function ProfileOnboarding() {
 
     setIsAuthLoading(true);
     try {
+      // On native Android the WebView origin (https://localhost) is NOT a
+      // reachable redirect target — pass undefined so signInWithGoogle uses
+      // the app's custom scheme (app.testino.mobile://auth/callback).
+      const isNative =
+        Boolean((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.());
       const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const redirectUrl = origin ? `${origin}/onboarding/` : undefined;
-      const { data, error: authError } = await signInWithGoogle(redirectUrl);
+      const redirectUrl = !isNative && origin ? `${origin}/auth/callback` : undefined;
+      const { data, error: authError } = await withTimeout(
+        signInWithGoogle(redirectUrl),
+        AUTH_REQUEST_TIMEOUT_MS,
+        "شروع ورود با گوگل"
+      );
       if (authError) {
         setError(authError.message);
         setIsAuthLoading(false);
       } else if (data?.url) {
-        window.location.href = data.url;
+        // Google blocks OAuth inside iframes (X-Frame-Options) — the preview
+        // pane cannot navigate to accounts.google.com. Open a top-level tab;
+        // the session lands in shared localStorage and we poll for it here.
+        // NOTE: do NOT pass "noopener" — per spec window.open then ALWAYS
+        // returns null, which made the blocked-popup fallback fire on every
+        // successful popup and killed the session polling below.
+        const opened = window.open(data.url, "_blank");
+        if (!opened) {
+          // Popup genuinely blocked — fall back to same-tab navigation.
+          window.location.assign(data.url);
+          return;
+        }
+        setError("پنجرهٔ ورود گوگل در تب جدید باز شد. پس از تأیید، به‌صورت خودکار به این صفحه بازمی‌گردید.");
+        startGoogleSessionPolling();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "خطا در برقراری اتصال با گوگل");
       setIsAuthLoading(false);
     }
+  }
+
+  /**
+   * After the OAuth tab flow, the session is persisted by supabase-js in
+   * shared localStorage. Poll briefly so this tab picks it up without a
+   * manual reload.
+   */
+  function startGoogleSessionPolling() {
+    if (googlePollRef.current) window.clearInterval(googlePollRef.current);
+    let elapsed = 0;
+    googlePollRef.current = window.setInterval(async () => {
+      elapsed += 1500;
+      if (elapsed > 120000) {
+        if (googlePollRef.current) window.clearInterval(googlePollRef.current);
+        googlePollRef.current = null;
+        setIsAuthLoading(false);
+        return;
+      }
+      try {
+        const user = await getCurrentAuthUser();
+        if (user?.email) {
+          if (googlePollRef.current) window.clearInterval(googlePollRef.current);
+          googlePollRef.current = null;
+          setIsAuthenticated(true);
+          setAuthEmail(user.email);
+          const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
+          setUserName((prev) => prev || metaName || user.email!.split("@")[0]);
+          const avatar = user.user_metadata?.avatar_url as string | undefined;
+          if (avatar) setAvatarUrl(avatar);
+          setIsAuthLoading(false);
+          setError("");
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 1500);
   }
 
   async function handleDisconnectAuth() {
@@ -507,10 +593,23 @@ export function ProfileOnboarding() {
         throw new Error("پروفایل روی حافظهٔ پایدار تأیید نشد. دوباره تلاش کنید.");
       }
 
-      await queryClient.invalidateQueries({ queryKey: ["owner"] });
-      await queryClient.invalidateQueries({ queryKey: ["owner-shell"] });
-      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
-      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      // Cache refreshes must NOT gate navigation: an awaited invalidate could
+      // hang on a busy DB and strand the wizard on step 4. The dashboard
+      // refetches on mount anyway.
+      void queryClient
+        .invalidateQueries({ queryKey: ["owner"] })
+        .then(() => queryClient.invalidateQueries({ queryKey: ["owner-shell"] }))
+        .then(() => queryClient.invalidateQueries({ queryKey: ["profiles"] }))
+        .then(() => queryClient.invalidateQueries({ queryKey: ["dashboard"] }))
+        .catch(() => undefined);
+
+      // Mark onboarding complete so splash/redirect logic treats the user
+      // as fully registered on future visits.
+      try {
+        localStorage.setItem("testino_onboarding_completed", "true");
+      } catch {
+        // ignore
+      }
 
       router.push("/");
       router.refresh();
@@ -837,17 +936,19 @@ export function ProfileOnboarding() {
                                 required
                                 value={passwordInput}
                                 onChange={(e) => setPasswordInput(e.target.value)}
-                                placeholder="حداقل ۶ کاراکتر"
+                                placeholder="••••••"
                                 className="w-full bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2.5 text-xs font-bold text-[var(--ink)] text-left dir-ltr focus:outline-none focus:ring-2 focus:ring-[var(--testino-orange)] pl-10"
                               />
                               <button
                                 type="button"
                                 onClick={() => setShowPassword(!showPassword)}
                                 className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--ink)]"
+                                title={showPassword ? "پنهان کردن رمز" : "نمایش رمز"}
                               >
                                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                               </button>
                             </div>
+                            <span className="block text-[10px] font-bold text-[var(--muted)]">حداقل ۶ کاراکتر</span>
                           </div>
                           <button
                             type="submit"
@@ -861,7 +962,7 @@ export function ProfileOnboarding() {
                               </>
                             ) : (
                               <>
-                                <span>ثبت حساب و رفتن به مرحله بعد</span>
+                                <span>ادامه</span>
                                 <ArrowLeft size={16} />
                               </>
                             )}
@@ -979,10 +1080,10 @@ export function ProfileOnboarding() {
                 <div className="p-4 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line)] space-y-3">
                   <div className="flex items-center justify-between">
                     <strong className="text-xs font-black text-[var(--ink)] block">
-                      + افزودن درس جدید به آزمون:
+                      + افزودن درس جدید:
                     </strong>
                     <span className="text-[10px] font-bold text-[var(--muted)]">
-                      جستجو خودکار در بانک دروس
+                      جستجو در بانک دروس
                     </span>
                   </div>
 
@@ -1067,7 +1168,18 @@ export function ProfileOnboarding() {
                     </div>
                   </div>
 
-                  {/* Checkbox-based Subject Merging & Aggregate Score Group UI */}
+                  {/* Shared score group — collapsed by default; only for users whose
+                      subjects share one coefficient (e.g. econ micro+macro). */}
+                  {!showGroupMerge ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowGroupMerge(true)}
+                      className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+                    >
+                      <Link2 size={13} className="text-[var(--testino-orange)]" />
+                      <span>این درس با درس دیگری یک گروه است؟ (اختیاری — برای مثال اقتصاد خرد و کلان)</span>
+                    </button>
+                  ) : (
                   <div className="p-3 rounded-xl bg-[var(--surface)] border-2 border-[var(--line)] space-y-2.5">
                     <label className="flex items-center gap-2.5 cursor-pointer select-none">
                       <input
@@ -1080,18 +1192,18 @@ export function ProfileOnboarding() {
                             setNewSubjScoreGroup("");
                           }
                         }}
-                        className="w-4 h-4 rounded border-2 border-[var(--line)] text-[var(--testino-orange)] focus:ring-[var(--testino-orange)] cursor-pointer"
+                        className="w-4 h-4 shrink-0 rounded border-2 border-[var(--line)] text-[var(--testino-orange)] focus:ring-[var(--testino-orange)] cursor-pointer"
                       />
-                      <span className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5">
-                        <Link2 size={13} className="text-[var(--testino-orange)]" />
-                        <span>ادغام در گروه محاسباتی مشترک (مانند اقتصاد خرد و کلان، ریاضی و آمار)</span>
+                      <span className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5 min-w-0">
+                        <Link2 size={13} className="text-[var(--testino-orange)] shrink-0" />
+                        <span>ادغام در گروه مشترک (ضریب گروه فقط یک‌بار حساب می‌شود)</span>
                       </span>
                     </label>
 
                     {isGroupMergeEnabled && (
                       <div className="space-y-2 pt-1.5 border-t border-[var(--line)]/15 animate-in fade-in-50 duration-200">
                         <p className="text-[10px] text-[var(--muted)] font-bold">
-                          درس‌های ادغام‌شده جداگانه تمرین و آزمون داده می‌شوند اما ضریب گروه در درصد کل آزمون فقط یک‌بار اعمال می‌گردد.
+                          درس‌های گروه جدا آزمون داده می‌شوند، ولی ضریب گروه فقط یک‌بار در میانگین کل لحاظ می‌شود.
                         </p>
 
                         {/* Existing active subjects to merge with */}
@@ -1170,6 +1282,7 @@ export function ProfileOnboarding() {
                       </div>
                     )}
                   </div>
+                  )}
 
                   {/* Community / Popular Subjects Chips */}
                   {popularSubjects.length > 0 && (
@@ -1177,7 +1290,7 @@ export function ProfileOnboarding() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5 text-[11px] font-black text-[var(--muted)]">
                           <Sparkles size={12} className="text-amber-500" />
-                          <span>دروس پیشنهادی و پرکاربرد (کلیک جهت انتخاب و درج در فرم):</span>
+                          <span>درس‌های پرکاربرد (برای درج کلیک کنید):</span>
                         </div>
                         <span className="text-[10px] text-[var(--muted)] font-bold">
                           {popularSubjects.length} درس

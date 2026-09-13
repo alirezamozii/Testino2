@@ -33,3 +33,9 @@ android/local.properties
 *.rpm
 *.AppImage
 
+release.keystore
+*.jks
+*.keystore
+
+# TS incremental build info
+tsconfig.tsbuildinfo

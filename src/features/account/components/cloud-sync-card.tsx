@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import {
   Cloud,
   CloudOff,
@@ -20,13 +20,15 @@ import {
 } from "@/platform/auth/supabase-client";
 import { useSync } from "@/providers/sync-provider";
 
+// Hydration gate: flips to true on the client, false on the server — no effect needed.
+const mountedSubscribe = () => () => {};
+const useMounted = () => useSyncExternalStore(mountedSubscribe, () => true, () => false);
+
 export function CloudSyncCard() {
   const { status: syncStatus, isOnline, isSyncing, lastReport, pendingCount, syncNow } = useSync();
   const [config] = useState(() => getSupabaseConfig());
   const [authUser, setAuthUser] = useState<User | null>(null);
-
-  // Feedback state
-  const [actionFeedback, setActionFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const mounted = useMounted();
 
   useEffect(() => {
     let active = true;
@@ -43,6 +45,9 @@ export function CloudSyncCard() {
       unsubscribe();
     };
   }, []);
+
+  // Feedback state
+  const [actionFeedback, setActionFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const handleManualSync = async () => {
     setActionFeedback(null);
@@ -92,7 +97,7 @@ export function CloudSyncCard() {
       <div className="flex items-center justify-between border-b-2 border-[var(--line-strong)]/20 pb-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border-2 border-[var(--line-strong)] text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
-            {isOnline && config.isConfigured ? <Cloud size={20} /> : <CloudOff size={20} />}
+            {mounted && isOnline && config.isConfigured ? <Cloud size={20} /> : <CloudOff size={20} />}
           </div>
           <div>
             <h3 className="text-sm font-black text-[var(--ink)]">حساب ابری و همگام‌سازی (Supabase)</h3>
@@ -137,7 +142,9 @@ export function CloudSyncCard() {
         <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
           <span className="text-[10px] font-bold text-[var(--muted)] block">وضعیت اتصال</span>
           <span className="text-sm font-black text-[var(--ink)] mt-0.5 block">
-            {!isOnline
+            {!mounted
+              ? "در حال بررسی اتصال..."
+              : !isOnline
               ? "آفلاین (بدون اینترنت)"
               : !config.isConfigured
               ? "کلید سرور تنظیم نشده"

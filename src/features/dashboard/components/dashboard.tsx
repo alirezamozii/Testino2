@@ -15,16 +15,16 @@ import {
   RotateCcw,
   Sparkles,
   Sprout,
+  Target,
 } from "lucide-react";
 import { LoadingState } from "@/components/ui/testino-ui";
 import { SignedPercent } from "@/components/ui/signed-number";
 import { useDatabase } from "@/providers/database-provider";
 import { cn } from "@/lib/utils";
-import { calculateWeightedTarget } from "@/features/profiles/domain/score-groups";
+import { canonicalizeSubject } from "@/features/questions/domain/subject-registry";
 
 export function Dashboard() {
   const router = useRouter();
-  const [selectedSimSubject, setSelectedSimSubject] = useState<string>("all");
   const database = useDatabase();
   const owner = useQuery({
     queryKey: ["owner"],
@@ -44,13 +44,32 @@ export function Dashboard() {
   });
 
   useEffect(() => {
-    if (database.status === "ready" && !profiles.isLoading && !profile) {
+    // Only redirect when the profiles query is truly settled: not loading
+    // AND not refetching in the background. React Query serves stale cached
+    // data (e.g. an empty list cached before onboarding) while a refetch is
+    // in flight — acting on that caused a bogus bounce back to /onboarding.
+    if (database.status === "ready" && !profiles.isLoading && !profiles.isFetching && !profile) {
       router.replace("/onboarding/");
     }
-  }, [database.status, profiles.isLoading, profile, router]);
+  }, [database.status, profiles.isLoading, profiles.isFetching, profile, router]);
 
   if (database.status === "loading" || profiles.isLoading) {
     return <LoadingState label="در حال آماده‌سازی فضای مطالعه…" />;
+  }
+
+  if (profiles.isError) {
+    return (
+      <div className="max-w-md mx-auto mt-16 text-center space-y-3">
+        <p className="text-sm font-black text-[var(--ink)]">دریافت اطلاعات پروفایل ناموفق بود.</p>
+        <button
+          type="button"
+          onClick={() => profiles.refetch()}
+          className="btn-neo-orange py-2.5 px-5 text-xs font-black"
+        >
+          تلاش دوباره
+        </button>
+      </div>
+    );
   }
 
   if (!profile) {
@@ -65,10 +84,8 @@ export function Dashboard() {
   const completedSessions =
     data?.sessions.filter((item) => item.state === "FINISHED") ?? [];
 
-  // Calculate real average progress or target percentage
-  const averageTarget = Math.round(calculateWeightedTarget(profile.subjects).percentage ?? 70);
-
-  // Real progress from finished attempts
+  // Real progress from finished attempts (0 until the user actually answers
+  // questions — never fabricate a number from the target).
   const finishedQuestions = completedSessions.reduce(
     (sum, s) => sum + (s.answered || 0),
     0
@@ -76,7 +93,13 @@ export function Dashboard() {
   const totalQuestions = data?.questionCount || 0;
   const progressPercent = totalQuestions
     ? Math.min(100, Math.round((finishedQuestions / totalQuestions) * 100))
-    : averageTarget;
+    : 0;
+  const hasAnyAttempt = finishedQuestions > 0;
+
+  // Real per-subject accuracy (from FINISHED attempts) keyed by canonical name.
+  const statsBySubject = new Map(
+    (data?.subjectStats ?? []).map((s) => [canonicalizeSubject(s.subject), s])
+  );
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-10">
@@ -118,7 +141,7 @@ export function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-xs font-black text-[var(--muted)] block">
-                  درصد پیشرفت کلی
+                  پیشرفت پاسخ‌دهی بانک سؤال
                 </span>
                 <div className="flex items-baseline gap-2 mt-1">
                   <span className="text-3xl sm:text-4xl font-black text-[var(--ink)]">
@@ -127,11 +150,13 @@ export function Dashboard() {
                   <BarChart3 size={22} className="text-[var(--brand-blue)]" />
                 </div>
                 <p className="text-xs font-bold text-[var(--muted)] mt-1.5">
-                  هدف: {profile.targetTrack || profile.name || "تعیین هدف در تنظیمات"}
+                  {hasAnyAttempt
+                    ? `${finishedQuestions.toLocaleString("fa-IR")} سؤال از ${totalQuestions.toLocaleString("fa-IR")} سؤال بانک پاسخ داده شده`
+                    : "با اولین آزمون، پیشرفت واقعی اینجا محاسبه می‌شود"}
                 </p>
               </div>
 
-              {/* Donut Progress Ring */}
+              {/* Donut Progress Ring (value shown once — in the big numeral) */}
               <div className="relative w-22 h-22 sm:w-24 sm:h-24 flex items-center justify-center shrink-0">
                 <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
                   <circle
@@ -156,9 +181,6 @@ export function Dashboard() {
                     className="transition-all duration-700 ease-out"
                   />
                 </svg>
-                <span className="absolute text-sm font-black text-[var(--ink)]">
-                  {progressPercent}٪
-                </span>
               </div>
             </div>
           </section>
@@ -238,6 +260,27 @@ export function Dashboard() {
             </Link>
           </section>
 
+          {/* 3b. Goals & Study Plan — slim entry card (the /goals page is feature-rich but
+              secondary, so it lives outside the bottom nav and gets this dedicated entry) */}
+          <Link
+            href="/goals/"
+            className="quick-action-card quick-card-primary !bg-[var(--surface)] !text-[var(--ink)] border-2 border-[var(--line-strong)] flex-row items-center justify-between gap-3 py-3.5 px-4 shadow-[3px_3px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
+            aria-label="اهداف و برنامه مطالعه"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-[var(--brand-orange)] border-2 border-[var(--line-strong)] flex items-center justify-center text-white shadow-[1.5px_1.5px_0px_var(--neo-shadow)] shrink-0">
+                <Target size={20} strokeWidth={2.5} />
+              </div>
+              <div className="min-w-0">
+                <strong className="text-sm font-black block text-[var(--ink)]">اهداف و برنامهٔ مطالعه</strong>
+                <span className="text-[11px] font-bold text-[var(--muted)] block mt-0.5 truncate">
+                  هدف بگذار، مسیر گام‌به‌گام را ببین
+                </span>
+              </div>
+            </div>
+            <ChevronLeft size={18} className="text-[var(--brand-orange)] shrink-0" />
+          </Link>
+
           {/* 4. Active / Paused Session Banner (Neo Alert Style) */}
           {paused && (
             <section className="bg-[var(--surface-cream)] text-[var(--ink)] border-2 border-[var(--line-strong)] rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-[4px_4px_0px_var(--neo-shadow)]">
@@ -266,7 +309,9 @@ export function Dashboard() {
             </section>
           )}
 
-          {/* 5. Confidence Simulation Card (اگه نمی‌زدم چی می‌شد؟) */}
+          {/* 5. Confidence Simulation — Dashboard TEASER.
+              The per-subject breakdown and simulator live in /analytics (تحلیل) to avoid
+              duplicating the same data and cards on two pages. */}
           <section className="bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-3xl p-5 space-y-4 shadow-[4px_4px_0px_var(--neo-shadow)]">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2.5">
@@ -275,10 +320,10 @@ export function Dashboard() {
                 </div>
                 <div>
                   <h2 className="text-sm sm:text-base font-black text-[var(--ink)]">
-                    شبیه‌ساز اثر شک و حدس («اگه نمی‌زدم چی می‌شد؟»)
+                    اثر شک و حدس روی نمره‌ات
                   </h2>
                   <span className="text-[11px] text-[var(--muted)] font-bold">
-                    محاسبه نمره منفی و بررسی سود یا زیان در کنکور به تفکیک درس
+                    اگر شک‌ها و حدس‌ها را نمی‌زدی، درصدت چقدر بود؟
                   </span>
                 </div>
               </div>
@@ -286,62 +331,27 @@ export function Dashboard() {
                 href="/analytics/"
                 className="text-xs font-black text-[var(--brand-orange)] hover:underline inline-flex items-center gap-1"
               >
-                <span>تحلیل دقیق‌تر</span>
+                <span>تحلیل کامل به تفکیک درس</span>
                 <ChevronLeft size={14} />
               </Link>
             </div>
-
-            {/* Subject Selector Tabs */}
-            {confidenceSim?.subjects && confidenceSim.subjects.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-black">
-                <button
-                  type="button"
-                  onClick={() => setSelectedSimSubject("all")}
-                  className={cn(
-                    "px-3 py-1.5 rounded-xl border-2 transition-all shrink-0",
-                    selectedSimSubject === "all"
-                      ? "bg-[var(--ink)] text-[var(--surface)] border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                      : "bg-[var(--surface-2)] text-[var(--muted)] border-transparent hover:border-[var(--line-strong)]"
-                  )}
-                >
-                  همه دروس ({confidenceSim.totals.totalAttempts} تست)
-                </button>
-                {confidenceSim.subjects.map((sub) => (
-                  <button
-                    key={sub.subject}
-                    type="button"
-                    onClick={() => setSelectedSimSubject(sub.subject)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-xl border-2 transition-all shrink-0 flex items-center gap-1",
-                      selectedSimSubject === sub.subject
-                        ? "bg-[var(--brand-orange)] text-white border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                        : "bg-[var(--surface-2)] text-[var(--ink)] border-transparent hover:border-[var(--line-strong)]"
-                    )}
-                  >
-                    <span>{sub.subject}</span>
-                    <span className="text-[10px] opacity-80 font-mono">({sub.totalAttempts})</span>
-                  </button>
-                ))}
-              </div>
-            )}
 
             {/* If no attempts yet */}
             {(!confidenceSim || confidenceSim.totals.totalAttempts === 0) ? (
               <div className="p-5 rounded-2xl bg-[var(--surface-2)] border-2 border-dashed border-[var(--line-strong)]/40 text-center space-y-1.5">
                 <p className="text-xs font-bold text-[var(--muted)]">
-                  هنوز تستی در آزمون‌ها ثبت نشده است.
+                  هنوز تستی ثبت نشده است.
                 </p>
                 <span className="text-[11px] text-[var(--muted)] block">
-                  با پاسخ دادن به سؤالات و مشخص کردن شک یا حدس در آزمون، اثر نمره منفی و سوددهی گزینه‌ها اینجا تحلیل می‌شود.
+                  بعد از اولین آزمون، اثر شک و حدس بر نمرهٔ تو اینجا نمایش داده می‌شود.
                 </span>
               </div>
-            ) : selectedSimSubject === "all" ? (
-              /* All Subjects Overview */
+            ) : (
               <div className="space-y-3">
                 {/* 4 Comparative Percentage Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                   <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] space-y-1">
-                    <span className="text-[10px] font-black text-[var(--muted)] block">درصد واقعی کل</span>
+                    <span className="text-[10px] font-black text-[var(--muted)] block">درصد واقعی</span>
                     <strong className="text-lg font-black text-[var(--ink)] font-mono">
                       <SignedPercent value={confidenceSim.totals.overallActualPercentage} showPlus={false} />
                     </strong>
@@ -373,7 +383,7 @@ export function Dashboard() {
                     <strong className="text-lg font-black text-[var(--ink)] font-mono">
                       <SignedPercent value={confidenceSim.totals.overallOnlySure} showPlus={false} />
                     </strong>
-                    <span className="text-[9px] font-bold text-[var(--muted)] block">بدون هرگونه ریسک</span>
+                    <span className="text-[9px] font-bold text-[var(--muted)] block">بدون ریسک</span>
                   </div>
                 </div>
 
@@ -384,7 +394,7 @@ export function Dashboard() {
                   </div>
                   <div className="space-y-0.5">
                     <strong className="text-xs font-black text-[var(--ink)] block">
-                      استراتژی برگزیده کلی:
+                      توصیهٔ کلی:
                     </strong>
                     <p className="text-[11px] leading-relaxed text-[var(--muted)] font-bold">
                       {confidenceSim.topRecommendation}
@@ -392,133 +402,9 @@ export function Dashboard() {
                   </div>
                 </div>
               </div>
-            ) : (
-              /* Specific Subject Simulation */
-              (() => {
-                const curSub = confidenceSim.subjects.find((s) => s.subject === selectedSimSubject);
-                if (!curSub) return null;
-                return (
-                  <div className="space-y-3">
-                    {/* Subject Header with Konkur Question Count and Test Value */}
-                    <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] flex items-center justify-between flex-wrap gap-2">
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <strong className="text-sm font-black text-[var(--ink)]">{curSub.subject}</strong>
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-[var(--surface)] border border-[var(--line-strong)]">
-                            ضریب {curSub.coefficient}
-                          </span>
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-[var(--surface)] border border-[var(--line-strong)]">
-                            {curSub.questionCount} سؤال در کنکور
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-[var(--muted)] font-bold block">
-                          هدف تعیین‌شده: {curSub.targetPercentage}٪
-                        </span>
-                      </div>
-                      <div className="text-left font-mono text-[11px] font-bold">
-                        <span className="text-[var(--brand-green)] font-black block">
-                          هر تست درست: <SignedPercent value={curSub.pointValuePerCorrect} showPlus={true} />
-                        </span>
-                        <span className="text-red-500 font-black block">
-                          نمره منفی غلط: <SignedPercent value={-curSub.penaltyPerWrong} showPlus={false} />
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* 4 Simulated Percentages for this subject */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-                      <div className="p-2.5 rounded-xl bg-[var(--surface)] border-2 border-[var(--line-strong)] space-y-1">
-                        <span className="text-[10px] font-black text-[var(--muted)] block">درصد واقعی</span>
-                        <strong className="text-base font-black text-[var(--ink)] font-mono">
-                          <SignedPercent value={curSub.actualPercentage} showPlus={false} />
-                        </strong>
-                        <span className="text-[9px] text-[var(--muted)] font-bold block">{curSub.totalAttempts} تست</span>
-                      </div>
-
-                      <div className="p-2.5 rounded-xl bg-[var(--surface)] border-2 border-[var(--line-strong)] space-y-1">
-                        <span className="text-[10px] font-black text-[var(--brand-yellow)] block">بدون شک‌ها</span>
-                        <strong className="text-base font-black text-[var(--ink)] font-mono">
-                          <SignedPercent value={curSub.percentageWithoutDoubt} showPlus={false} />
-                        </strong>
-                        <span className={cn("text-[9px] font-black block font-mono", curSub.doubtful.netPercentageImpact >= 0 ? "text-[var(--brand-green)]" : "text-red-500")}>
-                          <SignedPercent value={curSub.doubtful.netPercentageImpact} showPlus={true} /> {curSub.doubtful.netPercentageImpact >= 0 ? "اثر مثبت" : "ضرر"}
-                        </span>
-                      </div>
-
-                      <div className="p-2.5 rounded-xl bg-[var(--surface)] border-2 border-[var(--line-strong)] space-y-1">
-                        <span className="text-[10px] font-black text-red-600 block">بدون حدس‌ها</span>
-                        <strong className="text-base font-black text-[var(--ink)] font-mono">
-                          <SignedPercent value={curSub.percentageWithoutGuess} showPlus={false} />
-                        </strong>
-                        <span className={cn("text-[9px] font-black block font-mono", curSub.guess.netPercentageImpact >= 0 ? "text-[var(--brand-green)]" : "text-red-500")}>
-                          <SignedPercent value={curSub.guess.netPercentageImpact} showPlus={true} /> {curSub.guess.netPercentageImpact >= 0 ? "اثر مثبت" : "ضرر"}
-                        </span>
-                      </div>
-
-                      <div className="p-2.5 rounded-xl bg-[var(--surface)] border-2 border-[var(--line-strong)] space-y-1">
-                        <span className="text-[10px] font-black text-[var(--brand-green)] block">فقط مطمئن‌ها</span>
-                        <strong className="text-base font-black text-[var(--ink)] font-mono">
-                          <SignedPercent value={curSub.percentageOnlySure} showPlus={false} />
-                        </strong>
-                        <span className="text-[9px] text-[var(--muted)] font-bold block">{curSub.sure.accuracy}٪ دقت</span>
-                      </div>
-                    </div>
-
-                    {/* Breakdown of Doubt and Guess */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-bold">
-                      <div className="p-3 rounded-2xl bg-[var(--pastel-yellow-soft)] border-2 border-[var(--line-strong)] space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[var(--ink)] font-black">گزینه‌های شک‌دار:</span>
-                          <span className="font-mono text-[var(--ink)]">{curSub.doubtful.count} تست ({curSub.doubtful.correct} درست، {curSub.doubtful.wrong} غلط)</span>
-                        </div>
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span>دقت شک‌ها: {curSub.doubtful.accuracy}٪</span>
-                          <span className={cn("font-black font-mono", curSub.doubtful.netPercentageImpact >= 0 ? "text-[var(--brand-green)]" : "text-red-500")}>
-                            سود/زیان: {curSub.doubtful.netPercentageImpact > 0 ? `+${curSub.doubtful.netPercentageImpact}` : curSub.doubtful.netPercentageImpact}٪
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="p-3 rounded-2xl bg-[var(--pastel-red-soft)] border-2 border-[var(--line-strong)] space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[var(--pastel-red)] font-black">گزینه‌های حدسی:</span>
-                          <span className="font-mono text-[var(--ink)]">{curSub.guess.count} تست ({curSub.guess.correct} درست، {curSub.guess.wrong} غلط)</span>
-                        </div>
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span>دقت حدس‌ها: {curSub.guess.accuracy}٪</span>
-                          <span className={cn("font-black font-mono", curSub.guess.netPercentageImpact >= 0 ? "text-[var(--brand-green)]" : "text-red-500")}>
-                            سود/زیان: {curSub.guess.netPercentageImpact > 0 ? `+${curSub.guess.netPercentageImpact}` : curSub.guess.netPercentageImpact}٪
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Subject Strategic Advice Banner */}
-                    <div className="p-3.5 rounded-2xl bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-md text-[10px] font-black border",
-                          curSub.strategicAdvice.recommendationTag === "trust_doubt"
-                            ? "bg-[var(--pastel-green)] text-[var(--ink-on-color)] border-[var(--line-strong)]"
-                            : curSub.strategicAdvice.recommendationTag === "avoid_doubt" || curSub.strategicAdvice.recommendationTag === "avoid_guess"
-                            ? "bg-[var(--pastel-red)] text-white border-[var(--line-strong)]"
-                            : "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-[var(--line-strong)]"
-                        )}>
-                          {curSub.strategicAdvice.recommendationLabel}
-                        </span>
-                        <strong className="text-xs font-black text-[var(--ink)]">
-                          استراتژی پیشنهادی برای درس {curSub.subject}:
-                        </strong>
-                      </div>
-                      <p className="text-[11px] leading-relaxed text-[var(--muted)] font-bold pt-0.5">
-                        {curSub.strategicAdvice.overallSubjectAdvice}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })()
             )}
           </section>
+
         </div>
 
         {/* Side Right Column (5 cols) */}
@@ -558,16 +444,16 @@ export function Dashboard() {
                     href={`/sessions/run/?id=${session.id}`}
                     className="bg-[var(--surface)] hover:bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-2xl p-3.5 flex items-center justify-between transition-all shadow-[2.5px_2.5px_0px_var(--neo-shadow)] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[3.5px_3.5px_0px_var(--neo-shadow)]"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-[var(--brand-green)] border-2 border-[var(--line-strong)] text-[var(--ink-on-color)] flex items-center justify-center font-black text-xs shadow-[1px_1px_0px_var(--neo-shadow)]">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-[var(--brand-green)] border-2 border-[var(--line-strong)] text-[var(--ink-on-color)] flex items-center justify-center font-black text-xs shadow-[1px_1px_0px_var(--neo-shadow)] shrink-0">
                         {session.total ? Math.round(((session.answered || 0) / session.total) * 100) : 0}٪
                       </div>
-                      <div>
-                        <strong className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                          آزمون {session.answered} سؤال
+                      <div className="min-w-0">
+                        <strong className="text-xs sm:text-sm font-black text-[var(--ink)] block truncate">
+                          آزمون {session.answered} از {session.total} سؤال
                         </strong>
                         <span className="text-[10px] font-bold text-[var(--muted)]">
-                          {session.total} سؤال کلی
+                          مشاهده کارنامه
                         </span>
                       </div>
                     </div>
@@ -578,19 +464,13 @@ export function Dashboard() {
             )}
           </section>
 
-          {/* 6. Subject Target Progress (Real data from SQLite) */}
+          {/* 6. Subject Target vs Real Accuracy (Real data from SQLite) */}
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-black text-[var(--ink)]">
-                  هدف دروس فعال
+                  عملکرد دروس فعال
                 </h2>
-                <Link
-                  href="/goals/"
-                  className="text-xs font-bold text-[var(--muted)] hover:text-[var(--brand-orange)] transition-colors"
-                >
-                  (صفحه اهداف)
-                </Link>
               </div>
               <Link
                 href="/settings/"
@@ -619,18 +499,21 @@ export function Dashboard() {
                   const qCount = subject.questionCount ?? 25;
                   const correctVal = (100 / qCount).toFixed(1);
                   const wrongVal = (100 / (3 * qCount)).toFixed(1);
+                  const stats = statsBySubject.get(canonicalizeSubject(subject.name));
+                  const accuracy = stats?.accuracyPct ?? 0;
+                  const hasSubjectAttempts = Boolean(stats && stats.total > 0);
                   return (
                     <div key={subject.id} className="space-y-1.5 p-2 rounded-2xl bg-[var(--surface-2)]/50 border border-[var(--line)]">
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="font-black text-[var(--ink)]">
+                      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-black text-[var(--ink)] truncate max-w-[150px] sm:max-w-none">
                             {subject.name}
                           </span>
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[var(--surface)] text-[var(--muted)] border border-[var(--line)]">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[var(--surface)] text-[var(--muted)] border border-[var(--line)] shrink-0">
                             {qCount} سؤال کنکور
                           </span>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className="text-[10px] font-bold text-[var(--brand-green)]" title="ارزش هر تست درست">
                             <SignedPercent value={parseFloat(correctVal)} showPlus={true} />
                           </span>
@@ -642,11 +525,23 @@ export function Dashboard() {
                           </span>
                         </div>
                       </div>
-                      <div className="w-full bg-[var(--surface-3)] h-2 rounded-full overflow-hidden border border-[var(--line)]">
-                        <div
-                          className="bg-[var(--brand-green)] h-full rounded-full transition-all duration-500"
-                          style={{ width: `${subject.targetPercentage}%` }}
-                        />
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1 bg-[var(--surface-3)] h-2 rounded-full overflow-hidden border border-[var(--line)]">
+                          {/* Real accuracy fill — not the target itself. */}
+                          <div
+                            className={cn("h-full rounded-full transition-all duration-500", hasSubjectAttempts ? "bg-[var(--brand-green)]" : "bg-transparent")}
+                            style={{ width: hasSubjectAttempts ? `${accuracy}%` : "0%" }}
+                          />
+                          {/* Target marker on the same scale */}
+                          <div
+                            className="absolute top-0 bottom-0 w-0.5 bg-[var(--testino-orange)]"
+                            style={{ right: `${Math.min(100, subject.targetPercentage)}%` }}
+                            title={`هدف: ${subject.targetPercentage}٪`}
+                          />
+                        </div>
+                        <span className="text-[10px] font-black text-[var(--ink)] shrink-0 w-16 text-left">
+                          {hasSubjectAttempts ? `${accuracy.toLocaleString("fa-IR")}٪ درست` : "بدون آزمون"}
+                        </span>
                       </div>
                     </div>
                   );

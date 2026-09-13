@@ -179,14 +179,16 @@ function mapQuestion(
     groupPosition: typeof row.group_position === "number" ? row.group_position : null,
     groupKind: grp?.kind ?? null,
     groupContent: grp?.content ?? null,
-    content: JSON.parse(row.content_json),
+    // One corrupt persisted row must not reject the whole page/exam — fall
+    // back to a neutral placeholder instead of JSON.parse throwing.
+    content: safeRowJson<ContentBlock[]>(row.content_json, []),
     options: options.map((option) => ({
       id: String(option.id),
       key: String(option.external_key),
-      content: JSON.parse(String(option.content_json)),
+      content: safeRowJson(option.content_json, []),
     })),
     correctOptionId: row.correct_option_id,
-    explanation: JSON.parse(row.explanation_json),
+    explanation: safeRowJson(row.explanation_json, []),
     status: row.status,
     shuffleSafe: Boolean(row.shuffle_safe),
     source: row.source_kind ? {
@@ -200,8 +202,21 @@ function mapQuestion(
   };
 }
 
-function groupQuestionsIntoUnits(questions: StoredQuestion[]): StoredQuestion[][] {
-  const standalone: StoredQuestion[][] = [];
+/**
+ * JSON.parse for persisted row columns that must NEVER reject the whole
+ * read path (interrupted write / bad import used to crash the whole exam or
+ * dashboard). Returns `fallback` for corrupt/empty values.
+ */
+function safeRowJson<T>(raw: unknown, fallback: T): T {
+  if (raw === null || raw === undefined) return fallback;
+  try {
+    return JSON.parse(String(raw)) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function groupQuestionsIntoUnits(questions: StoredQuestion[]): StoredQuestion[][] {  const standalone: StoredQuestion[][] = [];
   const groupMap = new Map<string, StoredQuestion[]>();
   const seen = new Set<string>();
 
@@ -232,17 +247,59 @@ interface LifecycleClient {
 
 export class AppDatabase {
   private client: DatabasePort;
+  private openPromise: Promise<void> | null = null;
 
   constructor(client?: DatabasePort) {
     this.client = client ?? new SqliteWorkerClient();
   }
 
   async open() {
-    const lifecycle = this.client as unknown as LifecycleClient;
-    if (typeof lifecycle.open === "function") {
-      await lifecycle.open();
+    // Dedupe concurrent opens (React StrictMode double-mount, provider
+    // remounts). Two parallel MigrationRunner instances would both read an
+    // empty schema_migrations and race INSERTs → UNIQUE constraint crash.
+    if (!this.openPromise) {
+      this.openPromise = (async () => {
+        const lifecycle = this.client as unknown as LifecycleClient;
+        if (typeof lifecycle.open === "function") {
+          await lifecycle.open();
+        }
+        await runMigrations(this.client);
+        await this.verifyCriticalSchema();
+      })().catch((error) => {
+        // Allow a retry after a failed open (e.g. transient OPFS contention).
+        this.openPromise = null;
+        throw error;
+      });
     }
-    await runMigrations(this.client);
+    return this.openPromise;
+  }
+
+  /**
+   * Defense-in-depth against the OPFS SAHPool divergence class: a restarted
+   * worker can be handed a stale pool copy whose physical columns lag behind
+   * the recorded schema_migrations version (observed once in E2E as
+   * «table subjects has no column named question_count»). If a recorded
+   * migration's physical column is missing, repair it in place instead of
+   * letting every later write fail.
+   */
+  private async verifyCriticalSchema(): Promise<void> {
+    try {
+      const hasColumn = await this.client.query<{ c: number }>(
+        "SELECT COUNT(*) AS c FROM pragma_table_info('subjects') WHERE name='question_count'"
+      );
+      if (!Number(hasColumn[0]?.c ?? 0)) {
+        await this.client.execute(
+          "ALTER TABLE subjects ADD COLUMN question_count INTEGER NOT NULL DEFAULT 25;"
+        );
+      }
+    } catch {
+      // pragma_table_info unsupported (very old engine) — migrations already
+      // guarantee the column; nothing more we can do here.
+    }
+  }
+
+  async health() {
+    return this.client.health();
   }
 
   close() {
@@ -250,6 +307,9 @@ export class AppDatabase {
     if (typeof lifecycle.close === "function") {
       lifecycle.close();
     }
+    // Allow a later open() again (bfcache restore / pageshow re-open): without
+    // resetting, open() resolved instantly against a CLOSED worker.
+    this.openPromise = null;
   }
 
   getClient(): DatabasePort {
@@ -1487,7 +1547,7 @@ export class AppDatabase {
           bind: [crypto.randomUUID(), sessionId, question.id, ordinal, JSON.stringify(question), JSON.stringify(order)],
         };
       }),
-    ]);
+    ], { timeoutMs: 60_000 });
     return sessionId;
   }
 
@@ -1554,7 +1614,7 @@ export class AppDatabase {
 
     const sessionRow = sessions[0];
     const config: SessionConfig | null = sessionRow.config_json
-      ? JSON.parse(String(sessionRow.config_json))
+      ? safeRowJson<SessionConfig | null>(sessionRow.config_json, null)
       : null;
 
     if (!config?.isOpenEnded && config?.mode !== "continuous") return null;
@@ -1640,7 +1700,7 @@ export class AppDatabase {
       };
     });
 
-    await this.client.batch(statements);
+    await this.client.batch(statements, { timeoutMs: 60_000 });
     return appendedQuestions;
   }
 
@@ -1650,7 +1710,7 @@ export class AppDatabase {
       [profileId]
     );
     return rows.map((row) => {
-      const config: SessionConfig | null = row.config_json ? JSON.parse(String(row.config_json)) : null;
+      const config: SessionConfig | null = row.config_json ? safeRowJson<SessionConfig | null>(row.config_json, null) : null;
       return {
         id: String(row.id),
         state: row.state as SessionListItem["state"],
@@ -1673,7 +1733,7 @@ export class AppDatabase {
       [id]
     );
     const config: SessionConfig | null = sessionRow.config_json
-      ? JSON.parse(String(sessionRow.config_json))
+      ? safeRowJson<SessionConfig | null>(sessionRow.config_json, null)
       : null;
     return {
       id,
@@ -1688,8 +1748,8 @@ export class AppDatabase {
         confidence: row.confidence as SessionQuestion["confidence"],
         visited: Boolean(row.visited),
         activeMs: Number(row.active_ms),
-        snapshot: JSON.parse(String(row.snapshot_json)),
-        optionOrder: JSON.parse(String(row.option_order_json)),
+        snapshot: safeRowJson<SessionQuestion["snapshot"]>(row.snapshot_json, null as unknown as SessionQuestion["snapshot"]),
+        optionOrder: safeRowJson<string[]>(row.option_order_json, []),
       })),
     };
   }
@@ -1865,7 +1925,7 @@ export class AppDatabase {
     await this.client.batch([
       ...statements,
       { sql: "UPDATE sessions SET state='FINISHED',finished_at=? WHERE id=?", bind: [now, id] },
-    ]);
+    ], { timeoutMs: 60_000 });
   }
 
   async rebuildReviewItems(): Promise<number> {
@@ -2000,11 +2060,29 @@ export class AppDatabase {
       }))
     );
 
+    // Real per-subject accuracy from finished attempts — feeds the dashboard
+    // "subject progress" bars with performance data instead of the raw target.
+    const subjectAgg = new Map<string, { correct: number; total: number }>();
+    for (const row of rows) {
+      const key = canonicalizeSubject(row.subject);
+      const agg = subjectAgg.get(key) ?? { correct: 0, total: 0 };
+      agg.total += 1;
+      if (row.result === "correct") agg.correct += 1;
+      subjectAgg.set(key, agg);
+    }
+    const subjectStats = [...subjectAgg.entries()].map(([subject, agg]) => ({
+      subject,
+      correct: agg.correct,
+      total: agg.total,
+      accuracyPct: agg.total ? Math.round((agg.correct / agg.total) * 100) : 0,
+    }));
+
     return {
       questionCount: Number(questionCount?.count || 0),
       reviewCount: Number(reviewCount?.count || 0),
       sessions,
       confidenceSimulation,
+      subjectStats,
     };
   }
 
@@ -2197,8 +2275,16 @@ export class AppDatabase {
       .map((topic) => {
         const items = rows.filter((row) => row.topic === topic);
         const wrong = items.filter((row) => row.result === "wrong").length;
+        // Primary subject of the topic — lets the UI link to a subject-scoped
+        // practice session instead of a generic all-subjects one.
+        const subjectCounts = new Map<string, number>();
+        for (const item of items) {
+          subjectCounts.set(item.subject, (subjectCounts.get(item.subject) ?? 0) + 1);
+        }
+        const subject = [...subjectCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
         return {
           topic,
+          subject,
           total: items.length,
           wrong,
           errorRate: items.length ? Math.round((wrong / items.length) * 100) : 0,
@@ -2397,15 +2483,24 @@ export class AppDatabase {
     ];
 
     try {
-      await this.client.batch(statements);
+      // Generous timeout: deleting a large library (questions + media + sync
+      // trigger fan-out) over OPFS can far exceed the default 6s request timeout.
+      await this.client.batch(statements, { timeoutMs: 60_000 });
     } catch {
-      // Fallback row-by-row if any table doesn't exist
+      // Fallback row-by-row if any table doesn't exist — but SURFACE real
+      // failures: silently swallowing quota/lock errors made the settings page
+      // claim success while rows survived and data "came back".
+      const failures: string[] = [];
       for (const stmt of statements) {
         try {
           await this.client.execute(stmt.sql, stmt.bind);
-        } catch {
-          // ignore table not found
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!/no such table/i.test(message)) failures.push(`${stmt.sql.slice(0, 40)}: ${message}`);
         }
+      }
+      if (failures.length > 0) {
+        throw new Error(`حذف کامل داده‌ها ناتمام ماند (${failures.length} خطا). اولین خطا: ${failures[0]}`);
       }
     }
   }

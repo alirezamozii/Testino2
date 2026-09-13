@@ -75,6 +75,11 @@ export function AnalyticsPage() {
   const confidenceSimulation = data?.confidenceSimulation;
   const profileName = profile.name;
   const percentage = totals?.total ? Math.round((totals.correct / totals.total) * 100) : null;
+  // Canonical headline number: Sanjesh net percentage (weighted with negative marking).
+  // Falls back to the raw percentage when no scored simulation exists yet.
+  const netPercentage = confidenceSimulation?.totals
+    ? Math.round(confidenceSimulation.totals.overallActualPercentage)
+    : percentage;
 
   function exportAnalysis() {
     if (!data) return;
@@ -169,19 +174,20 @@ export function AnalyticsPage() {
                     cy="50"
                     r="40"
                     fill="transparent"
-                    stroke="#FF6B3D"
+                    stroke="var(--testino-orange)"
                     strokeWidth="10"
                     strokeDasharray={251.2}
-                    strokeDashoffset={251.2 - (251.2 * (percentage ?? 0)) / 100}
+                    strokeDashoffset={251.2 - (251.2 * (netPercentage ?? 0)) / 100}
                     strokeLinecap="round"
                     className="transition-all duration-1000 ease-out"
                   />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
                   <span className="text-3xl font-black text-[var(--foreground)] tracking-tight">
-                    {percentage !== null ? `${percentage}٪` : "—"}
+                    {netPercentage !== null ? `${netPercentage}٪` : "—"}
                   </span>
-                  <span className="text-[10px] font-black text-[var(--muted-foreground)]">درصد کل صحیح</span>
+                  <span className="text-[10px] font-black text-[var(--muted-foreground)]">درصد خالص کل</span>
+                  <span className="text-[9px] font-bold text-[var(--muted-foreground)]">با احتساب نمره منفی</span>
                 </div>
               </div>
             </div>
@@ -194,7 +200,7 @@ export function AnalyticsPage() {
                     نمای کلی دقت و زمان
                   </h2>
                   <p className="text-xs text-[var(--muted-foreground)] font-medium">
-                    مخرج کل محاسبات: {totals.total} پاسخ نهایی ثبت‌شده روی این دستگاه
+                    بر پایهٔ {new Intl.NumberFormat("fa-IR").format(totals.total)} پاسخ ثبت‌شده در آزمون‌های تو
                   </p>
                 </div>
               </div>
@@ -230,8 +236,14 @@ export function AnalyticsPage() {
                     <Clock3 size={16} />
                   </div>
                   <span className="text-xl font-black text-[var(--foreground)]">
-                    {data?.averageTimePerQuestionSec ?? 0}
-                    <small className="text-[10px] font-normal mr-0.5">ث</small>
+                    {data?.averageTimePerQuestionSec ? (
+                      <>
+                        {data.averageTimePerQuestionSec}
+                        <small className="text-[10px] font-normal mr-0.5">ث</small>
+                      </>
+                    ) : (
+                      "—"
+                    )}
                   </span>
                 </div>
               </div>
@@ -265,7 +277,7 @@ export function AnalyticsPage() {
               ) : (
                 <div className="space-y-4">
                   {bySubject.map((item) => {
-                    const subjectTarget = profile.subjects?.find((s) => s.name === item.subject)?.targetPercentage ?? 70;
+                    const subjectTarget = item.targetPercentage ?? 70;
                     const pct = item.percentage !== null ? Math.round(item.percentage) : 0;
                     const rawPct = item.rawPercentage !== null
                       ? Math.round(item.rawPercentage)
@@ -320,10 +332,10 @@ export function AnalyticsPage() {
                               {correctPct}٪
                             </span>
                           </div>
-                          <div className="py-1 px-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-300">
+                          <div className="py-1 px-1.5 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-300">
                             <span className="block text-[10px] font-bold">غلط</span>
                             <strong className="text-xs sm:text-sm font-black">{item.wrong}</strong>
-                            <span className="text-[9px] block text-rose-600 dark:text-rose-400 font-bold">
+                            <span className="text-[9px] block text-red-600 dark:text-red-400 font-bold">
                               {wrongPct}٪
                             </span>
                           </div>
@@ -348,7 +360,7 @@ export function AnalyticsPage() {
                             )}
                             {item.wrong > 0 && (
                               <div
-                                className="h-full bg-rose-500 transition-all duration-500"
+                                className="h-full bg-red-500 transition-all duration-500"
                                 style={{ width: `${wrongPct}%` }}
                                 title={`غلط: ${item.wrong} (${wrongPct}٪)`}
                               />
@@ -397,25 +409,17 @@ export function AnalyticsPage() {
                     </span>
                     <div>
                       <h3 className="text-sm sm:text-base font-black text-[var(--foreground)]">
-                        شبیه‌ساز اثر شک و حدس در کنکور («اگه نمی‌زدم چی می‌شد؟»)
+                        اثر نزده‌ها و شک‌ها روی نمره
                       </h3>
                       <p className="text-[11px] text-[var(--muted-foreground)] font-bold">
-                        محاسبه اثر پاسخ‌های شک‌دار و حدسی بر اساس فرمول رسمی سازمان سنجش
+                        اگر شک‌ها و حدس‌ها را نمی‌زدی، درصدها چقدر می‌شد؟ (فرمول نمره‌دهی سنجش)
                       </p>
                     </div>
                   </div>
                 </div>
 
-                {/* 4 Summary Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
-                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border-2 border-[var(--border)] space-y-1">
-                    <span className="text-[10px] font-black text-[var(--muted-foreground)] block">درصد واقعی کل</span>
-                    <strong className="text-xl font-black text-[var(--foreground)] font-mono">
-                      {confidenceSimulation.totals.overallActualPercentage}٪
-                    </strong>
-                    <span className="text-[9px] font-bold text-[var(--muted-foreground)] block">با احتساب همه پاسخ‌ها</span>
-                  </div>
-
+                {/* 3 Scenario Cards — the real overall percentage already lives in the hero ring above */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-center">
                   <div className="p-3 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border-2 border-[var(--border)] space-y-1">
                     <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 block">بدون شک‌ها</span>
                     <strong className="text-xl font-black text-[var(--foreground)] font-mono">
@@ -426,8 +430,8 @@ export function AnalyticsPage() {
                     </span>
                   </div>
 
-                  <div className="p-3 rounded-2xl bg-rose-50/70 dark:bg-rose-950/30 border-2 border-[var(--border)] space-y-1">
-                    <span className="text-[10px] font-black text-rose-700 dark:text-rose-400 block">بدون حدس‌ها</span>
+                  <div className="p-3 rounded-2xl bg-red-50/70 dark:bg-red-950/30 border-2 border-[var(--border)] space-y-1">
+                    <span className="text-[10px] font-black text-red-700 dark:text-red-400 block">بدون حدس‌ها</span>
                     <strong className="text-xl font-black text-[var(--foreground)] font-mono">
                       <SignedPercent value={confidenceSimulation.totals.overallWithoutGuess} showPlus={false} />
                     </strong>
@@ -451,7 +455,9 @@ export function AnalyticsPage() {
                     تحلیل تفکیکی و استراتژی هر درس:
                   </h4>
 
-                  {confidenceSimulation.subjects.map((sub) => (
+                  {confidenceSimulation.subjects
+                    .filter((sub) => sub.totalAttempts > 0)
+                    .map((sub) => (
                     <div
                       key={sub.subject}
                       className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border-2 border-[var(--border)] space-y-3 shadow-sm"
@@ -459,10 +465,10 @@ export function AnalyticsPage() {
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="flex items-center gap-2">
                           <strong className="text-sm font-black text-[var(--foreground)]">{sub.subject}</strong>
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-white dark:bg-slate-850 border border-[var(--border)]">
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-[var(--border)]">
                             ضریب {sub.coefficient}
                           </span>
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-white dark:bg-slate-850 border border-[var(--border)]">
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-[var(--border)]">
                             {sub.questionCount} سؤال در کنکور
                           </span>
                         </div>
@@ -538,8 +544,8 @@ export function AnalyticsPage() {
               </div>
             )}
 
-            {/* Weak Topics / Areas for Focus */}
-            <div className="card-neo p-5 rounded-3xl bg-[var(--surface)] dark:bg-slate-900 space-y-4 shadow-[4px_4px_0px_var(--neo-shadow)]">
+            {/* Weak Topics / Areas for Focus — full width on md+ (grid would otherwise leave a hole) */}
+            <div className="card-neo p-5 rounded-3xl bg-[var(--surface)] dark:bg-slate-900 space-y-4 shadow-[4px_4px_0px_var(--neo-shadow)] md:col-span-2">
               <div className="flex items-center justify-between border-b border-[var(--border)]/20 pb-3">
                 <div className="flex items-center gap-2">
                   <span className="w-8 h-8 rounded-xl bg-red-100 dark:bg-red-950/40 border-2 border-[var(--border)] flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)]">
@@ -577,9 +583,9 @@ export function AnalyticsPage() {
                           {Math.round(topicItem.errorRate)}٪ خطا
                         </span>
                         <Link
-                          href={`/sessions/new/?mode=wrong`}
+                          href={topicItem.subject ? `/sessions/new/?mode=wrong&subject=${encodeURIComponent(topicItem.subject)}` : `/sessions/new/?mode=wrong`}
                           className="w-8 h-8 rounded-xl bg-[var(--surface)] dark:bg-slate-900 border-2 border-[var(--border)] flex items-center justify-center text-[var(--foreground)] hover:bg-slate-100 shadow-[2px_2px_0px_var(--neo-shadow)]"
-                          title="تمرین این مبحث"
+                          title={topicItem.subject ? `تمرین غلط‌های ${topicItem.subject}` : "تمرین غلط‌ها"}
                         >
                           <ChevronLeft size={16} />
                         </Link>
@@ -591,7 +597,7 @@ export function AnalyticsPage() {
                 <div className="p-8 text-center rounded-2xl bg-slate-50 dark:bg-slate-800/40 border-2 border-dashed border-[var(--border)]/40 flex flex-col items-center justify-center space-y-2">
                   <CheckCircle2 size={28} className="text-emerald-500" />
                   <span className="text-xs font-black text-[var(--foreground)]">
-                    نقطهٔ ضعف حادی با نمونه کافی ثبت نشده است!
+                    مبحث ضعفی با دادهٔ کافی پیدا نشد.
                   </span>
                   <span className="text-[11px] text-[var(--muted-foreground)] font-medium">
                     عملکرد شما در مباحث مختلف پایدار است یا تعداد پاسخ‌ها در هر مبحث هنوز به حد نصاب ۳ نرسیده است.

@@ -7,7 +7,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   CirclePlay,
-  Flame,
+  FileText,
   History,
   PauseCircle,
 } from "lucide-react";
@@ -133,7 +133,7 @@ export function HistoryPage() {
                 </span>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--testino-orange)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-                <Flame size={24} />
+                <FileText size={24} />
               </div>
             </div>
 

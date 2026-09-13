@@ -89,6 +89,7 @@ function getServerSplashSnapshot() {
 
 function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
   const { status, isOnline, isSyncing, pendingCount, syncNow } = useSync();
+  const database = useDatabase();
   const [justSynced, setJustSynced] = useState(false);
   const [hasWaited, setHasWaited] = useState(false);
 
@@ -129,6 +130,21 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
       >
         <span className="w-2 h-2 rounded-full bg-slate-400" />
         <span>محلی</span>
+      </button>
+    );
+  }
+
+  // Persistent-storage warning: memory DB loses everything on reload.
+  if (databaseReady && database.status === "ready" && database.storage === "memory") {
+    return (
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        title="دیتابیس در حافظهٔ موقت اجرا می‌شود (OPFS در این محیط در دسترس نیست) — داده‌ها بعد از بستن صفحه پاک می‌شوند. برای ذخیرهٔ دائمی، برنامه را در تب جداگانه باز کنید."
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-2 border-amber-400 dark:border-amber-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-all cursor-pointer select-none"
+      >
+        <span className="w-2 h-2 rounded-full bg-amber-500" />
+        <span>حافظه موقت</span>
       </button>
     );
   }
@@ -179,6 +195,23 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
     );
   }
 
+  // Signed out (or cloud unconfigured): previously fell through to the green
+  // "آنلاین" chip below, so users believed sync was running while autosync
+  // no-opped every tick. Show an honest amber chip instead.
+  if (status === "unconfigured") {
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        title="وارد حساب ابری نشده‌اید — داده‌ها فقط روی همین دستگاه ذخیره می‌شوند. برای همگام‌سازی ابری از تنظیمات وارد شوید."
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-2 border-amber-400 dark:border-amber-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-all cursor-pointer select-none active:translate-x-[1px] active:translate-y-[1px]"
+      >
+        <span className="w-2 h-2 rounded-full bg-amber-500" />
+        <span>بدون حساب ابری</span>
+      </button>
+    );
+  }
+
   // Online state
   return (
     <button
@@ -200,7 +233,7 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
 function ShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const database = useDatabase();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, mounted } = useTheme();
   const isSplashUnseen = useSyncExternalStore(
     subscribeSplash,
     getSplashSnapshot,
@@ -214,24 +247,36 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
+    let rafId = 0;
+
     const checkModalState = () => {
+      rafId = 0;
       const modal = document.querySelector(
         '[data-modal="true"], [role="dialog"], .modal-overlay, .dialog-backdrop, .modal-backdrop'
       );
       const open = Boolean(modal);
-      setIsModalOpen(open);
-      if (open) {
+      // Functional update: provably bails out when the value is unchanged.
+      // Calling setIsModalOpen(open) directly from a MutationObserver microtask
+      // kept re-entering React's commit phase and froze the main thread.
+      setIsModalOpen((prev) => (prev === open ? prev : open));
+      const hasClass = document.body.classList.contains("modal-open");
+      if (open && !hasClass) {
         document.body.classList.add("modal-open");
-      } else {
+      } else if (!open && hasClass) {
         document.body.classList.remove("modal-open");
       }
     };
 
-    checkModalState();
+    // Coalesce mutation storms into one check per animation frame.
+    const scheduleCheck = () => {
+      if (rafId === 0) {
+        rafId = requestAnimationFrame(checkModalState);
+      }
+    };
 
-    const observer = new MutationObserver(() => {
-      checkModalState();
-    });
+    scheduleCheck();
+
+    const observer = new MutationObserver(scheduleCheck);
 
     observer.observe(document.body, {
       childList: true,
@@ -242,6 +287,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
 
     return () => {
       observer.disconnect();
+      if (rafId !== 0) cancelAnimationFrame(rafId);
       document.body.classList.remove("modal-open");
     };
   }, []);
@@ -274,8 +320,11 @@ function ShellInner({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Focus routes run full-screen without the app nav (exam, onboarding, review runner)
   const focused =
-    pathname.startsWith("/sessions/run") || pathname.startsWith("/onboarding");
+    pathname.startsWith("/sessions/run") ||
+    pathname.startsWith("/review/run") ||
+    pathname.startsWith("/onboarding");
 
   const hasNoSplash = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("nosplash");
   const stepMatch = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("step") : null;
@@ -386,14 +435,14 @@ function ShellInner({ children }: { children: React.ReactNode }) {
           <div className="topbar-actions">
             <SyncStatusIndicator databaseReady={database.status === "ready"} />
 
-            {/* Notifications Bell */}
+            {/* History Bell — no fake notification dot; destination labelled honestly */}
             <Link
               href="/history/"
               className="icon-button relative"
-              aria-label="اعلان‌ها و تاریخچه"
+              aria-label="تاریخچهٔ آزمون‌ها"
+              title="تاریخچهٔ آزمون‌ها"
             >
               <Bell size={18} />
-              <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-[var(--testino-orange)]" />
             </Link>
 
             {/* Theme Toggle Button */}
@@ -401,10 +450,10 @@ function ShellInner({ children }: { children: React.ReactNode }) {
               type="button"
               className="icon-button"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              title={`تغییر حالت نمایش (فعلی: ${theme === "dark" ? "شب" : "روز"})`}
+              title={mounted ? `تغییر حالت نمایش (فعلی: ${theme === "dark" ? "شب" : "روز"})` : "تغییر حالت نمایش"}
               aria-label="تغییر حالت نمایش"
             >
-              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+              {mounted && theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
 
             {/* Mobile Settings Button */}

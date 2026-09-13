@@ -29,5 +29,21 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="fa" dir="rtl"><body><AppProviders><ServiceWorkerRegistration/><AppShell>{children}</AppShell></AppProviders></body></html>;
+  // Applies the persisted/system theme to <html> BEFORE first paint to avoid a
+  // light-theme flash for dark users. Runs before hydration; React does not
+  // manage data-theme/class on <html> in JSX, so this is hydration-safe.
+  const themeInitScript = `(function(){try{var t=localStorage.getItem("testino-theme");var d=t==="dark"||((!t||t==="")&&window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);var r=document.documentElement;if(d){r.setAttribute("data-theme","dark");r.classList.add("dark")}else{r.setAttribute("data-theme","light");r.classList.remove("dark")}}catch(e){}})();`;
+  return (
+    <html lang="fa" dir="rtl" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
+      <body>
+        <AppProviders>
+          <ServiceWorkerRegistration />
+          <AppShell>{children}</AppShell>
+        </AppProviders>
+      </body>
+    </html>
+  );
 }

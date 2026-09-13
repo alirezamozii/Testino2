@@ -1,10 +1,25 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useSyncExternalStore } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDatabase } from "./database-provider";
 import { SyncCoordinator } from "@/sync/coordinator";
 import type { SyncStatus, SyncReport } from "@/sync/ports";
 import { OutboxRepository } from "@/database/repositories/outbox-repository";
+
+// SSR-safe online status via useSyncExternalStore: server snapshot is optimistic
+// (true), client snapshot reads navigator.onLine and re-reads on online/offline
+// events — no effect, no hydration mismatch.
+function subscribeOnline(onChange: () => void) {
+  window.addEventListener("online", onChange);
+  window.addEventListener("offline", onChange);
+  return () => {
+    window.removeEventListener("online", onChange);
+    window.removeEventListener("offline", onChange);
+  };
+}
+const getOnlineSnapshot = () => navigator.onLine;
+const getServerOnlineSnapshot = () => true;
 
 export interface SyncContextValue {
   status: SyncStatus;
@@ -21,13 +36,11 @@ const SyncContext = createContext<SyncContextValue | null>(null);
 
 export function SyncProvider({ children }: { children: React.ReactNode }) {
   const database = useDatabase();
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<SyncStatus>("idle");
   const [lastReport, setLastReport] = useState<SyncReport | null>(null);
   const [pendingCount, setPendingCount] = useState<number>(0);
-  const [isOnline, setIsOnline] = useState<boolean>(() => {
-    if (typeof navigator !== "undefined") return navigator.onLine;
-    return true;
-  });
+  const isOnline = useSyncExternalStore(subscribeOnline, getOnlineSnapshot, getServerOnlineSnapshot);
 
   const coordinator = useMemo(() => {
     if (database.status !== "ready") return null;
@@ -56,13 +69,6 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       if (report) setLastReport(report);
     });
 
-    // Track online/offline browser state
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
     // Start auto sync and fetch initial pending count for active owner
     database.db
       .getCurrentOwner()
@@ -86,8 +92,6 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       unsubscribe();
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
       coordinator.destroy();
     };
   }, [coordinator, database.db, refreshPendingCount]);
@@ -108,6 +112,13 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       const report = await coordinator.syncNow(owner?.id);
       setLastReport(report);
       await refreshPendingCount();
+      // Cloud data just landed in the local DB — the React Query caches
+      // (profiles, dashboard, owner …) still hold the pre-pull snapshot.
+      // Without invalidation the dashboard sees a settled-empty cache and
+      // bounces to onboarding, where a DUPLICATE profile gets created.
+      if (report.pulledCount > 0) {
+        void queryClient.invalidateQueries();
+      }
       return report;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -119,7 +130,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         completedAt: Date.now(),
       };
     }
-  }, [coordinator, database.db, refreshPendingCount]);
+  }, [coordinator, database.db, refreshPendingCount, queryClient]);
 
   const isSyncing = status === "syncing" || status === "pushing" || status === "pulling" || status === "merging";
 

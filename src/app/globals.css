@@ -44,7 +44,8 @@
   --brand-orange-hover: var(--accent-primary-hover);
   --brand-yellow: #f5c842;
   --brand-green: #6ccb7f;
-  --brand-purple: #a3b1f7;
+  /* Distinct true purple for "guess" states — must never match --pastel-blue (selected) */
+  --brand-purple: #9d7bea;
   --brand-red: #ef4444;
   --brand-red-bg: #fee2e2;
   --brand-navy: #0f172a;
@@ -126,7 +127,8 @@
   --brand-orange-hover: var(--accent-primary-hover);
   --brand-yellow: #eab308;
   --brand-green: #22c55e;
-  --brand-purple: #6366f1;
+  /* Distinct true purple for "guess" states — must never match --pastel-blue (selected) */
+  --brand-purple: #a78bfa;
   --brand-red: #ef4444;
   --brand-red-bg: #450a0a;
   --brand-navy: #f8fafc;
@@ -512,8 +514,9 @@ input:hover, textarea:hover, select:hover { border-color: var(--line-strong); }
 input:focus, textarea:focus, select:focus { border-color: var(--brand-blue); outline: 3px solid rgb(59 130 246 / .12); }
 
 .button, .btn-primary-orange, .btn-secondary-clean { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: var(--btn-radius); padding: 11px 19px; cursor: pointer; font-weight: 850; border: 1.5px solid transparent; transition: transform .16s ease, box-shadow .16s ease, background .16s ease; }
-.button, .btn-primary-orange { color: #fff; background: linear-gradient(135deg, var(--brand-blue), var(--brand-blue-dark)); box-shadow: 0 8px 18px rgb(59 130 246 / .22); }
-.button:hover, .btn-primary-orange:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgb(59 130 246 / .28); }
+/* Primary action = brand orange (accent-primary) so every CTA matches the Testino identity */
+.button, .btn-primary-orange { color: #fff; background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-hover)); box-shadow: 0 8px 18px rgb(249 87 33 / .25); }
+.button:hover, .btn-primary-orange:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgb(249 87 33 / .3); }
 .button.secondary, .btn-secondary-clean { color: var(--ink); background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-sm); }
 .button:disabled, .btn-primary-orange:disabled, .btn-secondary-clean:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 

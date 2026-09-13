@@ -1,4 +1,13 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
+import { withTimeout } from "@/lib/with-timeout";
+
+// Pending offline-credential retry: without a cap, wrong credentials (or an
+// email that needs confirmation) would be re-submitted on EVERY sync tick
+// (every 30s) forever — Supabase rate-limits and the user sees endless churn.
+const PENDING_AUTH_KEY = "testino_pending_auth";
+const PENDING_AUTH_ATTEMPTS_KEY = "testino_pending_auth_attempts";
+const MAX_PENDING_AUTH_ATTEMPTS = 5;
+const AUTH_TIMEOUT_MS = 12_000;
 
 export interface SupabaseConfig {
   url: string;
@@ -56,8 +65,24 @@ export async function signInWithGoogle(redirectTo?: string): Promise<{ data: { u
     };
   }
 
+  // On Android (Capacitor) the WebView origin is https://localhost — Google
+  // would redirect the SYSTEM browser to an unreachable URL and sign-in
+  // dead-ended. Route through the app's custom scheme instead; AndroidManifest
+  // declares the matching VIEW intent-filter and the appUrlOpen listener
+  // completes the PKCE exchange in-app.
+  // (Requires adding `app.testino.mobile://auth/callback` to the Supabase
+  //  Dashboard → Auth → Redirect URLs allowlist.)
+  const isNative =
+    typeof window !== "undefined" &&
+    Boolean((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.());
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const callbackUrl = redirectTo || (origin ? `${origin}/auth/callback` : undefined);
+  const callbackUrl =
+    redirectTo ||
+    (isNative
+      ? "app.testino.mobile://auth/callback"
+      : origin
+        ? `${origin}/auth/callback`
+        : undefined);
 
   const { data, error } = await client.auth.signInWithOAuth({
     provider: "google",
@@ -144,7 +169,7 @@ export async function getCurrentAuthUser(): Promise<User | null> {
   if (!client) return null;
 
   try {
-    const { data, error } = await client.auth.getUser();
+    const { data, error } = await withTimeout(client.auth.getUser(), AUTH_TIMEOUT_MS, "بررسی نشست کاربر");
     if (error || !data.user) return null;
     return data.user;
   } catch {
@@ -158,27 +183,41 @@ export async function getCurrentAuthUser(): Promise<User | null> {
  */
 export async function syncPendingOfflineAuth(): Promise<{ success: boolean; error: Error | null }> {
   if (typeof window === "undefined") return { success: false, error: null };
-  const pending = window.localStorage.getItem("testino_pending_auth");
+  const pending = window.localStorage.getItem(PENDING_AUTH_KEY);
   if (!pending) return { success: false, error: null };
 
   const config = getSupabaseConfig();
   if (!config.isConfigured) return { success: false, error: null };
 
+  // Attempt cap: give up after N failed rounds so bad credentials don't churn
+  // the auth endpoint every 30 seconds. The marker is cleared → the user can
+  // simply sign in from the UI next time.
+  const attempts = Number(window.localStorage.getItem(PENDING_AUTH_ATTEMPTS_KEY) || "0");
+  if (attempts >= MAX_PENDING_AUTH_ATTEMPTS) {
+    window.localStorage.removeItem(PENDING_AUTH_KEY);
+    window.localStorage.removeItem(PENDING_AUTH_ATTEMPTS_KEY);
+    return { success: false, error: new Error("تلاش برای اتصال خودکار حساب بیش از حد مجاز بود؛ لطفاً دستی وارد شوید.") };
+  }
+
   try {
     const parsed = JSON.parse(pending) as { email?: string; password?: string };
     if (!parsed.email || !parsed.password) return { success: false, error: null };
 
+    window.localStorage.setItem(PENDING_AUTH_ATTEMPTS_KEY, String(attempts + 1));
+
     // 1. Try sign in first (in case account already exists on remote)
-    const signIn = await signInWithEmail(parsed.email, parsed.password);
+    const signIn = await withTimeout(signInWithEmail(parsed.email, parsed.password), AUTH_TIMEOUT_MS, "ورود با حساب ذخیره‌شده");
     if (signIn.user) {
-      window.localStorage.removeItem("testino_pending_auth");
+      window.localStorage.removeItem(PENDING_AUTH_KEY);
+      window.localStorage.removeItem(PENDING_AUTH_ATTEMPTS_KEY);
       return { success: true, error: null };
     }
 
     // 2. If not found, try sign up
-    const signUp = await signUpWithEmail(parsed.email, parsed.password);
+    const signUp = await withTimeout(signUpWithEmail(parsed.email, parsed.password), AUTH_TIMEOUT_MS, "ساخت حساب ابری");
     if (signUp.user) {
-      window.localStorage.removeItem("testino_pending_auth");
+      window.localStorage.removeItem(PENDING_AUTH_KEY);
+      window.localStorage.removeItem(PENDING_AUTH_ATTEMPTS_KEY);
       return { success: true, error: null };
     }
 

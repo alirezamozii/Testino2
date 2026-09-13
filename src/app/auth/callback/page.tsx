@@ -1,120 +1,102 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/platform/auth/supabase-client";
-import { CheckCircle2, AlertCircle, RefreshCw, ArrowRight } from "lucide-react";
-import Link from "next/link";
+import { BrandLogo } from "@/components/ui/brand-logo";
 
+/**
+ * OAuth PKCE callback landing page.
+ *
+ * Supabase redirects here with ?code=... (PKCE). Creating the Supabase
+ * client triggers detectSessionInUrl + code exchange.
+ *
+ * Previously ANY auth event (including INITIAL_SESSION with session=null —
+ * what fires when the code expired or was already used) redirected silently
+ * to onboarding, so users landed signed-out with NO error and retried the
+ * whole flow forever. Now: redirect only when a session actually exists,
+ * and show an explicit failure state with a retry action otherwise.
+ */
 export default function AuthCallbackPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const [status, setStatus] = useState<"processing" | "success" | "error">("processing");
-  const [errorMessage, setErrorMessage] = useState<string>("");
+  const redirectedRef = useRef(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
+    let unsubscribe: (() => void) | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    async function handleAuth() {
-      const code = searchParams.get("code");
-      const error = searchParams.get("error");
-      const errorDescription = searchParams.get("error_description");
+    const redirect = () => {
+      if (redirectedRef.current) return;
+      redirectedRef.current = true;
+      if (unsubscribe) unsubscribe();
+      if (timeoutId) clearTimeout(timeoutId);
+      router.replace("/onboarding/");
+    };
 
-      if (error || errorDescription) {
-        if (mounted) {
-          setStatus("error");
-          setErrorMessage(errorDescription || error || "خطای ناشناخته در ورود با حساب گوگل");
-        }
-        return;
-      }
+    const fail = () => {
+      if (redirectedRef.current) return;
+      setFailed(true);
+    };
 
+    try {
       const client = getSupabaseClient();
       if (!client) {
-        if (mounted) {
-          setStatus("error");
-          setErrorMessage("تنظیمات کلاینت ابری یافت نشد.");
-        }
+        redirect();
         return;
       }
 
-      try {
-        if (code) {
-          const { error: exchangeError } = await client.auth.exchangeCodeForSession(code);
-          if (exchangeError) {
-            throw exchangeError;
-          }
-        } else {
-          // If hash-based or already exchanged by detectSessionInUrl
-          const { data } = await client.auth.getSession();
-          if (!data.session) {
-            // Give a short delay for auto-detection
-            await new Promise((r) => setTimeout(r, 500));
-            const { data: retryData } = await client.auth.getSession();
-            if (!retryData.session) {
-              throw new Error("کد احراز هویت در نشانی دریافت نشد.");
-            }
-          }
+      const { data } = client.auth.onAuthStateChange((event, session) => {
+        // Only a REAL session continues the flow. INITIAL_SESSION(null) means
+        // the PKCE exchange failed (expired/used code) — surface it instead
+        // of silently bouncing.
+        if (session?.user) {
+          redirect();
+        } else if (event === "INITIAL_SESSION" || event === "SIGNED_OUT") {
+          fail();
         }
+      });
+      unsubscribe = () => data.subscription.unsubscribe();
 
-        if (mounted) {
-          setStatus("success");
-          setTimeout(() => {
-            router.replace("/settings");
-          }, 1200);
-        }
-      } catch (err) {
-        if (mounted) {
-          setStatus("error");
-          setErrorMessage(err instanceof Error ? err.message : "خطا در پردازش نشست حساب گوگل");
-        }
-      }
+      // Safety net: give the exchange ~8s, then show the failure state.
+      timeoutId = setTimeout(fail, 8000);
+    } catch {
+      fail();
     }
 
-    handleAuth();
-
     return () => {
-      mounted = false;
+      if (unsubscribe) unsubscribe();
+      if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [searchParams, router]);
+  }, [router]);
 
   return (
-    <div className="min-h-[70vh] flex items-center justify-center p-4">
-      <div className="card-neo w-full max-w-md p-6 rounded-3xl bg-[var(--surface)] border-2 border-[var(--line-strong)] shadow-[4px_4px_0px_var(--neo-shadow)] text-center space-y-4">
-        {status === "processing" && (
-          <div className="py-6 space-y-3">
-            <RefreshCw className="w-10 h-10 animate-spin mx-auto text-amber-500" />
-            <h2 className="text-base font-black text-[var(--ink)]">در حال تکمیل ورود با گوگل...</h2>
-            <p className="text-xs text-[var(--muted)]">در حال تایید نشست کاربری و همگام‌سازی اطلاعات.</p>
-          </div>
-        )}
-
-        {status === "success" && (
-          <div className="py-6 space-y-3">
-            <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500" />
-            <h2 className="text-base font-black text-[var(--ink)]">ورود با موفقیت انجام شد!</h2>
-            <p className="text-xs text-[var(--muted)]">در حال انتقال به صفحه تنظیمات...</p>
-          </div>
-        )}
-
-        {status === "error" && (
-          <div className="py-6 space-y-4">
-            <AlertCircle className="w-10 h-10 mx-auto text-rose-500" />
-            <h2 className="text-base font-black text-rose-600 dark:text-rose-400">خطا در احراز هویت</h2>
-            <p className="text-xs text-[var(--muted)] bg-rose-50 dark:bg-rose-950/40 p-3 rounded-xl border border-rose-200 dark:border-rose-800">
-              {errorMessage}
+    <main className="focus-shell flex items-center justify-center p-6">
+      <div className="flex flex-col items-center gap-4 text-center">
+        <BrandLogo size="md" />
+        {failed ? (
+          <>
+            <p className="text-sm font-black text-[var(--ink)]">ورود ناموفق بود.</p>
+            <p className="text-xs font-bold text-[var(--muted)] leading-5 max-w-xs">
+              لینک ورود منقضی شده یا قبلاً استفاده شده است. لطفاً دوباره تلاش کن.
             </p>
-            <div className="pt-2">
-              <Link
-                href="/settings"
-                className="btn-neo-orange inline-flex items-center gap-2 py-2 px-5 text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)]"
-              >
-                <span>بازگشت به تنظیمات</span>
-                <ArrowRight size={14} />
-              </Link>
-            </div>
-          </div>
+            <button
+              type="button"
+              onClick={() => router.replace("/onboarding/")}
+              className="btn-neo-orange px-5 py-2.5 text-xs font-black rounded-2xl"
+            >
+              بازگشت به تستینو
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-black text-[var(--muted)]">
+              در حال بازگشت به تستینو…
+            </p>
+            <span className="loading w-5 h-5 rounded-full border-2 border-[var(--testino-orange)] border-t-transparent animate-spin inline-block" />
+          </>
         )}
       </div>
-    </div>
+    </main>
   );
 }

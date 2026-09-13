@@ -25,16 +25,23 @@ export function UpdateDialog({ update, onClose }: UpdateDialogProps) {
 
   const handleApplyWebUpdate = async () => {
     setIsUpdating(true);
-    if ("serviceWorker" in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      for (const reg of registrations) {
-        await reg.update().catch(() => {});
+    try {
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) {
+          await reg.update().catch(() => {});
+        }
       }
+    } catch {
+      // Even if the SW update probe fails, the reload below still picks up
+      // the newly deployed bundle (next navigation fetches fresh HTML).
+    } finally {
+      // Always reload — the button must never stay disabled forever when
+      // getRegistrations() rejects (insecure context, denied storage …).
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
     }
-    // Small delay then reload
-    setTimeout(() => {
-      window.location.reload();
-    }, 500);
   };
 
   const handleDismiss = () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { memo, useEffect, useState } from "react";
 import katex from "katex";
 import { Image as ImageIcon, Maximize2 } from "lucide-react";
 import type { ContentBlock, InlineCell } from "@/features/questions/domain/question-schema";
@@ -177,7 +177,13 @@ function renderInlineCell(cell: InlineCell, key: string | number) {
   return renderFormula(cell.latex, false, key);
 }
 
-export function ContentRenderer({ blocks }: { blocks: ContentBlock[] }) {
+/**
+ * Memoized: the exam player's 2-second elapsed timer re-renders SessionPlayer
+ * every tick — without memo, every tick re-ran KaTeX rendering for EVERY
+ * formula on the page (visible jank during exams, worst on Android WebView).
+ * ContentRenderer re-renders now only when its blocks actually change.
+ */
+export const ContentRenderer = memo(function ContentRenderer({ blocks }: { blocks: ContentBlock[] }) {
   const [lightboxImg, setLightboxImg] = useState<{ url: string; alt: string } | null>(null);
 
   if (!blocks || !blocks.length) return null;
@@ -294,4 +300,4 @@ export function ContentRenderer({ blocks }: { blocks: ContentBlock[] }) {
       )}
     </div>
   );
-}
+});
