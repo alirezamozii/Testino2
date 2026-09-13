@@ -4,6 +4,12 @@
   "directories": {
     "output": "dist"
   },
+  "protocols": [
+    {
+      "name": "Testino",
+      "schemes": ["app.testino.mobile"]
+    }
+  ],
   "files": [
     "electron/**/*",
     "out/**/*",

@@ -36,6 +36,8 @@ android/local.properties
 release.keystore
 *.jks
 *.keystore
+*.keystore.base64.txt
+*.base64.txt
 
 # TS incremental build info
 tsconfig.tsbuildinfo
