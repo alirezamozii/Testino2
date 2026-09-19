@@ -45,7 +45,18 @@ if (!fs.existsSync(path.join(rootDir, "out", "index.html"))) {
 
 console.log("1️⃣ آماده‌سازی پوشه خروجی...");
 if (fs.existsSync(outputAppDir)) {
-  fs.rmSync(outputAppDir, { recursive: true, force: true });
+  try {
+    fs.rmSync(outputAppDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 500 });
+  } catch {
+    const entries = fs.readdirSync(outputAppDir);
+    for (const entry of entries) {
+      try {
+        fs.rmSync(path.join(outputAppDir, entry), { recursive: true, force: true });
+      } catch {
+        // ignore locked files
+      }
+    }
+  }
 }
 fs.mkdirSync(outputAppDir, { recursive: true });
 
@@ -160,4 +171,15 @@ try {
 console.log("\n🎉 بیلد نسخه ویندوز دسکتاپ با موفقیت کامل انجام شد!");
 console.log(`📁 پوشه برنامه: ${outputAppDir}`);
 console.log(`🚀 فایل اجرایی مستقیم: ${targetExe}\n`);
+
+const desktopTarget = "C:\\Users\\Mozart\\Desktop\\Testino-win-x64";
+try {
+  if (fs.existsSync("C:\\Users\\Mozart\\Desktop")) {
+    console.log(`📋 در حال همگام‌سازی با پوشه دسکتاپ کاربر: ${desktopTarget}...`);
+    fs.cpSync(outputAppDir, desktopTarget, { recursive: true });
+    console.log(`✅ نسخه اجرایی در دسکتاپ کاربر نیز به‌روزرسانی شد.`);
+  }
+} catch (err) {
+  console.warn("⚠️ کپی به دسکتاپ ویندوز:", err.message);
+}
 

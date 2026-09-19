@@ -463,6 +463,11 @@ body:has(.dialog-backdrop) .mobile-bottom-nav {
   box-shadow: 1.5px 1.5px 0px rgba(0, 0, 0, 0.15);
 }
 .btn-neo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
   border: 2px solid var(--line-strong);
   box-shadow: var(--shadow-sm);
   border-radius: 16px;
@@ -470,6 +475,7 @@ body:has(.dialog-backdrop) .mobile-bottom-nav {
   transition: all 0.15s ease;
   background: var(--surface);
   color: var(--ink);
+  text-decoration: none;
 }
 .btn-neo:hover {
   transform: translate(-1px, -1px);
@@ -483,12 +489,18 @@ body:has(.dialog-backdrop) .mobile-bottom-nav {
 .btn-neo-primary,
 .btn-neo-blue,
 .btn-neo-yellow {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  white-space: nowrap !important;
   background: var(--accent-primary) !important;
   color: var(--accent-primary-ink) !important;
   border: 2px solid var(--line-strong) !important;
   box-shadow: var(--shadow-sm) !important;
   border-radius: 16px !important;
   font-weight: 900;
+  text-decoration: none !important;
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .btn-neo-orange:hover,
@@ -738,8 +750,24 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-blue); out
 .option-card-testino.selected { border: 2px solid var(--brand-green); background: color-mix(in srgb, var(--brand-green) 8%, var(--surface)); box-shadow: 2px 2px 0px var(--brand-green); }
 .option-letter-badge { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--line); font-size: 13px; font-weight: 900; }
 .option-card-testino.selected .option-letter-badge { color: #fff; background: var(--brand-green); border-color: var(--brand-green); }
-.katex-display { margin: 12px 0 !important; direction: ltr !important; text-align: center !important; overflow-x: auto; padding: 6px 0; }
-.katex { direction: ltr !important; font-size: 1.1em !important; }
+.katex-display { margin: 12px 0 !important; direction: ltr !important; text-align: center !important; overflow-x: auto !important; overflow-y: hidden !important; padding: 6px 0; scrollbar-width: none; }
+.katex { direction: ltr !important; font-size: 1.1em !important; overflow: visible !important; }
+.katex-html, .formula-inline, .inline-formula { overflow: visible !important; }
+.formula-inline::-webkit-scrollbar,
+.inline-formula::-webkit-scrollbar,
+.katex::-webkit-scrollbar,
+.katex-html::-webkit-scrollbar,
+.katex-display::-webkit-scrollbar,
+.formula-block::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
 
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: transparent; }

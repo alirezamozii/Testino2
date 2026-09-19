@@ -49,7 +49,7 @@ export class NativeSqliteAdapter implements DatabasePort {
     this.memoryFallbackStatements.push({ sql, bind });
   }
 
-  async batch(statements: SqlStatement[]): Promise<void> {
+  async batch(statements: SqlStatement[], _opts?: { timeoutMs?: number }): Promise<void> {
     this.assertOpen();
     if (this.nativeConn) {
       for (const stmt of statements) {

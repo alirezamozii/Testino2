@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, BookOpen, Check, Flag, X } from "lucide-react";
+import { BookOpen, Check, Flag, X } from "lucide-react";
 import { useDatabase } from "@/providers/database-provider";
 import type { StoredQuestion } from "@/features/questions/domain/question-schema";
 
@@ -21,7 +21,6 @@ export function QuestionTrustActions({ question, compact = false }: { question: 
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const report = useQuery({ queryKey: ["question-report", question.id], queryFn: () => db.getQuestionReportStatus(question.id), enabled: status === "ready" });
-  const count = report.data?.count ?? question.reportCount ?? 0;
   const alreadyReported = report.data?.reportedByCurrentUser ?? false;
   const source = question.source;
 
@@ -38,7 +37,7 @@ export function QuestionTrustActions({ question, compact = false }: { question: 
   }
 
   const buttonClass = compact
-    ? "inline-flex min-h-8 items-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2 text-[10px] font-black text-[var(--muted)] hover:text-[var(--ink)]"
+    ? "inline-flex min-h-9 items-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2.5 text-[11px] font-black text-[var(--muted)] hover:text-[var(--ink)]"
     : "inline-flex min-h-10 items-center gap-1.5 rounded-xl border-2 border-[var(--line)] bg-[var(--surface)] px-3 text-xs font-black text-[var(--ink)] hover:bg-[var(--surface-2)]";
 
   return <>
@@ -47,7 +46,7 @@ export function QuestionTrustActions({ question, compact = false }: { question: 
         <BookOpen size={compact ? 13 : 15} /><span>منبع</span>
       </button>
       <button type="button" onClick={() => !alreadyReported && setReportOpen(true)} disabled={alreadyReported} className={`${buttonClass} ${alreadyReported ? "cursor-default border-amber-300 bg-amber-50 text-amber-800 opacity-90" : ""}`} title={alreadyReported ? "گزارش شما قبلاً ثبت شده است" : "گزارش اشکال سؤال"}>
-        {alreadyReported ? <Check size={compact ? 13 : 15} /> : <Flag size={compact ? 13 : 15} />}<span>{alreadyReported ? "گزارش شد" : "گزارش"}</span><span className="rounded-full bg-black/10 px-1.5 py-0.5 tabular-nums">{count}</span>
+        {alreadyReported ? <Check size={compact ? 13 : 15} /> : <Flag size={compact ? 13 : 15} />}<span>{alreadyReported ? "گزارش شد" : "گزارش"}</span>
       </button>
     </div>
 
@@ -61,21 +60,44 @@ export function QuestionTrustActions({ question, compact = false }: { question: 
     </Dialog>}
 
     {reportOpen && <Dialog title="گزارش اشکال سؤال" onClose={() => setReportOpen(false)}>
-      <div className="space-y-4"><p className="text-sm font-bold leading-7 text-[var(--muted)]">اگر سؤال، پاسخ، گزینه‌ها یا منبع اشکال دارد گزارش کنید. هر کاربر فقط یک گزارش برای هر سؤال ثبت می‌کند.</p>
+      <div className="space-y-4"><p className="text-sm font-bold leading-7 text-[var(--muted)]">اشکال سؤال، پاسخ یا گزینه‌ها را برای ما بنویسید. هر کاربر برای هر سؤال فقط یک گزارش می‌تواند ثبت کند.</p>
         <label className="block text-xs font-black text-[var(--ink)]">توضیح شما <span className="font-bold text-[var(--muted)]">(اختیاری)</span>
           <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={4} placeholder="مثلاً کلید با پاسخ تشریحی ناسازگار است…" className="mt-2 w-full resize-y rounded-xl border-2 border-[var(--line)] bg-[var(--surface-2)] p-3 text-sm font-medium text-[var(--ink)] outline-none focus:border-[var(--line-strong)]" />
         </label>
-        {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs font-black text-rose-700">{error}</p>}
-        <button type="button" onClick={() => void submit()} disabled={saving} className="btn-neo-orange w-full min-h-11 text-xs font-black disabled:opacity-60">{saving ? "در حال ثبت پایدار…" : "ثبت گزارش"}</button>
+        {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-black text-red-700">{error}</p>}
+        <button type="button" onClick={() => void submit()} disabled={saving} className="btn-neo-orange w-full min-h-11 text-xs font-black disabled:opacity-60">{saving ? "در حال ثبت…" : "ثبت گزارش"}</button>
       </div>
     </Dialog>}
   </>;
 }
 
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/45 p-3 sm:items-center" role="dialog" aria-modal="true" aria-label={title}>
-    <div className="w-full max-w-lg rounded-3xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-5 shadow-[6px_6px_0_var(--neo-shadow)]">
-      <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-base font-black text-[var(--ink)]">{title}</h2><button type="button" onClick={onClose} className="rounded-xl p-2 text-[var(--muted)] hover:bg-[var(--surface-2)]" aria-label="بستن"><X size={18} /></button></div>{children}
+  return (
+    // Same dialog system as the rest of the app (dialog-backdrop + card-neo)
+    <div
+      className="dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onMouseDown={onClose}
+    >
+      <div
+        className="card-neo w-full max-w-md rounded-3xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-5 shadow-[6px_6px_0_var(--neo-shadow)] max-h-[85vh] overflow-y-auto"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-base font-black text-[var(--ink)]">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl p-2 text-[var(--muted)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+            aria-label="بستن"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        {children}
+      </div>
     </div>
-  </div>;
+  );
 }

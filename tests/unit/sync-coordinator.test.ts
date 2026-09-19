@@ -235,7 +235,7 @@ describe("Cloud Sync Engine & Outbox (TASK-031, TASK-032, TASK-033)", () => {
     // Calling signInWithGoogle when unconfigured returns clear error without throwing unhandled rejection
     const res = await signInWithGoogle();
     expect(res.error).toBeTruthy();
-    expect(res.error?.message).toContain("تنظیم نشده");
+    expect(res.error?.message).toContain("CONFIG_MISSING");
   });
 
   it("handles concurrent divergent session conflict by creating a recovery fork (TASK-033.4)", async () => {

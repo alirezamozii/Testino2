@@ -12,5 +12,5 @@ export type DatabaseRequest =
   | { id: string; type: "close" };
 
 export type DatabaseReply =
-  | { id: string; ok: true; rows?: Record<string, unknown>[]; storage?: "opfs" | "native" | "memory"; schemaVersion?: number }
+  | { id: string; ok: true; rows?: Record<string, unknown>[]; storage?: "opfs" | "native" | "memory"; schemaVersion?: number; storageDetail?: string }
   | { id: string; ok: false; error: string; code?: string };

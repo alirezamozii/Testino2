@@ -163,7 +163,7 @@ export function createZipArchive(entries: ZipEntry[]): Uint8Array {
 /**
  * Decompresses raw DEFLATE data if supported by the environment.
  */
-async function decompressDeflate(compressedBytes: Uint8Array): Promise<Uint8Array> {
+async function decompressDeflate(compressedBytes: Uint8Array, maxBytes?: number): Promise<Uint8Array> {
   if (typeof DecompressionStream !== "undefined") {
     try {
       const stream = new ReadableStream({
@@ -180,8 +180,15 @@ async function decompressDeflate(compressedBytes: Uint8Array): Promise<Uint8Arra
         const { done, value } = await reader.read();
         if (done) break;
         if (value) {
-          chunks.push(value);
           total += value.length;
+          // In-loop bomb cap: header-declared sizes can LIE about the real
+          // decompressed size. Without this check a crafted archive grows
+          // memory unbounded here (tab crash mid-import).
+          if (maxBytes !== undefined && total > maxBytes) {
+            void reader.cancel().catch(() => {});
+            throw new Error("حجم دادهٔ فشرده‌شده از سقف مجاز فراتر رفت (احتمال Zip-Bomb).");
+          }
+          chunks.push(value);
         }
       }
       const res = new Uint8Array(total);
@@ -318,7 +325,7 @@ export async function parseZipArchive(
       decompressed = new Uint8Array(rawData);
     } else if (method === 8) {
       // DEFLATE
-      decompressed = await decompressDeflate(rawData);
+      decompressed = await decompressDeflate(rawData, limits.maxEntryBytes);
     } else {
       throw new Error(`روش فشرده‌سازی ناشناخته (${method}) برای فایل: ${safePath}`);
     }

@@ -21,6 +21,7 @@ import {
   Target,
 } from "lucide-react";
 import { EmptyState, LoadingState, MascotBanner } from "@/components/ui/testino-ui";
+import { BankNavTabs } from "@/components/navigation/bank-nav-tabs";
 import { useDatabase } from "@/providers/database-provider";
 import { cn } from "@/lib/utils";
 
@@ -147,6 +148,9 @@ export function SubjectBrowser() {
 
     return (
       <div className="page subject-detail-page space-y-6 pb-12">
+        {/* 0. Global Bank Navigation */}
+        <BankNavTabs activeTab="bank" />
+
         {/* Top Header with Back Arrow */}
         <div className="flex items-center justify-between gap-3">
           <button
@@ -365,6 +369,9 @@ export function SubjectBrowser() {
   // VIEW 2: All Subjects Overview Grid (Wireframe 6 Overview)
   return (
     <div className="page subjects-overview-page space-y-6 pb-12">
+      {/* 0. Global Bank Navigation */}
+      <BankNavTabs activeTab="bank" />
+
       {/* Mascot Banner */}
       <MascotBanner
         badge="نمای ساختار درس‌ها"
@@ -538,6 +545,9 @@ export function SubjectDetail({ name }: { name: string }) {
 
   return (
     <div className="page subject-detail-page max-w-4xl mx-auto space-y-6 pb-12">
+      {/* 0. Global Bank Navigation */}
+      <BankNavTabs activeTab="bank" />
+
       {/* 1. Top Header */}
       <div className="flex items-center justify-between">
         <Link

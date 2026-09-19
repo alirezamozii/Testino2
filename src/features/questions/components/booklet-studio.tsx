@@ -10,10 +10,7 @@ import {
   Edit3,
   Plus,
   UploadCloud,
-  CheckCircle2,
-  AlertCircle,
   BookOpen,
-  Sparkles,
   ArrowRight,
   Layers,
   Search,
@@ -21,16 +18,17 @@ import {
   Maximize2,
   ChevronDown,
   ChevronUp,
-  Image as ImageIcon,
   Check,
-  X,
   Filter,
+  Trash2,
 } from "lucide-react";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { QuestionEditorModal } from "./question-editor-modal";
 import { useDatabase } from "@/providers/database-provider";
 import { cn } from "@/lib/utils";
 import { BankNavTabs } from "@/components/navigation/bank-nav-tabs";
+import { checkIsOwner } from "@/lib/permissions";
+import { getSupabaseClient } from "@/platform/auth/supabase-client";
 import type { StoredQuestion } from "@/features/questions/domain/question-schema";
 
 const YEARS = [1405, 1404, 1403, 1402, 1401, 1400, 1399];
@@ -62,6 +60,44 @@ export function BookletStudio() {
   // Expanded explanations toggle
   const [expandedExplanations, setExpandedExplanations] = useState<Record<string, boolean>>({});
 
+  // Deletion States
+  const [deletingQuestion, setDeletingQuestion] = useState<StoredQuestion | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => {
+    void checkIsOwner().then(setIsOwner);
+  }, []);
+
+  async function handleDeleteSingle(questionId: string) {
+    setIsDeleting(true);
+    try {
+      if (isOwner) {
+        await database.db.deleteQuestion(questionId);
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          try {
+            await supabase.from("questions").delete().eq("id", questionId);
+          } catch {
+            // cloud delete failure shouldn't block local
+          }
+        }
+      } else {
+        await database.db.hideQuestion(questionId);
+      }
+      await cache.invalidateQueries({ queryKey: ["booklet-catalog"] });
+      await cache.invalidateQueries({ queryKey: ["questions"] });
+      await cache.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+      await cache.invalidateQueries({ queryKey: ["analytics"] });
+      await cache.invalidateQueries({ queryKey: ["dashboard"] });
+      setDeletingQuestion(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   // Query all questions from local database
   const catalogQuery = useQuery({
     queryKey: ["booklet-catalog"],
@@ -70,7 +106,7 @@ export function BookletStudio() {
   });
 
   // Extract unique subjects & chapters
-  const allQuestions = catalogQuery.data || [];
+  const allQuestions = useMemo(() => catalogQuery.data || [], [catalogQuery.data]);
   const subjects = useMemo(
     () => [...new Set(allQuestions.map((q) => q.subject).filter(Boolean))],
     [allQuestions]
@@ -570,6 +606,16 @@ export function BookletStudio() {
                             <span>ویرایش</span>
                           </button>
 
+                          <button
+                            type="button"
+                            onClick={() => setDeletingQuestion(q)}
+                            className="py-1.5 px-2 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-black flex items-center gap-1 transition-all cursor-pointer"
+                            title="حذف این سؤال"
+                          >
+                            <Trash2 size={13} />
+                            <span>حذف</span>
+                          </button>
+
                           <Link
                             href={`/bank/question/?id=${encodeURIComponent(q.id)}`}
                             className="p-1.5 rounded-xl border border-[var(--line)] hover:bg-[var(--surface-2)] transition-colors text-[var(--muted)]"
@@ -657,6 +703,52 @@ export function BookletStudio() {
           </div>
         )}
       </div>
+
+      {/* Single Question Delete Confirmation Modal */}
+      {deletingQuestion && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-sm rounded-3xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-6 space-y-4 shadow-[6px_6px_0_var(--neo-shadow)] animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-300">
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[var(--ink)]">حذف سؤال</h3>
+                <p className="text-xs text-[var(--muted)] font-bold">
+                  {isOwner ? "حذف از دیتابیس کل سیستم" : "پنهان‌سازی از بانک شما"}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[var(--ink)] leading-relaxed font-bold">
+              آیا از حذف این سؤال اطمینان دارید؟
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeletingQuestion(null)}
+                className="px-4 py-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] text-xs font-black text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => void handleDeleteSingle(deletingQuestion.id)}
+                className="px-4 py-2.5 rounded-xl border-2 border-rose-600 bg-rose-600 hover:bg-rose-700 text-xs font-black text-white transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {isDeleting ? "در حال حذف…" : "بله، حذف شود"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reusable Question Editor Modal (Form / JSON / Multi-Image Attachments) */}
       <QuestionEditorModal

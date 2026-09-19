@@ -8,8 +8,8 @@ android {
         applicationId "app.testino.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 67
-        versionName "0.1.7"
+        versionCode 69
+        versionName "2.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -17,10 +17,31 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing — driven by env vars so CI (GitHub Secrets) and local builds
+    // share one config. When no release keystore is present, release builds fall
+    // back to the debug key so `assembleRelease` never fails.
+    def releaseKeystoreFile = file(System.getenv("KEYSTORE_PATH") ?: "release.keystore")
+    def hasReleaseKeystore = System.getenv("KEYSTORE_PASSWORD") != null && releaseKeystoreFile.exists()
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            release {
+                storeFile releaseKeystoreFile
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS") ?: "testino"
+                keyPassword System.getenv("KEY_PASSWORD") ?: System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            } else {
+                signingConfig signingConfigs.debug
+                logger.lifecycle("Testino: no release keystore found — falling back to debug signing.")
+            }
         }
     }
 }

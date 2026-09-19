@@ -471,6 +471,51 @@ export const MIGRATIONS: Migration[] = [
       },
     ],
   },
+  {
+    version: 12,
+    name: "0012_import_batches",
+    checksum: "b19aeda7ee25edbf1363db8db599fbe3b7d82e54b78c59cd415b671f07715a63",
+    destructive: false,
+    statements: [
+      {
+        sql: `
+          CREATE TABLE IF NOT EXISTS import_batches(
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            subject TEXT,
+            question_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+          );
+        `,
+      },
+      {
+        sql: `ALTER TABLE questions ADD COLUMN batch_id TEXT;`,
+      },
+      {
+        sql: `CREATE INDEX IF NOT EXISTS questions_batch_idx ON questions(batch_id);`,
+      },
+      {
+        sql: `CREATE INDEX IF NOT EXISTS import_batches_created_idx ON import_batches(created_at DESC);`,
+      },
+      {
+        sql: `
+          INSERT OR IGNORE INTO import_batches(id, title, subject, question_count, created_at)
+            SELECT
+              'legacy-batch-initial',
+              'سؤالات پیشین بانک',
+              'عمومی',
+              COUNT(*),
+              COALESCE(MIN(created_at), 1700000000000)
+            FROM questions
+            WHERE batch_id IS NULL AND inactive_at IS NULL
+            HAVING COUNT(*) > 0;
+        `,
+      },
+      {
+        sql: `UPDATE questions SET batch_id = 'legacy-batch-initial' WHERE batch_id IS NULL;`,
+      },
+    ],
+  },
 ];
 
 // For backwards-compatibility with direct batch executions

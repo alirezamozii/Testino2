@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,7 +8,6 @@ import {
   ArrowRight,
   BookOpen,
   CheckCircle2,
-  Lightbulb,
   Play,
   Edit3,
   Trash2,
@@ -20,6 +19,8 @@ import { useDatabase } from "@/providers/database-provider";
 import { cn } from "@/lib/utils";
 import { QuestionEditorModal } from "./question-editor-modal";
 import { QuestionTrustActions } from "./question-trust-actions";
+import { checkIsOwner } from "@/lib/permissions";
+import { getSupabaseClient } from "@/platform/auth/supabase-client";
 
 export function QuestionDetail({ id }: { id: string }) {
   const router = useRouter();
@@ -28,11 +29,28 @@ export function QuestionDetail({ id }: { id: string }) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => {
+    void checkIsOwner().then(setIsOwner);
+  }, []);
 
   async function handleDelete() {
     setIsDeleting(true);
     try {
-      await db.deleteQuestion(id);
+      if (isOwner) {
+        await db.deleteQuestion(id);
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          try {
+            await supabase.from("questions").delete().eq("id", id);
+          } catch {
+            // cloud delete failure shouldn't block local
+          }
+        }
+      } else {
+        await db.hideQuestion(id);
+      }
       await cache.invalidateQueries({ queryKey: ["questions"] });
       await cache.invalidateQueries({ queryKey: ["questions-all-subjects"] });
       await cache.invalidateQueries({ queryKey: ["analytics"] });
@@ -215,19 +233,6 @@ export function QuestionDetail({ id }: { id: string }) {
             </div>
           </div>
         )}
-
-        {/* Educational Tip */}
-        <div className="p-4 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-start gap-3">
-          <Lightbulb size={20} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-          <div className="text-xs space-y-1">
-            <strong className="font-black text-amber-900 dark:text-amber-200 block">
-              نکته آموزشی تستیونو:
-            </strong>
-            <p className="font-bold text-amber-800 dark:text-amber-300 leading-relaxed">
-              ثبت اشتباهات و بازخوانی نکات کلیدی هر سؤال، سرعت یادآوری شما را در جلسهٔ اصلی کنکور تا ۳ برابر افزایش می‌دهد.
-            </p>
-          </div>
-        </div>
       </div>
 
       {/* Question Editor Modal */}
@@ -250,8 +255,14 @@ export function QuestionDetail({ id }: { id: string }) {
                 <AlertTriangle size={22} />
               </div>
               <div>
-                <h3 className="text-base font-black text-[var(--ink)]">حذف سؤال از بانک</h3>
-                <p className="text-xs text-[var(--muted)] font-bold">آیا از حذف این سؤال مطمئن هستید؟ این عملیات قابل بازگشت نیست.</p>
+                <h3 className="text-base font-black text-[var(--ink)]">
+                  {isOwner ? "حذف دائمی سؤال (مدیر کل)" : "حذف سؤال از لیست من"}
+                </h3>
+                <p className="text-xs text-[var(--muted)] font-bold">
+                  {isOwner
+                    ? "آیا از حذف این سؤال مطمئن هستید؟ با توجه به دسترسی مدیر، سؤال از دیتابیس دستگاه شما و سرور ابری برای همه حذف خواهد شد."
+                    : "آیا از حذف این سؤال مطمئن هستید؟ این سؤال دیگر برای شما در آزمون‌ها و بانک سؤالات نمایش داده نمی‌شود."}
+                </p>
               </div>
             </div>
 

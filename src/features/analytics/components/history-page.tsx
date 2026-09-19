@@ -1,15 +1,17 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   ChevronLeft,
   CirclePlay,
-  Flame,
+  FileText,
   History,
   PauseCircle,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 import { ErrorState, LoadingState } from "@/components/ui/testino-ui";
 import { useDatabase } from "@/providers/database-provider";
@@ -17,6 +19,10 @@ import { cn } from "@/lib/utils";
 
 export function HistoryPage() {
   const { db, status } = useDatabase();
+  const cache = useQueryClient();
+  const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const profiles = useQuery({
     queryKey: ["profiles"],
     queryFn: () => db.listProfiles(),
@@ -28,6 +34,27 @@ export function HistoryPage() {
     queryFn: () => db.listSessions(profile!.id),
     enabled: Boolean(profile),
   });
+
+  async function handleDeleteSession() {
+    if (!deleteSessionId) return;
+    setIsDeleting(true);
+    try {
+      await db.deleteSession(deleteSessionId);
+      setDeleteSessionId(null);
+      await sessions.refetch();
+      await cache.invalidateQueries({ queryKey: ["history-sessions"] });
+      await cache.invalidateQueries({ queryKey: ["sessions"] });
+      await cache.invalidateQueries({ queryKey: ["analytics"] });
+      await cache.invalidateQueries({ queryKey: ["dashboard"] });
+      await cache.invalidateQueries({ queryKey: ["question-pool-stats"] });
+    } catch (err) {
+      console.error("Failed to delete session:", err);
+      alert("خطا در حذف آزمون: " + (err instanceof Error ? err.message : String(err)));
+      setDeleteSessionId(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
 
   // Accurate Jalali Calendar Calculation
   const jalaliParts = useMemo(() => {
@@ -133,7 +160,7 @@ export function HistoryPage() {
                 </span>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--testino-orange)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-                <Flame size={24} />
+                <FileText size={24} />
               </div>
             </div>
 
@@ -219,12 +246,14 @@ export function HistoryPage() {
                     : "آزمون شبیه‌ساز";
 
                 return (
-                  <Link
-                    href={`/sessions/run/?id=${session.id}`}
+                  <div
                     key={session.id}
                     className="card-neo p-4 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line-strong)] flex items-center justify-between gap-3 transition-all hover:translate-x-[-2px] shadow-[3px_3px_0px_var(--neo-shadow)]"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <Link
+                      href={`/sessions/run/?id=${session.id}`}
+                      className="flex items-center gap-3 min-w-0 flex-1"
+                    >
                       <div
                         className={cn(
                           "w-11 h-11 rounded-xl border-2 border-[var(--line-strong)] flex items-center justify-center flex-shrink-0 shadow-[2px_2px_0px_var(--neo-shadow)]",
@@ -258,16 +287,69 @@ export function HistoryPage() {
                           {formatter.format(new Date(session.createdAt))} • {session.answered} پاسخ از {session.total} سؤال
                         </span>
                       </div>
-                    </div>
+                    </Link>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="w-8 h-8 rounded-xl bg-[var(--surface-2)] border border-[var(--line-strong)] flex items-center justify-center text-[var(--ink)]">
+                      <button
+                        type="button"
+                        onClick={() => setDeleteSessionId(session.id)}
+                        className="w-8 h-8 rounded-xl border border-transparent hover:border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center text-[var(--muted)] hover:text-rose-600 transition-all cursor-pointer"
+                        title="حذف این آزمون از تاریخچه"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                      <Link
+                        href={`/sessions/run/?id=${session.id}`}
+                        className="w-8 h-8 rounded-xl bg-[var(--surface-2)] border border-[var(--line-strong)] flex items-center justify-center text-[var(--ink)]"
+                      >
                         <ChevronLeft size={16} />
-                      </span>
+                      </Link>
                     </div>
-                  </Link>
+                  </div>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Session Confirmation Dialog */}
+      {deleteSessionId && (
+        <div
+          className="dialog-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          onClick={() => !isDeleting && setDeleteSessionId(null)}
+        >
+          <div
+            className="card-neo w-full max-w-sm p-5 space-y-4 bg-[var(--surface)] text-center border-2 border-[var(--line-strong)] shadow-[4px_4px_0px_var(--neo-shadow)] animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-rose-100 dark:bg-rose-950/60 border-2 border-[var(--line-strong)] flex items-center justify-center text-rose-600 dark:text-rose-400">
+              <Trash2 size={24} />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-black text-[var(--ink)]">حذف آزمون از تاریخچه</h3>
+              <p className="text-xs text-[var(--muted)] font-medium">
+                آیا از حذف این جلسه آزمون مطمئن هستید؟ داده‌ها و کارنامه مربوط به این آزمون کاملاً حذف می‌شوند.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteSession}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+              >
+                {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                <span>{isDeleting ? "در حال حذف…" : "حذف قطعی"}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeleteSessionId(null)}
+                className="py-2.5 px-4 rounded-xl border border-[var(--line)] text-xs font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
             </div>
           </div>
         </div>

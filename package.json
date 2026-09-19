@@ -1,6 +1,6 @@
 {
   "name": "testino",
-  "version": "0.1.7",
+  "version": "2.0.0",
   "description": "سامانه آزمون‌یار و مرور هوشمند تستینو",
   "author": "Testino",
   "type": "module",
@@ -8,8 +8,9 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "node scripts/prepare-release.mjs",
-    "build:web": "node scripts/bump-version.mjs --patch && node scripts/prepare-assets.mjs && next build --webpack && node scripts/build-sw.mjs",
+    "build": "npm run build:web",
+    "build:web": "node scripts/bump-version.mjs --no-bump && node scripts/prepare-assets.mjs && next build --webpack && node scripts/build-sw.mjs",
+    "release": "node scripts/prepare-release.mjs",
     "start": "node scripts/serve.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -24,6 +25,7 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
     "@fontsource/vazirmatn": "5.2.8",
     "@hookform/resolvers": "5.9.1",
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",

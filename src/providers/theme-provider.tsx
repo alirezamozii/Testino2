@@ -146,6 +146,8 @@ interface ThemeContextType {
   accent: string;
   setAccent: (accentId: string) => void;
   activeAccent: AccentOption;
+  /** True once the client has loaded persisted preferences (hydration-safe gate). */
+  mounted: boolean;
 }
 
 const ThemeContext = createContext<ThemeContextType>({
@@ -154,33 +156,44 @@ const ThemeContext = createContext<ThemeContextType>({
   accent: "orange",
   setAccent: () => {},
   activeAccent: ACCENT_OPTIONS[1],
+  mounted: false,
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<AppTheme>(() => {
-    if (typeof window === "undefined") return "light";
-    try {
-      const saved = localStorage.getItem("testino-theme");
-      if (saved === "dark") return "dark";
-      if (saved === "light" || saved === "paper") return "light";
-      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    } catch {
-      return "light";
-    }
-  });
+  // Hydration-safe defaults: identical on server and client's first render.
+  // Persisted/system preferences are loaded AFTER mount so SSR HTML always matches.
+  const [theme, setThemeState] = useState<AppTheme>("light");
+  const [accent, setAccentState] = useState<string>("orange");
+  const [mounted, setMounted] = useState(false);
 
-  const [accent, setAccentState] = useState<string>(() => {
-    if (typeof window === "undefined") return "orange";
-    try {
-      const saved = localStorage.getItem("testino-accent");
-      if (saved && ACCENT_OPTIONS.some((a) => a.id === saved)) {
-        return saved;
+  useEffect(() => {
+    // One-time post-mount load of persisted preferences. Runs in a microtask so the
+    // effect body itself stays free of synchronous setState (react-hooks lint rule)
+    // while the timing remains identical (still before the next paint).
+    queueMicrotask(() => {
+      let initialTheme: AppTheme = "light";
+      try {
+        const saved = localStorage.getItem("testino-theme");
+        if (saved === "dark") initialTheme = "dark";
+        else if (saved === "light" || saved === "paper") initialTheme = "light";
+        else initialTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      } catch {
+        initialTheme = "light";
       }
-      return "orange";
-    } catch {
-      return "orange";
-    }
-  });
+      setThemeState(initialTheme);
+
+      try {
+        const savedAccent = localStorage.getItem("testino-accent");
+        if (savedAccent && ACCENT_OPTIONS.some((a) => a.id === savedAccent)) {
+          setAccentState(savedAccent);
+        }
+      } catch {
+        // ignore
+      }
+
+      setMounted(true);
+    });
+  }, []);
 
   const activeAccent = ACCENT_OPTIONS.find((a) => a.id === accent) || ACCENT_OPTIONS[1];
 
@@ -239,6 +252,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         accent,
         setAccent,
         activeAccent,
+        mounted,
       }}
     >
       {children}

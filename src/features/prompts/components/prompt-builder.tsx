@@ -6,7 +6,6 @@ import {
   Sparkles,
   Copy,
   Check,
-  FileUp,
   Download,
   BookOpen,
   Binary,
@@ -67,21 +66,6 @@ export function PromptBuilder() {
     questionCount?: number;
   } | null>(null);
 
-  // Auto-initialize with user's first profile subject if available
-  const [initialized, setInitialized] = useState(false);
-  useEffect(() => {
-    if (!initialized && profileSubjects.length > 0) {
-      const first = profileSubjects[0];
-      const cfg = findSubjectPromptConfig(first.name);
-      setSelectedSubjectId(cfg.id);
-      setActiveProfileSubject(first);
-      setStartQ(cfg.defaultStartQ);
-      setEndQ(cfg.defaultEndQ);
-      setSubjectScope("profile");
-      setInitialized(true);
-    }
-  }, [profileSubjects, initialized]);
-
   const [sourceKind, setSourceKind] = useState<SourceKind>("EXAM");
   const [sourceTitle, setSourceTitle] = useState<string>("");
   const [year, setYear] = useState<number>(1401);
@@ -101,6 +85,23 @@ export function PromptBuilder() {
   const [isSubjectPickerOpen, setIsSubjectPickerOpen] = useState<boolean>(false);
   const [isCsvSectionOpen, setIsCsvSectionOpen] = useState<boolean>(false);
   const [isNotesSectionOpen, setIsNotesSectionOpen] = useState<boolean>(false);
+
+  // Auto-initialize with user's first profile subject if available
+  const [initialized, setInitialized] = useState(false);
+  useEffect(() => {
+    if (!initialized && profileSubjects.length > 0) {
+      const first = profileSubjects[0];
+      const cfg = findSubjectPromptConfig(first.name);
+      queueMicrotask(() => {
+        setSelectedSubjectId(cfg.id);
+        setActiveProfileSubject(first);
+        setStartQ(cfg.defaultStartQ);
+        setEndQ(cfg.defaultEndQ);
+        setSubjectScope("profile");
+        setInitialized(true);
+      });
+    }
+  }, [profileSubjects, initialized]);
 
   // CSV file helper
   const handleCsvFile = (file: File) => {
@@ -153,6 +154,32 @@ export function PromptBuilder() {
     return SUBJECT_CONFIGS[selectedSubjectId] || SUBJECT_CONFIGS.universal;
   }, [activeProfileSubject, selectedSubjectId]);
 
+  // Query existing questions in database for the active subject to extract existing topics
+  const resolvedSubjectName = activeProfileSubject?.name || currentConfig.titleFa;
+  const questionsQuery = useQuery({
+    queryKey: ["questions-for-prompt", resolvedSubjectName],
+    queryFn: () => db.listQuestions({ subject: resolvedSubjectName, limit: 1000 }),
+    enabled: status === "ready",
+  });
+
+  const existingTopicsByChapter = useMemo(() => {
+    const questions = questionsQuery.data ?? [];
+    const map: Record<string, Set<string>> = {};
+    for (const q of questions) {
+      const ch = q.chapter?.trim();
+      const top = q.topic?.trim();
+      if (ch && top) {
+        if (!map[ch]) map[ch] = new Set();
+        map[ch].add(top);
+      }
+    }
+    const result: Record<string, string[]> = {};
+    for (const [ch, set] of Object.entries(map)) {
+      result[ch] = Array.from(set).sort();
+    }
+    return result;
+  }, [questionsQuery.data]);
+
   // Build the live prompt
   const generatedPrompt = useMemo(() => {
     const effectiveYear = isCustomYear ? customYear.trim() : year;
@@ -167,11 +194,13 @@ export function PromptBuilder() {
       keyCsv: keyCsv.trim() || undefined,
       customNotes: customNotes.trim() || undefined,
       includeGroups: selectedSubjectId === "ENG",
+      existingTopicsByChapter,
     };
     return buildSubjectPrompt(params);
   }, [
     selectedSubjectId,
     activeProfileSubject,
+    currentConfig.titleFa,
     sourceKind,
     sourceTitle,
     year,
@@ -181,6 +210,7 @@ export function PromptBuilder() {
     endQ,
     keyCsv,
     customNotes,
+    existingTopicsByChapter,
   ]);
 
   // Copy prompt to clipboard

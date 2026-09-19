@@ -128,4 +128,28 @@ describe("Session Lifecycle, Commands, & Finish Finalization (TASK-017, TASK-018
     );
     expect(attemptsAfterSecond).toHaveLength(2);
   });
+
+  it("deletes a FINISHED session with attempts and review items without FK constraint errors", async () => {
+    const { memoryDb, appDb, profileId } = await setup();
+    const sId = await appDb.createSession(profileId, { count: 2 });
+    await appDb.startOrResumeSession(sId);
+
+    const view = await appDb.getSession(sId);
+    const q0 = view!.questions[0];
+    await appDb.saveAnswer(sId, q0.id, q0.snapshot.correctOptionId, "sure", 2500, 0);
+    await appDb.finishSession(sId);
+
+    // Verify review_items has an entry pointing to the attempt
+    const reviews = await memoryDb.query("SELECT * FROM review_items");
+    expect(reviews.length).toBeGreaterThan(0);
+
+    // Now delete session - must NOT throw foreign key error
+    await expect(appDb.deleteSession(sId)).resolves.not.toThrow();
+
+    // Verify session and its attempts are gone
+    const sessions = await memoryDb.query("SELECT * FROM sessions WHERE id=?", [sId]);
+    expect(sessions).toHaveLength(0);
+    const attempts = await memoryDb.query("SELECT * FROM attempts WHERE session_id=?", [sId]);
+    expect(attempts).toHaveLength(0);
+  });
 });

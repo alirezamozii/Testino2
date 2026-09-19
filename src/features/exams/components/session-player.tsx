@@ -23,6 +23,7 @@ import {
   Lightbulb,
   List,
   Loader2,
+  LogOut,
   Pause,
   Pin,
   PinOff,
@@ -30,6 +31,7 @@ import {
   RotateCcw,
   Sparkles,
   Timer,
+  Trash2,
   Wrench,
   X,
   XCircle,
@@ -37,11 +39,16 @@ import {
 } from "lucide-react";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { calculateScore } from "../domain/scoring";
+import { remapExplanationForShuffle } from "../domain/explanation-remapper";
+import { extractQuestionPassageTarget, highlightPassageTargets } from "../domain/passage-underliner";
 import { createActiveTimer, processHeartbeat, HEARTBEAT_INTERVAL_MS } from "../domain/active-timer";
 import { buildSessionExport } from "@/features/ai/domain/export-builder";
 import { simulateOverallConfidence } from "@/features/analytics/domain/confidence-simulation";
 import { SignedNumber, SignedPercent, formatSignedPercentString } from "@/components/ui/signed-number";
 import { useDatabase } from "@/providers/database-provider";
+import { extractQuestionSortKey, extractOriginalQuestionNumber } from "@/database/app-database";
+import { checkIsOwner } from "@/lib/permissions";
+import { getSupabaseClient } from "@/platform/auth/supabase-client";
 import { cn } from "@/lib/utils";
 
 const PERSIAN_LETTERS = ["الف", "ب", "ج", "د"];
@@ -81,8 +88,7 @@ export function SessionPlayer() {
     return new Set();
   });
   const [showNavSheet, setShowNavSheet] = useState(false);
-  const [showToolsSheet, setShowToolsSheet] = useState(false);
-  const [isExamPaper, setIsExamPaper] = useState(false);
+  const [showSourceModal, setShowSourceModal] = useState(false);
   const [isPassagePinned, setIsPassagePinned] = useState(true);
   const [fontSize, setFontSize] = useState<"normal" | "large" | "xlarge">("normal");
   const [quickNote, setQuickNote] = useState(() => {
@@ -99,6 +105,14 @@ export function SessionPlayer() {
     return "";
   });
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
+  const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
+  const [isAbandoning, setIsAbandoning] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => {
+    void checkIsOwner().then((res) => setIsOwner(res));
+  }, []);
+
   const [resultFilter, setResultFilter] = useState<"all" | "correct" | "wrong" | "unanswered">("all");
   const [navFilter, setNavFilter] = useState<"all" | "sure" | "doubtful" | "guess" | "skipped" | "unvisited">("all");
   const [finishedTab, setFinishedTab] = useState<"breakdown" | "questions" | "confidence">("breakdown");
@@ -165,9 +179,120 @@ export function SessionPlayer() {
   );
 
   const currentGroupId = current?.snapshot.groupId;
-  const passageQuestions = (session.data?.questions ?? [])
-    .map((q, qIdx) => ({ ...q, qIdx }))
-    .filter((q) => currentGroupId && q.snapshot.groupId === currentGroupId);
+  const isCloze = Boolean(
+    current?.snapshot.groupKind === "cloze" ||
+      (current?.snapshot.chapter && current.snapshot.chapter.toLowerCase().includes("cloze"))
+  );
+
+  const passageScrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll passage container to active paragraph or target underlined word/phrase when question changes
+  useEffect(() => {
+    if (!currentGroupId || !hasPassage) return;
+    const timer = setTimeout(() => {
+      const targetEl = passageScrollRef.current?.querySelector(".para-active, u, mark");
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [index, currentGroupId, hasPassage]);
+
+  const passageQuestions = useMemo(() => {
+    return (session.data?.questions ?? [])
+      .map((q, qIdx) => ({ ...q, qIdx }))
+      .filter((q) => currentGroupId && q.snapshot.groupId === currentGroupId)
+      .sort((a, b) => {
+        const numA = extractQuestionSortKey(a.snapshot as any);
+        const numB = extractQuestionSortKey(b.snapshot as any);
+        if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+          return numA - numB;
+        }
+        if (a.snapshot.externalKey && b.snapshot.externalKey) {
+          return a.snapshot.externalKey.localeCompare(b.snapshot.externalKey, undefined, { numeric: true });
+        }
+        return a.qIdx - b.qIdx;
+      });
+  }, [currentGroupId, session.data?.questions]);
+
+  // Dynamic Cloze Blanks Numbering & Smart Target Underlining
+  const displayGroupContent = useMemo(() => {
+    if (!current?.snapshot.groupContent) {
+      return current?.snapshot.groupContent;
+    }
+
+    let blocks = current.snapshot.groupContent;
+
+    if (isCloze && passageQuestions.length > 0) {
+      const mappings = passageQuestions.map((pq, posIdx) => ({
+        origNum: extractOriginalQuestionNumber(pq.snapshot as any) || (pq.snapshot.source?.number ? String(pq.snapshot.source.number) : undefined),
+        posNum: String(posIdx + 1),
+        targetNum: pq.qIdx + 1,
+      }));
+
+      blocks = blocks.map((block) => {
+        if (block.type !== "text" || typeof block.value !== "string") return block;
+        let text = block.value;
+
+        // 1. Explicit replacement if original source numbers are known
+        for (const m of mappings) {
+          if (m.origNum && m.origNum !== String(m.targetNum)) {
+            text = text.replace(new RegExp(`(\\()\\s*${m.origNum}\\s*(\\))`, "g"), `(${m.targetNum})`);
+            text = text.replace(new RegExp(`(\\[)\\s*${m.origNum}\\s*(\\])`, "g"), `[${m.targetNum}]`);
+          }
+        }
+
+        // 2. Sequential replacement of all blank placeholders in the cloze passage
+        // e.g. ............(8) or (8) or [8] -> mapped in sequential order to passageQuestions[blankIdx].qIdx + 1
+        let blankCounter = 0;
+        text = text.replace(/([_\\.]{2,}\s*)?([(\[])\s*\d+\s*([)\]])/g, (match, prefix, open, close) => {
+          if (blankCounter < passageQuestions.length) {
+            const target = passageQuestions[blankCounter].qIdx + 1;
+            blankCounter++;
+            return `${prefix || ""}${open}${target}${close}`;
+          }
+          return match;
+        });
+
+        return { ...block, value: text };
+      });
+    }
+
+    // Smart target word/phrase underlining & paragraph isolation for Reading Comprehension
+    if (current?.snapshot.content) {
+      const targetInfo = extractQuestionPassageTarget(current.snapshot.content);
+      blocks = highlightPassageTargets(blocks, targetInfo.targets, targetInfo.paragraphNumber);
+    }
+
+    return blocks;
+  }, [current?.snapshot.groupContent, current?.snapshot.content, isCloze, passageQuestions]);
+
+  // Align blank in active question statement to actual session question number
+  const displayQuestionContent = useMemo(() => {
+    if (!current?.snapshot.content || !isCloze || passageQuestions.length === 0) {
+      return current?.snapshot.content;
+    }
+
+    const targetNum = index + 1;
+    const origNum = extractOriginalQuestionNumber(current.snapshot as any) || (current.snapshot.source?.number ? String(current.snapshot.source.number) : undefined);
+
+    return current.snapshot.content.map((block) => {
+      if (block.type !== "text" || typeof block.value !== "string") return block;
+      let text = block.value;
+
+      if (origNum && origNum !== String(targetNum)) {
+        text = text.replace(new RegExp(`(\\()\\s*${origNum}\\s*(\\))`, "g"), `(${targetNum})`);
+        text = text.replace(new RegExp(`(\\[)\\s*${origNum}\\s*(\\])`, "g"), `[${targetNum}]`);
+      }
+
+      // Replace any blank marker in question statement with targetNum
+      text = text.replace(/([_\\.]{2,}\s*)?([(\[])\s*\d+\s*([)\]])/g, (match, prefix, open, close) => {
+        return `${prefix || ""}${open}${targetNum}${close}`;
+      });
+
+      return { ...block, value: text };
+    });
+  }, [current?.id, current?.snapshot, index, isCloze, passageQuestions.length]);
 
   // Monotonic timer for current active screen
   useEffect(() => {
@@ -210,6 +335,15 @@ export function SessionPlayer() {
         : [],
     [current]
   );
+
+  const displayExplanation = useMemo(() => {
+    if (!current?.snapshot.explanation) return [];
+    return remapExplanationForShuffle(
+      current.snapshot.explanation,
+      current.snapshot.options,
+      options.filter(Boolean) as any
+    );
+  }, [current, options]);
 
   const save = useCallback(
     async (optionId: string | null, confidence = current?.confidence ?? null, nextIndex = index) => {
@@ -374,6 +508,25 @@ export function SessionPlayer() {
       setError(cause instanceof Error ? cause.message : "خطا در پایان و ثبت آزمون.");
     } finally {
       setIsFinishing(false);
+    }
+  }
+
+  async function abandon() {
+    if (!id) return;
+    setIsAbandoning(true);
+    setError("");
+    try {
+      await database.db.abandonSession(id);
+      try { sessionStorage.removeItem("testino_session_running"); } catch { /* ignore */ }
+      try { localStorage.removeItem(`testino_exam_tools_${id}`); } catch { /* ignore */ }
+      await cache.invalidateQueries({ queryKey: ["sessions"] });
+      await cache.invalidateQueries({ queryKey: ["session", id] });
+      await cache.invalidateQueries({ queryKey: ["dashboard"] });
+      setShowAbandonConfirm(false);
+      router.replace("/sessions/");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "خطا در انصراف از آزمون.");
+      setIsAbandoning(false);
     }
   }
 
@@ -1253,13 +1406,7 @@ export function SessionPlayer() {
   const isFlagged = flaggedIndices.has(index);
 
   return (
-    <div
-      className={cn(
-        "exam-player max-w-4xl mx-auto space-y-4 pb-10 transition-colors duration-200",
-        isExamPaper && "exam-paper-theme"
-      )}
-      data-exam-paper={isExamPaper ? "true" : undefined}
-    >
+    <div className="exam-player max-w-4xl mx-auto space-y-4 pb-10 transition-colors duration-200">
       {/* Top Slim Progress Bar (Neo Style) */}
       <div className="w-full bg-[var(--surface-3)] h-3 rounded-full overflow-hidden border-2 border-[var(--line-strong)]">
         <div
@@ -1306,37 +1453,21 @@ export function SessionPlayer() {
           <span className="text-xs font-black text-[var(--ink-on-color)] bg-[var(--pastel-yellow)] px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] whitespace-nowrap">
             {isOpenEnded ? `سؤال ${index + 1}` : `${index + 1} از ${totalQuestions}`}
           </span>
-          {/* Exam Paper Mode Toggle */}
+          {/* Source Button (منبع سؤال) */}
           <button
             type="button"
-            onClick={() => setIsExamPaper((prev) => !prev)}
-            className={cn(
-              "px-2.5 py-2 rounded-2xl border-2 border-[var(--line-strong)] text-xs font-black flex items-center gap-1.5 shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all",
-              isExamPaper
-                ? "bg-amber-200 text-stone-950 border-stone-800"
-                : "bg-[var(--surface)] text-[var(--ink)]"
-            )}
-            title="حالت دفترچه کاغذی کنکور (کاهش خستگی چشم و حواس‌پرتی)"
+            onClick={() => setShowSourceModal(true)}
+            className="px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black flex items-center gap-1.5 shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all cursor-pointer"
+            title="مشاهده منبع و مشخصات این سؤال"
           >
-            <FileText size={15} />
-            <span className="hidden sm:inline">دفترچه</span>
+            <BookOpen size={15} className="text-[var(--brand-orange)]" />
+            <span>منبع</span>
           </button>
           {pending && (
             <span className="text-[10px] font-black text-[var(--muted)] animate-pulse hidden sm:inline">
               در حال ذخیره…
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => setShowToolsSheet(!showToolsSheet)}
-            className={cn(
-              "w-10 h-10 rounded-2xl border-2 border-[var(--line-strong)] flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all",
-              showToolsSheet ? "bg-[var(--brand-orange)] text-white" : "bg-[var(--surface)] text-[var(--ink)]"
-            )}
-            title="ابزارهای آزمون (اندازه متن، چرک‌نویس)"
-          >
-            <Wrench size={16} />
-          </button>
           <button
             type="button"
             onClick={() => {
@@ -1346,6 +1477,15 @@ export function SessionPlayer() {
             title="ناوبری سؤالات"
           >
             <List size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowFinishConfirm(true)}
+            className="px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black flex items-center gap-1.5 shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all cursor-pointer"
+            title="خروج یا پایان آزمون"
+          >
+            <LogOut size={15} />
+            <span className="hidden sm:inline">خروج / پایان</span>
           </button>
         </div>
       </div>
@@ -1394,75 +1534,101 @@ export function SessionPlayer() {
         </div>
       )}
 
-      {/* Tools Drawer (Wireframe 09 Phone 5) */}
-      {showToolsSheet && (
-        <div className="card-neo p-5 space-y-4 bg-[var(--surface-cream)]">
-          <div className="flex items-center justify-between pb-2 border-b border-[var(--line)]">
-            <div className="flex items-center gap-2">
-              <Wrench size={16} className="text-[var(--brand-orange)]" />
-              <strong className="text-xs font-black text-[var(--ink)]">ابزارهای آزمون</strong>
+      {/* Source Modal (منبع سؤال) */}
+      {showSourceModal && current && (
+        <div
+          className="dialog-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          onClick={() => setShowSourceModal(false)}
+        >
+          <div
+            className="card-neo w-full max-w-md p-5 sm:p-6 space-y-4 bg-[var(--surface)] border-2 border-[var(--line-strong)] shadow-[4px_4px_0px_var(--neo-shadow)] animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b-2 border-[var(--line)]">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)]">
+                  <BookOpen size={16} />
+                </div>
+                <strong className="text-sm font-black text-[var(--ink)]">منبع و مشخصات سؤال</strong>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSourceModal(false)}
+                className="w-8 h-8 rounded-xl border-2 border-[var(--line)] hover:border-[var(--line-strong)] flex items-center justify-center text-[var(--muted)] hover:text-[var(--ink)] transition-all cursor-pointer"
+              >
+                <X size={15} />
+              </button>
             </div>
+
+            <div className="space-y-3 text-xs sm:text-sm font-medium">
+              <div className="flex items-start justify-between p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--line)]">
+                <span className="text-[var(--muted)] font-bold">عنوان منبع:</span>
+                <strong className="font-black text-[var(--ink)] text-right max-w-[240px]">
+                  {current.snapshot.source?.title || "کنکور سراسری یا بانک سوالات"}
+                </strong>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--line)] flex flex-col gap-1">
+                  <span className="text-[10px] text-[var(--muted)] font-bold">نوع منبع:</span>
+                  <strong className="font-black text-[var(--ink)] text-xs">
+                    {current.snapshot.source?.kind === "EXAM"
+                      ? "آزمون سراسری (کنکور)"
+                      : current.snapshot.source?.kind === "AI"
+                      ? "طراحی تألیفی استاندارد"
+                      : "کتاب تست مرجع و استاندارد"}
+                  </strong>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--line)] flex flex-col gap-1">
+                  <span className="text-[10px] text-[var(--muted)] font-bold">سال برگزاری:</span>
+                  <strong className="font-black text-[var(--ink)] text-xs font-mono">
+                    {current.snapshot.source?.year ? String(current.snapshot.source.year) : "نامشخص"}
+                  </strong>
+                </div>
+              </div>
+
+              {(() => {
+                const originalQuestionNum = extractOriginalQuestionNumber(current.snapshot as any);
+
+                return originalQuestionNum ? (
+                  <div className="p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--line)] flex items-center justify-between">
+                    <span className="text-[10px] sm:text-xs text-[var(--muted)] font-bold">شماره در کنکور / آزمون اصلی:</span>
+                    <strong className="font-black text-[var(--ink)] text-xs sm:text-sm font-mono">
+                      سؤال {originalQuestionNum} کنکور
+                    </strong>
+                  </div>
+                ) : null;
+              })()}
+
+              <div className="p-2.5 rounded-xl bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] text-[11px] font-bold text-[var(--ink)] space-y-1">
+                <div>
+                  <span className="text-[var(--muted)]">درس: </span>
+                  <span className="font-black">{current.snapshot.subject}</span>
+                </div>
+                {current.snapshot.chapter && (
+                  <div>
+                    <span className="text-[var(--muted)]">فصل: </span>
+                    <span className="font-black">{current.snapshot.chapter}</span>
+                  </div>
+                )}
+                {current.snapshot.topic && (
+                  <div>
+                    <span className="text-[var(--muted)]">مبحث: </span>
+                    <span className="font-black">{current.snapshot.topic}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
             <button
-              onClick={() => setShowToolsSheet(false)}
-              className="text-xs font-black text-[var(--muted)] hover:text-[var(--ink)] flex items-center gap-1"
+              type="button"
+              onClick={() => setShowSourceModal(false)}
+              className="btn-neo-orange w-full py-2.5 text-xs font-black cursor-pointer"
             >
-              <span>بستن</span>
-              <X size={14} />
+              متوجه شدم
             </button>
           </div>
-
-          {/* Text Zoom */}
-          <div className="flex items-center justify-between text-xs font-black">
-            <span className="text-[var(--muted)]">اندازه متن سؤال:</span>
-            <div className="flex items-center gap-1.5">
-              {(["normal", "large", "xlarge"] as const).map((sz) => {
-                const labels = { normal: "۱۰۰٪", large: "۱۱۵٪", xlarge: "۱۳۰٪" };
-                const isSelected = fontSize === sz;
-                return (
-                  <button
-                    key={sz}
-                    type="button"
-                    onClick={() => setFontSize(sz)}
-                    className={cn(
-                      "px-2.5 py-1 rounded-xl text-[11px] font-black border-2 transition-all",
-                      isSelected
-                        ? "bg-[var(--brand-orange)] text-white border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                        : "bg-[var(--surface)] text-[var(--ink)] border-[var(--line)]"
-                    )}
-                  >
-                    {labels[sz]}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Quick Note / Scratchpad */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-[var(--muted)] block">یادداشت سریع (چرک‌نویس):</label>
-            <textarea
-              value={quickNote}
-              onChange={(e) => {
-                setQuickNote(e.target.value);
-                persistExamTools(flaggedIndices, e.target.value);
-              }}
-              placeholder="محاسبات سریع یا نکته را اینجا بنویسید..."
-              rows={2}
-              className="w-full p-2.5 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-xs font-bold text-[var(--ink)] focus:outline-none shadow-[2px_2px_0px_var(--neo-shadow)]"
-            />
-          </div>
-
-          {/* Finish Button in Tools */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowToolsSheet(false);
-              setShowFinishConfirm(true);
-            }}
-            className="w-full py-2.5 rounded-xl bg-[var(--pastel-red)] text-white border-2 border-[var(--line-strong)] font-black text-xs shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
-          >
-            تحویل آزمون
-          </button>
         </div>
       )}
 
@@ -1483,29 +1649,40 @@ export function SessionPlayer() {
         const unvisitedCount = sData.questions.filter((q) => !q.visited).length;
 
         return (
-          <div className="card-neo p-5 space-y-4 bg-[var(--surface)]">
-            <div className="flex items-center justify-between pb-2 border-b border-[var(--line)]">
-              <strong className="text-xs sm:text-sm font-black text-[var(--ink)]">
-                پاسخ‌برگ و ناوبری سؤالات
-              </strong>
+          <div className="card-neo p-5 sm:p-6 space-y-4 bg-[var(--surface)] border-2 border-[var(--line-strong)] shadow-[4px_4px_0px_var(--neo-shadow)] animate-in fade-in duration-150">
+            <div className="flex items-center justify-between pb-3 border-b-2 border-[var(--line)]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-[var(--pastel-blue)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)]">
+                  <List size={16} />
+                </div>
+                <div>
+                  <strong className="text-xs sm:text-sm font-black text-[var(--ink)] block">
+                    پاسخ‌برگ و ناوبری سؤالات
+                  </strong>
+                  <span className="text-[10px] sm:text-[11px] text-[var(--muted)] font-bold">
+                    برای پرش به هر سؤال روی شماره آن کلیک کنید
+                  </span>
+                </div>
+              </div>
               <button
+                type="button"
                 onClick={() => setShowNavSheet(false)}
-                className="text-xs font-black text-[var(--muted)] hover:text-[var(--ink)] flex items-center gap-1"
+                className="px-3 py-1.5 rounded-xl border-2 border-[var(--line)] hover:border-[var(--line-strong)] bg-[var(--surface-2)] text-xs font-black text-[var(--muted)] hover:text-[var(--ink)] flex items-center gap-1.5 transition-all cursor-pointer shadow-[1px_1px_0px_var(--neo-shadow)]"
               >
                 <span>بستن</span>
                 <X size={14} />
               </button>
             </div>
 
-            {/* Filter chips — the counts double as the summary, no duplicate stat badges */}
-            <div className="flex items-center gap-1.5 p-1 bg-[var(--surface-cream)] rounded-2xl border-2 border-[var(--line-strong)] text-[11px] font-black overflow-x-auto">
+            {/* Filter Tabs Grid — clean, balanced on mobile (3 cols) and desktop (6 cols) */}
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               {([
-                { id: "all", label: "همه", count: totalQuestions, tone: "bg-[var(--surface)] text-[var(--ink)]" },
-                { id: "sure", label: "مطمئن", count: sureCount, tone: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" },
-                { id: "doubtful", label: "با شک", count: doubtfulCount, tone: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" },
-                { id: "guess", label: "حدس", count: guessCount, tone: "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300" },
-                { id: "skipped", label: "رد شده", count: skippedCount, tone: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" },
-                { id: "unvisited", label: "دیده‌نشده", count: unvisitedCount, tone: "bg-[var(--surface-2)] text-[var(--muted)]" },
+                { id: "all", label: "همه سؤالات", count: totalQuestions, badgeTone: "bg-[var(--line)] text-[var(--ink)]" },
+                { id: "sure", label: "مطمئن", count: sureCount, badgeTone: "bg-emerald-200 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100" },
+                { id: "doubtful", label: "با شک", count: doubtfulCount, badgeTone: "bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-100" },
+                { id: "guess", label: "حدس", count: guessCount, badgeTone: "bg-purple-200 dark:bg-purple-900 text-purple-900 dark:text-purple-100" },
+                { id: "skipped", label: "رد شده", count: skippedCount, badgeTone: "bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-slate-100" },
+                { id: "unvisited", label: "دیده‌نشده", count: unvisitedCount, badgeTone: "bg-[var(--surface-3)] text-[var(--muted)]" },
               ] as const).map((flt) => {
                 const isSelected = navFilter === flt.id;
                 return (
@@ -1514,20 +1691,28 @@ export function SessionPlayer() {
                     type="button"
                     onClick={() => setNavFilter(flt.id)}
                     className={cn(
-                      "px-2.5 py-1.5 rounded-xl transition-all border-2 shrink-0 whitespace-nowrap",
+                      "py-2 px-2.5 rounded-xl text-xs font-black border-2 transition-all flex items-center justify-between gap-1 shadow-[2px_2px_0px_var(--neo-shadow)] cursor-pointer",
                       isSelected
-                        ? "bg-[var(--brand-orange)] text-white border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                        : cn("border-transparent", flt.tone, "hover:border-[var(--line-strong)]")
+                        ? "bg-[var(--brand-orange)] text-white border-[var(--line-strong)] -translate-y-0.5"
+                        : "bg-[var(--surface)] text-[var(--ink)] border-[var(--line)] hover:border-[var(--line-strong)]"
                     )}
                   >
-                    {flt.label} ({new Intl.NumberFormat("fa-IR").format(flt.count)})
+                    <span className="truncate">{flt.label}</span>
+                    <span
+                      className={cn(
+                        "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md leading-none",
+                        isSelected ? "bg-white/25 text-white" : flt.badgeTone
+                      )}
+                    >
+                      {new Intl.NumberFormat("fa-IR").format(flt.count)}
+                    </span>
                   </button>
                 );
               })}
             </div>
 
             {/* Number Grid with Indicator Badges */}
-            <div className="grid grid-cols-5 sm:grid-cols-8 gap-2 max-h-64 overflow-y-auto pr-0.5">
+            <div className="grid grid-cols-5 sm:grid-cols-8 md:grid-cols-10 gap-2.5 max-h-72 overflow-y-auto p-1 pr-1.5 neo-scrollbar">
               {sData.questions.map((q, qIdx) => {
                 const answered = Boolean(q.selectedOptionId);
                 const isDoubtful = answered && q.confidence === "doubtful";
@@ -1547,30 +1732,66 @@ export function SessionPlayer() {
                   <button
                     key={q.id}
                     type="button"
-                    // eslint-disable-next-line react-hooks/refs
                     onClick={() => handleNavSelectQuestion(qIdx)}
                     className={cn(
-                      "py-2 px-1 rounded-xl text-xs font-black transition-all border-2 flex flex-col items-center justify-center gap-0.5",
+                      "min-h-[52px] rounded-xl text-xs font-black transition-all border-2 flex flex-col items-center justify-center gap-1 shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] cursor-pointer",
                       isCurrent
-                        ? "border-[var(--line-strong)] bg-[var(--brand-orange)] text-white shadow-[3px_3px_0px_var(--neo-shadow)] scale-105"
+                        ? "border-[var(--line-strong)] bg-[var(--brand-orange)] text-white scale-105 ring-2 ring-[var(--brand-orange)]/40"
                         : isDoubtful
-                        ? "border-[var(--line-strong)] bg-amber-100 dark:bg-amber-950/60 text-amber-950 dark:text-amber-200 shadow-[2px_2px_0px_var(--neo-shadow)]"
+                        ? "border-[var(--line-strong)] bg-amber-100 dark:bg-amber-950/60 text-amber-950 dark:text-amber-200"
                         : isGuess
-                        ? "border-[var(--line-strong)] bg-purple-100 dark:bg-purple-950/60 text-purple-950 dark:text-purple-200 shadow-[2px_2px_0px_var(--neo-shadow)]"
+                        ? "border-[var(--line-strong)] bg-purple-100 dark:bg-purple-950/60 text-purple-950 dark:text-purple-200"
                         : isSure
-                        ? "border-[var(--line-strong)] bg-[var(--pastel-green)] text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)]"
+                        ? "border-[var(--line-strong)] bg-[var(--pastel-green)] text-[var(--ink-on-color)]"
                         : isSkipped
-                        ? "border-[var(--line-strong)] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-[2px_2px_0px_var(--neo-shadow)]"
-                        : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)] opacity-60"
+                        ? "border-[var(--line-strong)] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+                        : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)] hover:border-[var(--line-strong)] hover:text-[var(--ink)]"
                     )}
                   >
-                    <span>{qIdx + 1}</span>
-                    <span className="text-[10px] leading-none font-bold">
-                      {isDoubtful ? "?" : isGuess ? "~" : isSure ? "✓" : isSkipped ? "-" : "—"}
+                    <span className="text-sm font-black font-mono">{qIdx + 1}</span>
+                    <span className="text-[10px] leading-none font-black opacity-80">
+                      {isDoubtful ? "شک" : isGuess ? "حدس" : isSure ? "✓" : isSkipped ? "رد" : "—"}
                     </span>
                   </button>
                 );
               })}
+            </div>
+
+            {/* Sheet Footer with Quick Summary and Direct Finish Action */}
+            <div className="pt-3 border-t-2 border-[var(--line)] flex items-center justify-between flex-wrap gap-2 text-xs font-black">
+              <div className="text-[var(--muted)]">
+                پاسخ داده‌شده: <strong className="text-[var(--ink)]">{sureCount + doubtfulCount + guessCount}</strong> از <strong className="text-[var(--ink)]">{totalQuestions}</strong>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNavSheet(false);
+                    setShowAbandonConfirm(true);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-black text-xs border-2 border-red-300 dark:border-red-900/60 shadow-[2px_2px_0px_var(--neo-shadow)] transition-all cursor-pointer"
+                  title="انصراف بدون ثبت"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNavSheet(false);
+                    setShowFinishConfirm(true);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-black text-xs border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] transition-all cursor-pointer"
+                >
+                  تحویل آزمون
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNavSheet(false)}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--surface)] text-[var(--ink)] font-black text-xs border-2 border-[var(--line)] hover:border-[var(--line-strong)] transition-all cursor-pointer"
+                >
+                  بستن
+                </button>
+              </div>
             </div>
           </div>
         );
@@ -1590,7 +1811,11 @@ export function SessionPlayer() {
                 <BookOpen size={15} />
               </div>
               <strong className="text-xs sm:text-sm font-black text-[var(--ink)]">
-                متن درک مطلب (Passage / Cloze Test)
+                {isCloze
+                  ? "متن کلوزتست (Cloze Test)"
+                  : current.snapshot.groupKind === "shared"
+                  ? "متن مشترک (Shared Passage)"
+                  : "متن درک مطلب (Reading Passage)"}
               </strong>
               {passageQuestions.length > 0 && (
                 <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border border-[var(--line-strong)]">
@@ -1651,11 +1876,12 @@ export function SessionPlayer() {
 
           {/* Scrollable Passage Body with Neo Scrollbar */}
           <div
+            ref={passageScrollRef}
             dir="ltr"
-            className="max-h-52 sm:max-h-64 overflow-y-auto pr-2 pl-1 text-xs sm:text-sm leading-relaxed text-[var(--ink)] font-medium neo-scrollbar select-text"
+            className="max-h-52 sm:max-h-64 overflow-y-auto pr-2 pl-1 text-xs sm:text-sm leading-relaxed text-[var(--ink)] font-medium neo-scrollbar select-text scroll-smooth"
           >
             <div dir="ltr" className="font-sans text-left leading-relaxed">
-              <ContentRenderer blocks={current.snapshot.groupContent!} />
+              <ContentRenderer blocks={displayGroupContent || current.snapshot.groupContent!} />
             </div>
           </div>
         </div>
@@ -1691,19 +1917,21 @@ export function SessionPlayer() {
                 </span>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => toggleFlag(index)}
-              className={cn(
-                "p-2 rounded-xl border-2 transition-all",
-                isFlagged
-                  ? "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                  : "bg-[var(--surface)] text-[var(--muted)] border-[var(--line)] hover:border-[var(--line-strong)]"
-              )}
-              title="نشان‌گذاری سؤال برای مرور بعدی"
-            >
-              <Bookmark size={16} fill={isFlagged ? "currentColor" : "none"} />
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => toggleFlag(index)}
+                className={cn(
+                  "p-2 rounded-xl border-2 transition-all",
+                  isFlagged
+                    ? "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
+                    : "bg-[var(--surface)] text-[var(--muted)] border-[var(--line)] hover:border-[var(--line-strong)]"
+                )}
+                title="نشان‌گذاری سؤال برای مرور بعدی"
+              >
+                <Bookmark size={16} fill={isFlagged ? "currentColor" : "none"} />
+              </button>
+            </div>
           </div>
 
           <div
@@ -1716,7 +1944,7 @@ export function SessionPlayer() {
                 : "text-sm sm:text-base"
             )}
           >
-            <ContentRenderer blocks={current.snapshot.content} />
+            <ContentRenderer blocks={displayQuestionContent || current.snapshot.content} />
           </div>
         </div>
       )}
@@ -1907,9 +2135,31 @@ export function SessionPlayer() {
 
           {/* Explanation Content */}
           {current.snapshot.explanation && current.snapshot.explanation.length > 0 ? (
-            <div className="space-y-2 pt-1 text-right">
+            <div className="space-y-3 pt-1 text-right">
+              {/* Correct Option Highlight Banner (Sync with current shuffle order) */}
+              {(() => {
+                const optIndex = options.findIndex((o) => o?.id === current.snapshot.correctOptionId);
+                if (optIndex === -1) return null;
+                const letters = ["الف", "ب", "ج", "د"];
+                const displayLetter = optIndex >= 0 && optIndex < 4 ? letters[optIndex] : String(optIndex + 1);
+                return (
+                  <div className="p-3 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500/30 text-emerald-950 dark:text-emerald-200 text-xs sm:text-sm font-black flex items-center justify-between gap-2 shadow-sm">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-7 h-7 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-xs font-black shadow-sm shrink-0">
+                        {displayLetter}
+                      </span>
+                      <span>
+                        گزینه صحیح در این آزمون: <strong>گزینه {displayLetter}</strong>
+                      </span>
+                    </div>
+                    <span className="text-[10px] sm:text-xs px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold">
+                      پاسخ قطعی
+                    </span>
+                  </div>
+                );
+              })()}
               <div className="text-xs sm:text-sm font-bold leading-relaxed text-[var(--ink)] space-y-2">
-                <ContentRenderer blocks={current.snapshot.explanation} />
+                <ContentRenderer blocks={displayExplanation} />
               </div>
             </div>
           ) : (
@@ -2097,14 +2347,12 @@ export function SessionPlayer() {
                   <Pause size={16} />
                 </div>
                 <div>
-                  <strong className="block text-xs font-black text-[var(--ink)]">ذخیره و خروج (ادامه بعداً)</strong>
+                  <strong className="block text-xs font-black text-[var(--ink)]">ذخیره و خروج موقت (ادامه بعداً)</strong>
                   <span className="text-[11px] text-[var(--muted)] font-medium">آزمون ذخیره می‌شود و بعداً از همین سؤال ادامه می‌دهی.</span>
                 </div>
               </button>
 
-              {/* Final submit — unanswered questions count as skipped (نزده).
-                  Previously two visually different buttons ran the identical
-                  finish() code path and implied different scoring; merged. */}
+              {/* Option 2: Final submit — مشاهده کارنامه و ثبت آمار */}
               <button
                 type="button"
                 className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-green)] text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
@@ -2119,8 +2367,27 @@ export function SessionPlayer() {
                     {isFinishing ? "در حال ثبت و نهایی‌سازی…" : "تحویل آزمون و مشاهده کارنامه"}
                   </strong>
                   <span className="text-[11px] opacity-90 font-medium">
-                    آزمون تمام می‌شود؛ {sData.questions.filter((item) => !item.selectedOptionId).length > 0 ? "سؤالات بی‌پاسخ نزده لحاظ می‌شوند." : "همهٔ سؤالات پاسخ داده شده‌اند."}
+                    آزمون پایان یافته و کارنامه و درصدها محاسبه و ثبت می‌شوند.
                   </span>
+                </div>
+              </button>
+
+              {/* Option 3: انصراف و لغو کامل آزمون (بدون ثبت هیچ داده‌ای) */}
+              <button
+                type="button"
+                className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200 hover:bg-rose-100 transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
+                disabled={pending || isFinishing || isAbandoning}
+                onClick={() => {
+                  setShowFinishConfirm(false);
+                  setShowAbandonConfirm(true);
+                }}
+              >
+                <div className="w-8 h-8 rounded-xl bg-rose-200 dark:bg-rose-900 border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0 text-rose-800 dark:text-rose-200">
+                  <LogOut size={16} />
+                </div>
+                <div>
+                  <strong className="block text-xs font-black">انصراف و لغو آزمون (بدون ثبت داده)</strong>
+                  <span className="text-[11px] opacity-80 font-medium">آزمون به کلی حذف می‌شود و هیچ نتیجه، کارنامه یا آماری ذخیره نخواهد شد.</span>
                 </div>
               </button>
             </div>
@@ -2131,12 +2398,75 @@ export function SessionPlayer() {
                 className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer"
                 onClick={() => setShowFinishConfirm(false)}
               >
-                انصراف و ادامهٔ آزمون
+                انصراف و بازگشت به آزمون
               </button>
             </div>
           </section>
         </div>
       )}
+
+      {/* Abandon Confirmation Dialog */}
+      {showAbandonConfirm && (
+        <div
+          className="dialog-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          role="presentation"
+          onMouseDown={() => !isAbandoning && setShowAbandonConfirm(false)}
+        >
+          <section
+            className="card-neo w-full max-w-md mx-auto p-6 bg-[var(--surface)] space-y-4 text-center border-2 border-[var(--line-strong)] shadow-[6px_6px_0px_var(--neo-shadow)] animate-in fade-in zoom-in-95 duration-150"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="abandon-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-rose-100 dark:bg-rose-950/60 border-2 border-[var(--line-strong)] flex items-center justify-center text-rose-600 dark:text-rose-400">
+              <LogOut size={28} />
+            </div>
+
+            <div className="space-y-1">
+              <h2 id="abandon-title" className="text-lg font-black text-[var(--ink)]">
+                انصراف از آزمون
+              </h2>
+              <p className="text-xs text-[var(--muted)] font-bold leading-relaxed px-2">
+                آیا از خروج و انصراف از آزمون مطمئن هستید؟
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-200 text-xs font-bold text-right leading-relaxed space-y-1">
+              <p>• هیچ داده، پاسخ یا نتیجه‌ای از این آزمون در سوابق و کارنامه ثبت نخواهد شد.</p>
+              <p>• این آزمون کاملاً بسته شده و در لیست «ادامه آزمون» نمایش داده نمی‌شود.</p>
+            </div>
+
+            {error && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs font-bold text-right">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-rose-600 hover:bg-rose-700 text-white shadow-[3px_3px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 font-black text-xs sm:text-sm"
+                disabled={isAbandoning}
+                onClick={() => void abandon()}
+              >
+                {isAbandoning ? <Loader2 size={16} className="animate-spin" /> : <LogOut size={16} />}
+                <span>{isAbandoning ? "در حال حذف و لغو آزمون…" : "انصراف قطعی و حذف آزمون"}</span>
+              </button>
+
+              <button
+                type="button"
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+                disabled={isAbandoning}
+                onClick={() => setShowAbandonConfirm(false)}
+              >
+                ادامه دادن آزمون
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
     </div>
   );
 }

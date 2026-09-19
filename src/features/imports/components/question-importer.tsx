@@ -1,14 +1,40 @@
 "use client";
 
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { FileUp, CheckCircle2, AlertCircle, FileCode, Download, Sparkles, Pin } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import Link from "next/link";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  FileUp,
+  CheckCircle2,
+  AlertCircle,
+  FileCode,
+  Download,
+  Sparkles,
+  Pin,
+  RotateCcw,
+  Layers,
+  Edit3,
+  Trash2,
+  BookOpen,
+  ArrowRight,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  FolderArchive,
+  Calendar,
+  Loader2,
+} from "lucide-react";
 import { parseImportJson } from "@/features/questions/domain/importer";
 import { importMediaPackage, type PackageImportReport } from "@/features/media/domain/media-package";
 import { MediaService } from "@/features/media/domain/media-service";
 import { useDatabase } from "@/providers/database-provider";
-import { cn } from "@/lib/utils";
+import type { ImportBatch } from "@/database/app-database";
 import { BankNavTabs } from "@/components/navigation/bank-nav-tabs";
+import { ContentRenderer } from "@/components/rich-content/content-renderer";
+import { QuestionEditorModal } from "@/features/questions/components/question-editor-modal";
+import { checkIsOwner } from "@/lib/permissions";
+import { getSupabaseClient } from "@/platform/auth/supabase-client";
+import type { StoredQuestion } from "@/features/questions/domain/question-schema";
 
 const sample = JSON.stringify(
   {
@@ -42,6 +68,127 @@ export function QuestionImporter() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Edit / Delete states for questions
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState<StoredQuestion | null>(null);
+  const [deletingQuestion, setDeletingQuestion] = useState<{ question: StoredQuestion; batchId?: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+
+  // Import Batches / Sessions state
+  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
+  const [batchQuestions, setBatchQuestions] = useState<Record<string, StoredQuestion[]>>({});
+  const [loadingBatchId, setLoadingBatchId] = useState<string | null>(null);
+  const [deletingBatch, setDeletingBatch] = useState<ImportBatch | null>(null);
+  const [isDeletingBatch, setIsDeletingBatch] = useState(false);
+
+  useEffect(() => {
+    void checkIsOwner().then(setIsOwner);
+  }, []);
+
+  // Fetch import batches (sessions)
+  const importBatchesQuery = useQuery({
+    queryKey: ["import-batches"],
+    queryFn: () => db.listImportBatches(),
+    enabled: status === "ready",
+  });
+  const batches = importBatchesQuery.data || [];
+
+  async function toggleExpandBatch(batchId: string) {
+    if (expandedBatchId === batchId) {
+      setExpandedBatchId(null);
+    } else {
+      setExpandedBatchId(batchId);
+      if (!batchQuestions[batchId] || batchQuestions[batchId].length === 0) {
+        setLoadingBatchId(batchId);
+        try {
+          const qs = await db.listQuestions({ batchId, limit: 500 });
+          setBatchQuestions((prev) => ({ ...prev, [batchId]: qs }));
+        } finally {
+          setLoadingBatchId(null);
+        }
+      }
+    }
+  }
+
+  async function handleDeleteBatch(batch: ImportBatch) {
+    setIsDeletingBatch(true);
+    try {
+      const deletedQuestionIds = await db.deleteImportBatch(batch.id, isOwner);
+      if (isOwner && deletedQuestionIds.length > 0) {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          try {
+            for (let i = 0; i < deletedQuestionIds.length; i += 50) {
+              const chunk = deletedQuestionIds.slice(i, i + 50);
+              await supabase.from("questions").delete().in("id", chunk);
+            }
+          } catch {
+            // cloud delete failure shouldn't block local
+          }
+        }
+      }
+      await client.invalidateQueries({ queryKey: ["import-batches"] });
+      await client.invalidateQueries({ queryKey: ["questions"] });
+      await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+      await client.invalidateQueries({ queryKey: ["booklet-catalog"] });
+      await client.invalidateQueries({ queryKey: ["analytics"] });
+      await client.invalidateQueries({ queryKey: ["dashboard"] });
+
+      setBatchQuestions((prev) => {
+        const next = { ...prev };
+        delete next[batch.id];
+        return next;
+      });
+      if (expandedBatchId === batch.id) {
+        setExpandedBatchId(null);
+      }
+      setDeletingBatch(null);
+    } catch (err) {
+      console.error("Failed to delete batch:", err);
+      alert("خطا در حذف دسته سؤالات: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsDeletingBatch(false);
+    }
+  }
+
+  async function handleDeleteSingle(questionId: string, batchId?: string) {
+    setIsDeleting(true);
+    try {
+      if (isOwner) {
+        await db.deleteQuestion(questionId);
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          try {
+            await supabase.from("questions").delete().eq("id", questionId);
+          } catch {
+            // cloud delete failure shouldn't block local
+          }
+        }
+      } else {
+        await db.hideQuestion(questionId);
+      }
+      await client.invalidateQueries({ queryKey: ["import-batches"] });
+      await client.invalidateQueries({ queryKey: ["questions"] });
+      await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+      await client.invalidateQueries({ queryKey: ["booklet-catalog"] });
+      await client.invalidateQueries({ queryKey: ["analytics"] });
+      await client.invalidateQueries({ queryKey: ["dashboard"] });
+
+      if (batchId) {
+        setBatchQuestions((prev) => ({
+          ...prev,
+          [batchId]: (prev[batchId] || []).filter((q) => q.id !== questionId),
+        }));
+      }
+      setDeletingQuestion(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   async function submit() {
     setBusy(true);
     setError("");
@@ -50,8 +197,18 @@ export function QuestionImporter() {
       const parsed = parseImportJson(source);
       const next = await db.importQuestions(parsed);
       setReport(next);
+      await client.invalidateQueries({ queryKey: ["import-batches"] });
       await client.invalidateQueries({ queryKey: ["questions"] });
+      await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+      await client.invalidateQueries({ queryKey: ["booklet-catalog"] });
       await client.invalidateQueries({ queryKey: ["dashboard"] });
+
+      // Automatically expand and load questions of the newly imported batch
+      if (next.batchId) {
+        setExpandedBatchId(next.batchId);
+        const qs = await db.listQuestions({ batchId: next.batchId, limit: 500 });
+        setBatchQuestions((prev) => ({ ...prev, [next.batchId!]: qs }));
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "ورود انجام نشد.");
     } finally {
@@ -75,7 +232,10 @@ export function QuestionImporter() {
         const mediaService = new MediaService(db.getClient());
         const pkgReport = await importMediaPackage(new Uint8Array(buffer), db, mediaService);
         setReport(pkgReport);
+        await client.invalidateQueries({ queryKey: ["import-batches"] });
         await client.invalidateQueries({ queryKey: ["questions"] });
+        await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+        await client.invalidateQueries({ queryKey: ["booklet-catalog"] });
         await client.invalidateQueries({ queryKey: ["dashboard"] });
       } catch (err) {
         setError(err instanceof Error ? err.message : "خطا در پردازش بسته فشرده");
@@ -89,6 +249,20 @@ export function QuestionImporter() {
       .text()
       .then(setSource)
       .catch(() => setError("فایل خوانده نشد."));
+  }
+
+  function formatJalaliDate(timestamp: number) {
+    try {
+      return new Intl.DateTimeFormat("fa-IR", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(timestamp));
+    } catch {
+      return new Date(timestamp).toLocaleDateString("fa-IR");
+    }
   }
 
   function exportIssues() {
@@ -121,7 +295,7 @@ export function QuestionImporter() {
       </div>
 
       <div className="grid split gap-6">
-          <div className="card space-y-4">
+        <div className="card space-y-4">
           <div className="field">
             <label htmlFor="json-file" className="flex items-center gap-1.5">
               <FileUp size={16} className="text-neutral-500" />
@@ -182,6 +356,21 @@ export function QuestionImporter() {
               <Sparkles size={16} />
               <span>نمونهٔ آموزشی</span>
             </button>
+            {(source || report || error) && (
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => {
+                  setSource("");
+                  setReport(null);
+                  setError("");
+                }}
+                title="پاکسازی متن ورودی و گزارش فعلی"
+              >
+                <RotateCcw size={15} />
+                <span>پاکسازی و شروع مجدد</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -248,6 +437,317 @@ export function QuestionImporter() {
           )}
         </aside>
       </div>
+
+      {/* Import Sessions & Batches Section */}
+      <div className="card-neo p-5 sm:p-6 bg-[var(--surface)] space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--line)] pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-[var(--surface-cream)] border border-[var(--line)] text-[var(--testino-orange)] shadow-[2px_2px_0px_var(--neo-shadow)]">
+              <Layers size={18} />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-black text-[var(--ink)]">
+                دسته‌های سؤالات وارد شده (نشست‌های ورود)
+              </h2>
+              <p className="text-xs text-[var(--muted)] font-bold">
+                مشاهده دسته‌ای سؤالات، حذف کل یک نشست ورود یا باز کردن و حذف تکی سؤالات
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/bank/booklet/"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] hover:bg-[var(--surface-cream)] text-xs font-black text-[var(--ink)] transition-colors shadow-[1px_1px_0px_var(--neo-shadow)]"
+            >
+              <span>مشاهده در دفترچه (گام ۳)</span>
+              <ArrowRight size={13} />
+            </Link>
+            <Link
+              href="/bank/"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] hover:bg-[var(--surface-cream)] text-xs font-black text-[var(--ink)] transition-colors shadow-[1px_1px_0px_var(--neo-shadow)]"
+            >
+              <span>مشاهده کل بانک (گام ۴)</span>
+              <ArrowRight size={13} />
+            </Link>
+          </div>
+        </div>
+
+        {batches.length === 0 ? (
+          <div className="text-center py-10 text-[var(--muted)] space-y-2">
+            <BookOpen size={32} className="mx-auto text-neutral-400" />
+            <p className="text-xs sm:text-sm font-black">هنوز سؤالی در بانک ثبت نشده است.</p>
+            <p className="text-[11px] font-bold">
+              با چسباندن JSON یا بارگذاری فایل، سؤالات شما به عنوان یک نشست جدید ثبت و در اینجا نمایش داده خواهند شد.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {batches.map((batch) => {
+              const isExpanded = expandedBatchId === batch.id;
+              const questions = batchQuestions[batch.id] || [];
+              const isLoadingThis = loadingBatchId === batch.id;
+
+              return (
+                <div
+                  key={batch.id}
+                  className="rounded-2xl border-2 border-[var(--line)] bg-[var(--surface-2)]/30 overflow-hidden shadow-[2px_2px_0px_var(--neo-shadow)] transition-all"
+                >
+                  {/* Batch Header */}
+                  <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--surface)] border-b border-[var(--line)]/60">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-xl bg-[var(--surface-cream)] border border-[var(--line)] text-[var(--testino-orange)] shadow-xs">
+                        <FolderArchive size={20} />
+                      </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-black text-[var(--ink)]">
+                            {batch.title}
+                          </span>
+                          {batch.subject && (
+                            <span className="px-2 py-0.5 rounded-md bg-[var(--surface-cream)] border border-[var(--line)] text-[var(--ink)] font-black text-[10px]">
+                              {batch.subject}
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-black text-[10px]">
+                            {batch.questionCount} سؤال
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-[var(--muted)] font-bold mt-1">
+                          <Calendar size={12} />
+                          <span>{formatJalaliDate(batch.createdAt)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => setDeletingBatch(batch)}
+                        className="px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-[1px_1px_0px_var(--neo-shadow)]"
+                        title="حذف کل سؤالات این دسته"
+                      >
+                        <Trash2 size={13} />
+                        <span>حذف کل دسته</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => toggleExpandBatch(batch.id)}
+                        className="px-3 py-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] hover:bg-[var(--surface-2)] text-[var(--ink)] text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-[1px_1px_0px_var(--neo-shadow)]"
+                      >
+                        <span>{isExpanded ? "بستن" : "مشاهده سؤالات"}</span>
+                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Expanded Questions List */}
+                  {isExpanded && (
+                    <div className="p-4 space-y-3 bg-[var(--surface-2)]/20 animate-in fade-in-50 duration-200">
+                      {isLoadingThis ? (
+                        <div className="flex items-center justify-center py-8 text-[var(--muted)] gap-2 text-xs font-bold">
+                          <Loader2 size={16} className="animate-spin text-[var(--testino-orange)]" />
+                          <span>در حال بارگذاری سؤالات این دسته…</span>
+                        </div>
+                      ) : questions.length === 0 ? (
+                        <div className="text-center py-6 text-xs text-[var(--muted)] font-bold">
+                          هیچ سؤال فعالی در این دسته باقی نمانده است.
+                        </div>
+                      ) : (
+                        <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                          {questions.map((q, idx) => {
+                            const sNum = q.source?.number || q.externalKey.match(/q(\d+)/i)?.[1] || String(idx + 1);
+                            return (
+                              <div
+                                key={q.id}
+                                className="p-3.5 sm:p-4 rounded-2xl border-2 border-[var(--line)] bg-[var(--surface)] hover:border-[var(--testino-orange)] transition-all flex flex-col sm:flex-row sm:items-start justify-between gap-3 group shadow-[1px_1px_0px_var(--neo-shadow)]"
+                              >
+                                <div className="flex-1 space-y-2 text-right">
+                                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                    <span className="w-6 h-6 rounded-lg bg-[var(--testino-orange)] text-white font-black text-[11px] flex items-center justify-center shadow-xs">
+                                      {sNum}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-md bg-[var(--surface-cream)] border border-[var(--line)] text-[var(--ink)] font-black text-[10px]">
+                                      {q.subject}
+                                    </span>
+                                    {q.chapter && (
+                                      <span className="text-[10px] text-[var(--muted)] font-bold">• {q.chapter}</span>
+                                    )}
+                                    {q.source?.year && (
+                                      <span className="px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 font-mono text-[10px] font-bold">
+                                        کنکور {q.source.year}
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] text-[var(--muted)] font-mono">
+                                      ({q.externalKey})
+                                    </span>
+                                  </div>
+
+                                  <div className="text-xs font-black text-[var(--ink)] line-clamp-2 leading-relaxed">
+                                    <ContentRenderer blocks={q.content} />
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-start pt-1 sm:pt-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingQuestion(q);
+                                      setEditorOpen(true);
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] hover:bg-[var(--testino-orange)] hover:text-white text-[var(--ink)] text-xs font-black flex items-center gap-1 transition-all cursor-pointer shadow-[1px_1px_0px_var(--neo-shadow)]"
+                                    title="ویرایش این سؤال"
+                                  >
+                                    <Edit3 size={13} />
+                                    <span>ویرایش</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingQuestion({ question: q, batchId: batch.id })}
+                                    className="px-2.5 py-1.5 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-black flex items-center gap-1 transition-all cursor-pointer shadow-[1px_1px_0px_var(--neo-shadow)]"
+                                    title="حذف این سؤال"
+                                  >
+                                    <Trash2 size={13} />
+                                    <span>حذف</span>
+                                  </button>
+
+                                  <Link
+                                    href={`/bank/question/?id=${encodeURIComponent(q.id)}`}
+                                    className="p-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] hover:bg-[var(--surface-2)] text-[var(--muted)] transition-colors shadow-[1px_1px_0px_var(--neo-shadow)]"
+                                    title="مشاهده صفحه سؤال"
+                                  >
+                                    <ExternalLink size={13} />
+                                  </Link>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Delete Batch Confirmation Modal */}
+      {deletingBatch && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-sm rounded-3xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-6 space-y-4 shadow-[6px_6px_0_var(--neo-shadow)] animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-300">
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[var(--ink)]">حذف کل دسته سؤالات</h3>
+                <p className="text-xs text-[var(--muted)] font-bold">
+                  {isOwner ? "حذف از دیتابیس کل سیستم" : "پنهان‌سازی از بانک شما"}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[var(--ink)] leading-relaxed font-bold">
+              آیا از حذف دسته <span className="font-black text-[var(--testino-orange)]">{deletingBatch.title}</span> شامل <span className="font-black text-rose-600">{deletingBatch.questionCount} سؤال</span> اطمینان دارید؟ تمام سؤالات این دسته حذف خواهند شد.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeletingBatch}
+                onClick={() => setDeletingBatch(null)}
+                className="px-4 py-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] text-xs font-black text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingBatch}
+                onClick={() => void handleDeleteBatch(deletingBatch)}
+                className="px-4 py-2.5 rounded-xl border-2 border-rose-600 bg-rose-600 hover:bg-rose-700 text-xs font-black text-white transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {isDeletingBatch ? "در حال حذف دسته…" : "بله، حذف کل دسته"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Single Question Confirmation Modal */}
+      {deletingQuestion && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-sm rounded-3xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-6 space-y-4 shadow-[6px_6px_0_var(--neo-shadow)] animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-300">
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[var(--ink)]">حذف سؤال</h3>
+                <p className="text-xs text-[var(--muted)] font-bold">
+                  {isOwner ? "حذف از دیتابیس کل سیستم" : "پنهان‌سازی از بانک شما"}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[var(--ink)] leading-relaxed font-bold">
+              آیا از حذف این سؤال اطمینان دارید؟
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeletingQuestion(null)}
+                className="px-4 py-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] text-xs font-black text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => void handleDeleteSingle(deletingQuestion.question.id, deletingQuestion.batchId)}
+                className="px-4 py-2.5 rounded-xl border-2 border-rose-600 bg-rose-600 hover:bg-rose-700 text-xs font-black text-white transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {isDeleting ? "در حال حذف…" : "بله، حذف شود"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reusable Question Editor Modal (Form / JSON / Multi-Image Attachments) */}
+      <QuestionEditorModal
+        isOpen={editorOpen}
+        onClose={() => {
+          setEditorOpen(false);
+          setEditingQuestion(null);
+        }}
+        initialQuestion={editingQuestion}
+        onSaved={async () => {
+          await client.invalidateQueries({ queryKey: ["import-batches"] });
+          await client.invalidateQueries({ queryKey: ["questions"] });
+          await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+          await client.invalidateQueries({ queryKey: ["booklet-catalog"] });
+          await client.invalidateQueries({ queryKey: ["dashboard"] });
+          if (expandedBatchId) {
+            const qs = await db.listQuestions({ batchId: expandedBatchId, limit: 500 });
+            setBatchQuestions((prev) => ({ ...prev, [expandedBatchId]: qs }));
+          }
+          setEditorOpen(false);
+          setEditingQuestion(null);
+        }}
+      />
     </section>
   );
 }

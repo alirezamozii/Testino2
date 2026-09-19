@@ -62,8 +62,6 @@ const server = http.createServer(async (req, res) => {
     const headers = {
       "Content-Type": types[ext] || "application/octet-stream",
       "Cache-Control": "no-cache",
-      "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "require-corp",
     };
     if (ext === ".pdf") {
       headers["Content-Disposition"] = "inline";
@@ -85,7 +83,7 @@ server.on("error", (err) => {
   console.error("Server error:", err.message);
 });
 
-const port = Number(process.env.PORT || 3100);
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Testino: http://127.0.0.1:${port}`);
+const port = Number(process.env.PORT || 3000);
+server.listen(port, "0.0.0.0", () => {
+  console.log(`Testino: http://0.0.0.0:${port}`);
 });

@@ -1,5 +1,4 @@
 import sharp from "sharp";
-import fs from "fs";
 
 const svg = `<svg
   width="400"

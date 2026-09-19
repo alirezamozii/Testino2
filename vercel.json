@@ -1,5 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm install --no-audit --no-fund",
+  "buildCommand": "npm run build:web",
+  "outputDirectory": "out",
   "cleanUrls": true,
   "trailingSlash": true,
   "headers": [
@@ -13,6 +17,15 @@
         {
           "key": "Cross-Origin-Embedder-Policy",
           "value": "credentialless"
+        }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
         }
       ]
     }

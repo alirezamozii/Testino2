@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { memo, useEffect, useState } from "react";
 import katex from "katex";
 import { Image as ImageIcon, Maximize2 } from "lucide-react";
 import type { ContentBlock, InlineCell } from "@/features/questions/domain/question-schema";
@@ -110,7 +110,11 @@ function renderFormula(latex: string, display: boolean, key: string | number) {
       <span
         key={key}
         dir="ltr"
-        className={display ? "block my-2 overflow-x-auto text-center" : "inline-formula inline-block px-1 align-middle"}
+        className={
+          display
+            ? "block my-2 overflow-x-auto overflow-y-hidden text-center no-scrollbar"
+            : "inline-formula inline-block px-1 align-middle overflow-visible"
+        }
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
@@ -129,12 +133,109 @@ function renderFormula(latex: string, display: boolean, key: string | number) {
 }
 
 /**
- * Parses mixed text and math expressions.
+ * Parses inline rich text tokens:
+ * - Underline: <u>...</u>, <ins>...</ins>
+ * - Mark / Highlight: <mark>...</mark>, ==...==
+ * - Bold: <strong>...</strong>, <b>...</b>, **...**
+ * - Italic: <em>...</em>, <i>...</i>, *...*
+ * - Inline Code: <code>...</code>, `...`
+ */
+function parseInlineFormatting(text: string, baseKey: string | number): React.ReactNode {
+  if (!text) return null;
+
+  const inlineRegex = /(<span\b[^>]*>[\s\S]*?<\/span>|<u\b[^>]*>[\s\S]*?<\/u>|<ins\b[^>]*>[\s\S]*?<\/ins>|<mark\b[^>]*>[\s\S]*?<\/mark>|==[\s\S]+?==|<strong\b[^>]*>[\s\S]*?<\/strong>|<b\b[^>]*>[\s\S]*?<\/b>|\*\*[^\*\n]+?\*\*|<em\b[^>]*>[\s\S]*?<\/em>|<i\b[^>]*>[\s\S]*?<\/i>|(?<!\w)\*[^\*\n]+?\*(?!\w)|<code\b[^>]*>[\s\S]*?<\/code>|`[^`\n]+?`)/gi;
+
+  const parts = text.split(inlineRegex);
+  if (parts.length === 1) {
+    return text;
+  }
+
+  return parts.map((part, idx) => {
+    if (!part) return null;
+    const key = `${baseKey}-inline-${idx}`;
+
+    // Span: <span class="...">...</span>
+    const spanMatch = part.match(/^<span\b(?:[^>]*class=["']([^"']*)["'])?[^>]*>([\s\S]*?)<\/span>$/i);
+    if (spanMatch) {
+      return (
+        <span key={key} className={spanMatch[1] || ""}>
+          {parseInlineFormatting(spanMatch[2], `${key}-span`)}
+        </span>
+      );
+    }
+
+    // Underline: <u>...</u> or <ins>...</ins>
+    const uMatch = part.match(/^<(?:u|ins)\b[^>]*>([\s\S]*?)<\/(?:u|ins)>$/i);
+    if (uMatch) {
+      return (
+        <u
+          key={key}
+          className="underline decoration-2 decoration-amber-500 font-bold underline-offset-4 bg-amber-500/10 px-1 py-0.5 rounded"
+        >
+          {parseInlineFormatting(uMatch[1], `${key}-u`)}
+        </u>
+      );
+    }
+
+    // Mark / Highlight: <mark>...</mark> or ==...==
+    const markMatch = part.match(/^<mark\b[^>]*>([\s\S]*?)<\/mark>$/i) || part.match(/^==([\s\S]+?)==$/);
+    if (markMatch) {
+      return (
+        <mark
+          key={key}
+          className="bg-amber-300/80 dark:bg-amber-900/60 text-[var(--ink)] px-1 py-0.5 rounded font-bold"
+        >
+          {parseInlineFormatting(markMatch[1], `${key}-mark`)}
+        </mark>
+      );
+    }
+
+    // Bold: <strong>...</strong> or <b>...</b> or **...**
+    const boldMatch = part.match(/^<(?:strong|b)\b[^>]*>([\s\S]*?)<\/(?:strong|b)>$/i) || part.match(/^\*\*([^\*\n]+?)\*\*$/);
+    if (boldMatch) {
+      return (
+        <strong key={key} className="font-bold">
+          {parseInlineFormatting(boldMatch[1], `${key}-strong`)}
+        </strong>
+      );
+    }
+
+    // Italic: <em>...</em> or <i>...</i> or *...*
+    const italicMatch = part.match(/^<(?:em|i)\b[^>]*>([\s\S]*?)<\/(?:em|i)>$/i) || part.match(/^\*([^\*\n]+?)\*$/);
+    if (italicMatch) {
+      return (
+        <em key={key} className="italic">
+          {parseInlineFormatting(italicMatch[1], `${key}-em`)}
+        </em>
+      );
+    }
+
+    // Code: <code>...</code> or `...`
+    const codeMatch = part.match(/^<code\b[^>]*>([\s\S]*?)<\/code>$/i) || part.match(/^`([^`\n]+?)`$/);
+    if (codeMatch) {
+      return (
+        <code
+          key={key}
+          className="font-mono text-xs bg-[var(--surface-2)] px-1.5 py-0.5 rounded border border-[var(--line)]"
+        >
+          {codeMatch[1]}
+        </code>
+      );
+    }
+
+    return part;
+  });
+}
+
+/**
+ * Parses mixed text, inline rich text formatting, and math expressions.
  * Supports:
  * - $$display math$$
  * - \[display math\]
  * - $inline math$
  * - \(inline math\)
+ * - Inline HTML (<u>, <ins>, <mark>, <strong>, <b>, <em>, <i>, <code>)
+ * - Markdown (**bold**, ==highlight==, `code`)
  */
 function parseTextWithMath(text: string, baseKey: string | number): React.ReactNode {
   if (!text) return null;
@@ -142,7 +243,7 @@ function parseTextWithMath(text: string, baseKey: string | number): React.ReactN
   const parts = text.split(mathRegex);
 
   if (parts.length === 1) {
-    return text;
+    return parseInlineFormatting(text, baseKey);
   }
 
   return parts.map((part, idx) => {
@@ -166,7 +267,7 @@ function parseTextWithMath(text: string, baseKey: string | number): React.ReactN
       return renderFormula(inner, false, key);
     }
 
-    return <span key={key}>{part}</span>;
+    return <span key={key}>{parseInlineFormatting(part, key)}</span>;
   });
 }
 
@@ -177,7 +278,13 @@ function renderInlineCell(cell: InlineCell, key: string | number) {
   return renderFormula(cell.latex, false, key);
 }
 
-export function ContentRenderer({ blocks }: { blocks: ContentBlock[] }) {
+/**
+ * Memoized: the exam player's 2-second elapsed timer re-renders SessionPlayer
+ * every tick — without memo, every tick re-ran KaTeX rendering for EVERY
+ * formula on the page (visible jank during exams, worst on Android WebView).
+ * ContentRenderer re-renders now only when its blocks actually change.
+ */
+export const ContentRenderer = memo(function ContentRenderer({ blocks }: { blocks: ContentBlock[] }) {
   const [lightboxImg, setLightboxImg] = useState<{ url: string; alt: string } | null>(null);
 
   if (!blocks || !blocks.length) return null;
@@ -208,9 +315,16 @@ export function ContentRenderer({ blocks }: { blocks: ContentBlock[] }) {
         }
 
         if (block.type === "formula") {
+          if (!block.display) {
+            return (
+              <span key={index} className="formula-inline inline-block align-middle px-1 overflow-visible" dir="ltr">
+                {renderFormula(block.latex, false, index)}
+              </span>
+            );
+          }
           return (
-            <div key={index} className={`formula-block my-2 overflow-x-auto max-w-full ${block.display ? "text-center my-3.5 py-1" : "inline-block align-middle px-1"}`} dir="ltr">
-              {renderFormula(block.latex, block.display, index)}
+            <div key={index} className="formula-block my-3.5 py-1 text-center overflow-x-auto overflow-y-hidden max-w-full no-scrollbar" dir="ltr">
+              {renderFormula(block.latex, true, index)}
             </div>
           );
         }
@@ -294,4 +408,4 @@ export function ContentRenderer({ blocks }: { blocks: ContentBlock[] }) {
       )}
     </div>
   );
-}
+});

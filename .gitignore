@@ -2,13 +2,17 @@ node_modules/
 .next/
 out/
 dist/
+build/
 release/
 releases/
+release-files/
 artifacts/
 test-results/
 structure.txt
 .env.local
 .env
+*.log
+npm-debug.log*
 
 # Android builds & caches
 android/.gradle/
@@ -16,6 +20,30 @@ android/build/
 android/app/build/
 android/capacitor-cordova-android-plugins/build/
 android/local.properties
+.gradle/
+
+# Binaries, packages and installer files
 *.apk
+*.aab
 *.zip
 *.exe
+*.msi
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+
+release.keystore
+*.jks
+*.keystore
+*.keystore.base64.txt
+*.base64.txt
+
+# TS incremental build info
+tsconfig.tsbuildinfo
+
+# Windows-drive-style stray dir (invalid path on Windows checkouts)
+/C/
+
+# Scratch and temporary OCR files
+scratch/

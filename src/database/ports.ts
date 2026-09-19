@@ -12,13 +12,15 @@ export interface DatabaseHealth {
   ok: boolean;
   storage: "opfs" | "native" | "memory";
   schemaVersion: number;
+  /** Human-readable reason when storage fell back from OPFS to memory. */
+  storageDetail?: string;
 }
 
 export interface DatabasePort {
   open(ownerKey?: string): Promise<void>;
   query<T extends Record<string, unknown>>(sql: string, bind?: SqlStatement["bind"]): Promise<T[]>;
   execute(sql: string, bind?: SqlStatement["bind"]): Promise<void>;
-  batch(statements: SqlStatement[]): Promise<void>;
+  batch(statements: SqlStatement[], opts?: { timeoutMs?: number }): Promise<void>;
   transaction<T>(callback: (trx: DatabasePort) => Promise<T>): Promise<T>;
   close(): void | Promise<void>;
   health(): Promise<DatabaseHealth>;

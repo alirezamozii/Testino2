@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { Plus, Play, CheckCircle2, Pause, Clock, AlertCircle, ChevronLeft, History } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, Play, CheckCircle2, Pause, Clock, AlertCircle, ChevronLeft, History, Trash2, Loader2 } from "lucide-react";
 import { useDatabase } from "@/providers/database-provider";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/testino-ui";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,10 @@ const stateConfig = {
 
 export function SessionList() {
   const database = useDatabase();
+  const cache = useQueryClient();
+  const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const profiles = useQuery({
     queryKey: ["profiles"],
     queryFn: () => database.db.listProfiles(),
@@ -44,6 +49,27 @@ export function SessionList() {
     enabled: Boolean(profile),
   });
 
+  async function handleDeleteSession() {
+    if (!deleteSessionId) return;
+    setIsDeleting(true);
+    try {
+      await database.db.deleteSession(deleteSessionId);
+      setDeleteSessionId(null);
+      await sessions.refetch();
+      await cache.invalidateQueries({ queryKey: ["sessions"] });
+      await cache.invalidateQueries({ queryKey: ["history-sessions"] });
+      await cache.invalidateQueries({ queryKey: ["analytics"] });
+      await cache.invalidateQueries({ queryKey: ["dashboard"] });
+      await cache.invalidateQueries({ queryKey: ["question-pool-stats"] });
+    } catch (err) {
+      console.error("Failed to delete session:", err);
+      alert("خطا در حذف آزمون: " + (err instanceof Error ? err.message : String(err)));
+      setDeleteSessionId(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   return (
     <div className="page space-y-5 pb-8 max-w-4xl mx-auto">
       <div className="flex items-center justify-between">
@@ -51,7 +77,22 @@ export function SessionList() {
           <h1 className="text-xl sm:text-2xl font-black text-[var(--ink)]">جلسه‌های آزمون</h1>
           <p className="text-xs text-[var(--muted)] mt-0.5">تاریخچه و ادامه آزمون‌های ثبت‌شده</p>
         </div>
-        <div className="flex items-center gap-2"><Link className="btn-neo py-2.5 px-3 text-xs font-black" href="/history/"><History size={16} /><span className="hidden sm:inline">تاریخچه</span></Link><Link className="btn-neo-orange py-2.5 px-4 text-xs font-black" href="/sessions/new/"><Plus size={16} /><span>آزمون جدید</span></Link></div>
+        <div className="flex items-center gap-2">
+          <Link
+            className="btn-neo py-2 px-3.5 text-xs font-black inline-flex items-center gap-1.5 whitespace-nowrap shadow-[2px_2px_0px_var(--neo-shadow)]"
+            href="/history/"
+          >
+            <History size={15} className="shrink-0" />
+            <span>تاریخچه</span>
+          </Link>
+          <Link
+            className="btn-neo-orange py-2 px-4 text-xs font-black inline-flex items-center gap-1.5 whitespace-nowrap shadow-[2px_2px_0px_var(--neo-shadow)]"
+            href="/sessions/new/"
+          >
+            <Plus size={16} className="shrink-0" />
+            <span>آزمون جدید</span>
+          </Link>
+        </div>
       </div>
 
       <div className="testino-card p-0 overflow-hidden">
@@ -76,12 +117,14 @@ export function SessionList() {
               const mode = session.config?.mode;
 
               return (
-                <Link
+                <div
                   key={session.id}
-                  href={`/sessions/run/?id=${session.id}`}
                   className="p-4 hover:bg-[var(--surface-2)]/60 transition-colors flex items-center justify-between gap-3 group"
                 >
-                  <div className="space-y-1.5 flex-1">
+                  <Link
+                    href={`/sessions/run/?id=${session.id}`}
+                    className="space-y-1.5 flex-1 min-w-0"
+                  >
                     <div className="flex items-center gap-2">
                       <strong className="text-xs sm:text-sm font-black text-[var(--ink)] group-hover:text-[var(--brand-orange)] transition-colors">
                         آزمون {mode === "random" ? "تصادفی" : mode === "due" ? "مرور هوشمند" : mode === "wrong" ? "اشتباهات" : "جدید"}
@@ -101,20 +144,75 @@ export function SessionList() {
                         />
                       </div>
                     </div>
-                  </div>
+                  </Link>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-[var(--brand-orange)] hidden sm:inline">
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Link
+                      href={`/sessions/run/?id=${session.id}`}
+                      className="text-xs font-bold text-[var(--brand-orange)] hidden sm:inline"
+                    >
                       {session.state === "FINISHED" ? "مشاهده کارنامه" : "ادامه آزمون"}
-                    </span>
-                    <ChevronLeft size={16} className="text-[var(--muted)] group-hover:translate-x-[-2px] transition-transform" />
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteSessionId(session.id)}
+                      className="p-2 rounded-xl border border-transparent hover:border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-[var(--muted)] hover:text-rose-600 transition-all cursor-pointer"
+                      title="حذف این آزمون"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                    <Link href={`/sessions/run/?id=${session.id}`}>
+                      <ChevronLeft size={16} className="text-[var(--muted)] group-hover:translate-x-[-2px] transition-transform" />
+                    </Link>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>
         )}
       </div>
+
+      {/* Delete Session Confirmation Dialog */}
+      {deleteSessionId && (
+        <div
+          className="dialog-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          onClick={() => !isDeleting && setDeleteSessionId(null)}
+        >
+          <div
+            className="card-neo w-full max-w-sm p-5 space-y-4 bg-[var(--surface)] text-center border-2 border-[var(--line-strong)] shadow-[4px_4px_0px_var(--neo-shadow)] animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-rose-100 dark:bg-rose-950/60 border-2 border-[var(--line-strong)] flex items-center justify-center text-rose-600 dark:text-rose-400">
+              <Trash2 size={24} />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-black text-[var(--ink)]">حذف آزمون</h3>
+              <p className="text-xs text-[var(--muted)] font-medium">
+                آیا مطمئن هستید که می‌خواهید این جلسه آزمون و پاسخ‌های آن را حذف کنید؟ این عملیات قابل بازگشت نیست.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteSession}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+              >
+                {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                <span>{isDeleting ? "در حال حذف…" : "حذف قطعی"}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeleteSessionId(null)}
+                className="py-2.5 px-4 rounded-xl border border-[var(--line)] text-xs font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

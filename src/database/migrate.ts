@@ -76,13 +76,16 @@ export class MigrationRunner {
         await options.backupGate();
       }
 
-      // Execute migration inside a transaction for atomic rollback on failure
+      // Execute migration inside a transaction for atomic rollback on failure.
+      // ON CONFLICT DO NOTHING makes the bookkeeping row idempotent: if a
+      // concurrent runner (second tab / racing open) already applied this
+      // version, we skip instead of crashing with a PRIMARY KEY violation.
       await db.transaction(async (trx) => {
         for (const stmt of migration.statements) {
           await trx.execute(stmt.sql, stmt.bind);
         }
         await trx.execute(
-          "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES(?, ?, ?)",
+          "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES(?, ?, ?) ON CONFLICT(version) DO NOTHING",
           [migration.version, migration.checksum, Date.now()]
         );
       });

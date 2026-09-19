@@ -8,6 +8,7 @@ export interface QuestionCandidate {
   chapter?: string | null;
   topic?: string | null;
   groupId: string | null;
+  groupPosition?: number | null;
   isGroupIncomplete?: boolean;
   hasMissingRequiredMedia?: boolean;
   status: "draft" | "published";
@@ -119,6 +120,10 @@ export function selectQuestions(
     } else {
       standalone.push([item]);
     }
+  }
+
+  for (const list of groupMap.values()) {
+    list.sort((a, b) => (a.groupPosition ?? 0) - (b.groupPosition ?? 0));
   }
 
   const units: QuestionCandidate[][] = [...standalone, ...Array.from(groupMap.values())];

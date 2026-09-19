@@ -1,5 +1,6 @@
 import { SqliteWorkerClient } from "./adapters/web/worker-client";
 import type { DatabasePort } from "./ports";
+import type { SqlStatement } from "./protocol";
 import { runMigrations } from "./migrate";
 import type { ParsedImport } from "@/features/questions/domain/importer";
 import type { ContentBlock, StoredQuestion } from "@/features/questions/domain/question-schema";
@@ -9,6 +10,17 @@ import { computeQuestionFingerprint } from "@/features/questions/domain/fingerpr
 import { simulateOverallConfidence } from "@/features/analytics/domain/confidence-simulation";
 import { canonicalizeSubject, canonicalizeSubjectRecords, canonicalSubjectKey, isSameSubject, subjectNamesForMatching } from "@/features/questions/domain/subject-registry";
 import { buildScoringGroups, normalizeScoreGroup } from "@/features/profiles/domain/score-groups";
+
+function safeRandomUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 export interface Profile {
   id: string;
@@ -89,6 +101,14 @@ export interface SessionView {
 }
 
 
+export interface ImportBatch {
+  id: string;
+  title: string;
+  subject: string | null;
+  questionCount: number;
+  createdAt: number;
+}
+
 type QuestionRow = Record<string, unknown> & {
   id: string;
   external_key: string;
@@ -108,6 +128,7 @@ type QuestionRow = Record<string, unknown> & {
   source_year?: number | null;
   source_number?: string | null;
   report_count?: number;
+  batch_id?: string | null;
 };
 
 function normalizeSearch(term: string): string {
@@ -160,21 +181,23 @@ function mapQuestion(
   return {
     id: row.id,
     externalKey: row.external_key,
-    subject: canonicalizeSubject(row.subject),
+    subject: row.subject,
     chapter: row.chapter,
     topic: row.topic,
     groupId: row.group_id ?? null,
     groupPosition: typeof row.group_position === "number" ? row.group_position : null,
     groupKind: grp?.kind ?? null,
     groupContent: grp?.content ?? null,
-    content: JSON.parse(row.content_json),
+    // One corrupt persisted row must not reject the whole page/exam — fall
+    // back to a neutral placeholder instead of JSON.parse throwing.
+    content: safeRowJson<ContentBlock[]>(row.content_json, []),
     options: options.map((option) => ({
       id: String(option.id),
       key: String(option.external_key),
-      content: JSON.parse(String(option.content_json)),
+      content: safeRowJson(option.content_json, []),
     })),
     correctOptionId: row.correct_option_id,
-    explanation: JSON.parse(row.explanation_json),
+    explanation: safeRowJson(row.explanation_json, []),
     status: row.status,
     shuffleSafe: Boolean(row.shuffle_safe),
     source: row.source_kind ? {
@@ -185,7 +208,84 @@ function mapQuestion(
     } : undefined,
     reportCount: Number(row.report_count ?? 0),
     createdAt: row.created_at,
+    batchId: (row.batch_id as string | null) ?? null,
   };
+}
+
+/**
+ * JSON.parse for persisted row columns that must NEVER reject the whole
+ * read path (interrupted write / bad import used to crash the whole exam or
+ * dashboard). Returns `fallback` for corrupt/empty values.
+ */
+function safeRowJson<T>(raw: unknown, fallback: T): T {
+  if (raw === null || raw === undefined) return fallback;
+  try {
+    return JSON.parse(String(raw)) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export function extractOriginalQuestionNumber(q: StoredQuestion): string | undefined {
+  // 1. If source.number exists and is not a 4-digit year like 1390-1499 or 1990-2099
+  if (q.source?.number) {
+    const s = String(q.source.number).trim();
+    const num = parseInt(s, 10);
+    if (!isNaN(num) && !(num >= 1300 && num <= 2100)) {
+      return s;
+    }
+  }
+
+  // 2. From externalKey: look for q(\d+), question-(\d+), or trailing digits
+  if (q.externalKey) {
+    // Matches e.g. 'زبان-عمومی-و-تخصصی-1405-q8' -> matches '8'
+    const qMatch = q.externalKey.match(/(?:^|[-_./\s])q(\d+)(?:[-_./\s]|$)/i);
+    if (qMatch) return qMatch[1];
+
+    const wordMatch = q.externalKey.match(/(?:question|item|سوال|سؤال)[-_./\s]*(\d+)/i);
+    if (wordMatch) return wordMatch[1];
+
+    // Look for numbers after a separator, ignoring any 4-digit year (1300-2100)
+    const endMatch = q.externalKey.match(/[-_](\d+)(?:[-_]|$)/g);
+    if (endMatch) {
+      for (let i = endMatch.length - 1; i >= 0; i--) {
+        const nStr = endMatch[i].replace(/[-_]/g, "");
+        const n = parseInt(nStr, 10);
+        if (!isNaN(n) && !(n >= 1300 && n <= 2100)) {
+          return nStr;
+        }
+      }
+    }
+  }
+
+  // 3. For cloze/reading questions, check if content has a blank marker like (8) or _______(8)
+  if (Array.isArray(q.content)) {
+    for (const b of q.content) {
+      if (b && b.type === "text" && typeof b.value === "string") {
+        const blankMatch = b.value.match(/(?:_{2,}|\.{2,}|\(\s*)(\d+)(?:\s*\))/);
+        if (blankMatch) {
+          const n = parseInt(blankMatch[1], 10);
+          if (!isNaN(n) && !(n >= 1300 && n <= 2100)) {
+            return blankMatch[1];
+          }
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function extractQuestionSortKey(q: StoredQuestion): number {
+  if (typeof q.groupPosition === "number" && !isNaN(q.groupPosition)) {
+    return q.groupPosition;
+  }
+  const rawNum = extractOriginalQuestionNumber(q);
+  if (rawNum) {
+    const num = parseInt(rawNum, 10);
+    if (!isNaN(num)) return num;
+  }
+  return NaN;
 }
 
 function groupQuestionsIntoUnits(questions: StoredQuestion[]): StoredQuestion[][] {
@@ -207,7 +307,17 @@ function groupQuestionsIntoUnits(questions: StoredQuestion[]): StoredQuestion[][
   }
 
   for (const list of groupMap.values()) {
-    list.sort((a, b) => (a.groupPosition ?? 0) - (b.groupPosition ?? 0));
+    list.sort((a, b) => {
+      const numA = extractQuestionSortKey(a);
+      const numB = extractQuestionSortKey(b);
+      if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+        return numA - numB;
+      }
+      if (a.externalKey && b.externalKey) {
+        return a.externalKey.localeCompare(b.externalKey, undefined, { numeric: true });
+      }
+      return (a.createdAt || 0) - (b.createdAt || 0);
+    });
   }
 
   return [...standalone, ...Array.from(groupMap.values())];
@@ -220,17 +330,64 @@ interface LifecycleClient {
 
 export class AppDatabase {
   private client: DatabasePort;
+  private openPromise: Promise<void> | null = null;
 
   constructor(client?: DatabasePort) {
     this.client = client ?? new SqliteWorkerClient();
   }
 
   async open() {
-    const lifecycle = this.client as unknown as LifecycleClient;
-    if (typeof lifecycle.open === "function") {
-      await lifecycle.open();
+    // Dedupe concurrent opens (React StrictMode double-mount, provider
+    // remounts). Two parallel MigrationRunner instances would both read an
+    // empty schema_migrations and race INSERTs → UNIQUE constraint crash.
+    if (!this.openPromise) {
+      this.openPromise = (async () => {
+        const lifecycle = this.client as unknown as LifecycleClient;
+        if (typeof lifecycle.open === "function") {
+          await lifecycle.open();
+        }
+        await runMigrations(this.client);
+        await this.verifyCriticalSchema();
+      })().catch((error) => {
+        // Allow a retry after a failed open (e.g. transient OPFS contention).
+        this.openPromise = null;
+        throw error;
+      });
     }
-    await runMigrations(this.client);
+    return this.openPromise;
+  }
+
+  /**
+   * Defense-in-depth against the OPFS SAHPool divergence class: a restarted
+   * worker can be handed a stale pool copy whose physical columns lag behind
+   * the recorded schema_migrations version (observed once in E2E as
+   * «table subjects has no column named question_count»). If a recorded
+   * migration's physical column is missing, repair it in place instead of
+   * letting every later write fail.
+   */
+  private async verifyCriticalSchema(): Promise<void> {
+    try {
+      const hasColumn = await this.client.query<{ c: number }>(
+        "SELECT COUNT(*) AS c FROM pragma_table_info('subjects') WHERE name='question_count'"
+      );
+      if (!Number(hasColumn[0]?.c ?? 0)) {
+        await this.client.execute(
+          "ALTER TABLE subjects ADD COLUMN question_count INTEGER NOT NULL DEFAULT 25;"
+        );
+      }
+      // Guarantee group_position is populated for all existing groups
+      const allGroups = await this.client.query<{ id: string }>("SELECT id FROM question_groups");
+      for (const g of allGroups) {
+        await this.repairQuestionGroup(g.id);
+      }
+    } catch {
+      // pragma_table_info unsupported (very old engine) — migrations already
+      // guarantee the column; nothing more we can do here.
+    }
+  }
+
+  async health() {
+    return this.client.health();
   }
 
   close() {
@@ -238,6 +395,9 @@ export class AppDatabase {
     if (typeof lifecycle.close === "function") {
       lifecycle.close();
     }
+    // Allow a later open() again (bfcache restore / pageshow re-open): without
+    // resetting, open() resolved instantly against a CLOSED worker.
+    this.openPromise = null;
   }
 
   getClient(): DatabasePort {
@@ -246,7 +406,7 @@ export class AppDatabase {
 
   async listProfiles(): Promise<Profile[]> {
     const profiles = await this.client.query<{ id: string; name: string; target_track: string | null; penalty_numerator: number; penalty_denominator: number; default_timer_mode: "active" | "wall" }>(
-      "SELECT id,name,target_track,penalty_numerator,penalty_denominator,default_timer_mode FROM profiles ORDER BY created_at"
+      "SELECT id,name,target_track,penalty_numerator,penalty_denominator,default_timer_mode FROM profiles WHERE inactive_at IS NULL ORDER BY created_at DESC"
     );
     const subjects = await this.client.query<{
       id: string;
@@ -320,7 +480,7 @@ export class AppDatabase {
   async saveOwner(displayName: string, kind: "local" | "account" = "local", authUserId?: string): Promise<{ id: string; displayName: string }> {
     const now = Date.now();
     const existing = await this.getCurrentOwner();
-    const cleanName = displayName.trim() || "کاربر تستینو";
+    const cleanName = displayName.trim() || "دانش‌آموز";
     if (existing) {
       await this.client.execute(
         "UPDATE owners SET display_name=?, kind=?, auth_user_id=?, updated_at=? WHERE id=?",
@@ -344,7 +504,7 @@ export class AppDatabase {
       throw new Error("شناسه حساب ابری معتبر نیست.");
     }
     const existing = await this.getCurrentOwner();
-    const name = displayName?.trim() || existing?.displayName || "کاربر تستینو";
+    const name = displayName?.trim() || existing?.displayName || "دانش‌آموز";
     const now = Date.now();
     if (existing) {
       await this.client.execute(
@@ -366,7 +526,7 @@ export class AppDatabase {
   async unlinkGoogleAccount(): Promise<{ id: string; displayName: string }> {
     const existing = await this.getCurrentOwner();
     if (!existing) {
-      return this.saveOwner("کاربر تستینو", "local");
+      return this.saveOwner("دانش‌آموز", "local");
     }
     const now = Date.now();
     await this.client.execute(
@@ -475,7 +635,21 @@ export class AppDatabase {
     );
   }
 
-  async importQuestions(parsed: ParsedImport) {
+  async deleteProfile(profileId: string) {
+    const now = Date.now();
+    await this.client.transaction(async (trx) => {
+      await trx.execute("UPDATE profiles SET inactive_at=? WHERE id=?", [now, profileId]);
+      await trx.execute("DELETE FROM subjects WHERE profile_id=?", [profileId]);
+      await trx.execute("DELETE FROM profiles WHERE id=?", [profileId]);
+    });
+  }
+
+  async deactivateAllProfiles() {
+    const now = Date.now();
+    await this.client.execute("UPDATE profiles SET inactive_at=? WHERE inactive_at IS NULL", [now]);
+  }
+
+  async importQuestions(parsed: ParsedImport, options?: { batchTitle?: string }) {
     let added = 0;
     let drafts = 0;
     let duplicates = 0;
@@ -483,6 +657,7 @@ export class AppDatabase {
     const groupMap = new Map<string, string>(); // groupKey -> groupId
     const seenExternalKeys = new Set<string>();
     const seenFingerprints = new Set<string>();
+    const batchId = crypto.randomUUID();
 
     // 0. Resolve default source if provided
     let defaultSourceId: string | null = null;
@@ -511,24 +686,47 @@ export class AppDatabase {
     // 1. Process and insert groups
     for (const groupResult of parsed.groups) {
       const g = groupResult.group;
-      const groupId = crypto.randomUUID();
-      groupMap.set(g.key, groupId);
       try {
-        await this.client.execute(
-          "INSERT INTO question_groups(id, external_key, kind, subject, chapter, topic, content_json, expected_keys_json, status, created_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(external_key) DO UPDATE SET status=excluded.status",
-          [
-            groupId,
-            g.key,
-            g.kind,
-            canonicalizeSubject(g.subject || parsed.envelope.defaults.subject),
-            g.chapter ?? parsed.envelope.defaults.chapter ?? null,
-            g.topic ?? parsed.envelope.defaults.topic ?? null,
-            JSON.stringify(g.content),
-            JSON.stringify(g.questionKeys),
-            groupResult.status,
-            Date.now(),
-          ]
+        const existingGroup = await this.client.query<{ id: string }>(
+          "SELECT id FROM question_groups WHERE external_key=? LIMIT 1",
+          [g.key]
         );
+
+        let groupId: string;
+        if (existingGroup.length > 0) {
+          groupId = existingGroup[0].id;
+          await this.client.execute(
+            "UPDATE question_groups SET kind=?, subject=?, chapter=?, topic=?, content_json=?, expected_keys_json=?, status=? WHERE id=?",
+            [
+              g.kind,
+              canonicalizeSubject(g.subject || parsed.envelope.defaults.subject),
+              g.chapter ?? parsed.envelope.defaults.chapter ?? null,
+              g.topic ?? parsed.envelope.defaults.topic ?? null,
+              JSON.stringify(g.content),
+              JSON.stringify(g.questionKeys),
+              groupResult.status,
+              groupId,
+            ]
+          );
+        } else {
+          groupId = crypto.randomUUID();
+          await this.client.execute(
+            "INSERT INTO question_groups(id, external_key, kind, subject, chapter, topic, content_json, expected_keys_json, status, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            [
+              groupId,
+              g.key,
+              g.kind,
+              canonicalizeSubject(g.subject || parsed.envelope.defaults.subject),
+              g.chapter ?? parsed.envelope.defaults.chapter ?? null,
+              g.topic ?? parsed.envelope.defaults.topic ?? null,
+              JSON.stringify(g.content),
+              JSON.stringify(g.questionKeys),
+              groupResult.status,
+              Date.now(),
+            ]
+          );
+        }
+        groupMap.set(g.key, groupId);
       } catch (err) {
         issues.push({
           rowIndex: 0,
@@ -599,6 +797,17 @@ export class AppDatabase {
         }
       }
 
+      // Safety check: verify qSourceId exists in sources table
+      if (qSourceId) {
+        const validSrc = await this.client.query<{ id: string }>(
+          "SELECT id FROM sources WHERE id=? LIMIT 1",
+          [qSourceId]
+        );
+        if (validSrc.length === 0) {
+          qSourceId = null;
+        }
+      }
+
       const questionId = crypto.randomUUID();
       const optionIds = new Map(input.options.map((option) => [option.key, crypto.randomUUID()]));
       const correctOptionId = input.correctOptionKey ? optionIds.get(input.correctOptionKey) || null : null;
@@ -614,6 +823,17 @@ export class AppDatabase {
         if (existingGroup.length > 0) {
           groupId = existingGroup[0].id;
           groupMap.set(input.groupKey, groupId);
+        }
+      }
+
+      // Safety check: verify that if groupId is set, it actually exists in question_groups
+      if (groupId) {
+        const validGroup = await this.client.query<{ id: string }>(
+          "SELECT id FROM question_groups WHERE id=? LIMIT 1",
+          [groupId]
+        );
+        if (validGroup.length === 0) {
+          groupId = null;
         }
       }
 
@@ -642,7 +862,7 @@ export class AppDatabase {
       try {
         await this.client.batch([
           {
-            sql: "INSERT INTO questions(id,external_key,subject,chapter,topic,group_id,group_position,source_id,content_json,explanation_json,correct_option_id,status,shuffle_safe,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            sql: "INSERT INTO questions(id,external_key,subject,chapter,topic,group_id,group_position,source_id,content_json,explanation_json,correct_option_id,status,shuffle_safe,created_at,batch_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             bind: [
               questionId,
               input.key,
@@ -658,6 +878,7 @@ export class AppDatabase {
               status,
               input.shuffleSafe ? 1 : 0,
               now,
+              batchId,
             ],
           },
           ...input.options.map((option, position) => ({
@@ -688,6 +909,22 @@ export class AppDatabase {
       await this.repairQuestionGroup(groupId);
     }
 
+    if (added > 0) {
+      const firstValidSubj = parsed.valid.find((q) => q.subject || parsed.envelope.defaults.subject);
+      const dominantSubject = firstValidSubj
+        ? canonicalizeSubject(firstValidSubj.subject || parsed.envelope.defaults.subject)
+        : "عمومی";
+      const batchTitle = options?.batchTitle || `دسته ${added} سؤالی ${dominantSubject}`;
+      try {
+        await this.client.execute(
+          "INSERT INTO import_batches(id, title, subject, question_count, created_at) VALUES(?,?,?,?,?)",
+          [batchId, batchTitle, dominantSubject, added, Date.now()]
+        );
+      } catch {
+        // ignore if table not yet migrated
+      }
+    }
+
     return {
       total: parsed.valid.length + new Set(parsed.issues.map((issue) => issue.rowIndex)).size,
       added,
@@ -695,6 +932,7 @@ export class AppDatabase {
       duplicates,
       failed: new Set(issues.filter((i) => !i.isWarning).map((issue) => issue.rowIndex)).size,
       issues,
+      batchId: added > 0 ? batchId : null,
     };
   }
 
@@ -710,27 +948,94 @@ export class AppDatabase {
     } catch {
       return false;
     }
-    if (!expectedKeys.length) return false;
 
-    const placeholders = expectedKeys.map(() => "?").join(",");
-    const existing = await this.client.query<{ external_key: string }>(
-      `SELECT external_key FROM questions WHERE external_key IN (${placeholders})`,
-      expectedKeys
+    const groupQuestions = await this.client.query<{ id: string; external_key: string }>(
+      "SELECT id, external_key FROM questions WHERE group_id=?",
+      [groupId]
     );
-    const foundKeys = new Set(existing.map((r) => r.external_key));
-    const isComplete = expectedKeys.every((k) => foundKeys.has(k));
-    const nextStatus = isComplete ? "complete" : "incomplete";
+    const linkedKeys = new Set(groupQuestions.map((q) => q.external_key));
 
-    await this.client.execute(
-      "UPDATE question_groups SET status=? WHERE id=?",
-      [nextStatus, groupId]
-    );
+    let isComplete = false;
+    if (expectedKeys.length > 0) {
+      const placeholders = expectedKeys.map(() => "?").join(",");
+      const existing = await this.client.query<{ external_key: string }>(
+        `SELECT external_key FROM questions WHERE external_key IN (${placeholders})`,
+        expectedKeys
+      );
+      const foundKeys = new Set([...existing.map((r) => r.external_key), ...linkedKeys]);
 
-    // Link any matching questions that might not have group_id set
-    await this.client.execute(
-      `UPDATE questions SET group_id=? WHERE external_key IN (${placeholders}) AND (group_id IS NULL OR group_id='')`,
-      [groupId, ...expectedKeys]
+      let allFound = true;
+      for (const k of expectedKeys) {
+        if (foundKeys.has(k)) continue;
+        const suffixMatch = groupQuestions.find(
+          (gq) =>
+            gq.external_key.endsWith(`-q${k}`) ||
+            gq.external_key.endsWith(`_q${k}`) ||
+            gq.external_key.endsWith(`-${k}`)
+        );
+        if (suffixMatch) {
+          foundKeys.add(k);
+        } else {
+          allFound = false;
+        }
+      }
+
+      isComplete = allFound;
+      const nextStatus = isComplete ? "complete" : "incomplete";
+
+      await this.client.execute(
+        "UPDATE question_groups SET status=? WHERE id=?",
+        [nextStatus, groupId]
+      );
+
+      // Link any matching questions that might not have group_id set
+      await this.client.execute(
+        `UPDATE questions SET group_id=? WHERE external_key IN (${placeholders}) AND (group_id IS NULL OR group_id='')`,
+        [groupId, ...expectedKeys]
+      );
+
+      // If expectedKeys had old source numbers, update expected_keys_json with the actual external keys
+      if (groupQuestions.length > 0 && (!existing.length || existing.length < groupQuestions.length)) {
+        const actualKeys = groupQuestions.map((q) => q.external_key);
+        await this.client.execute(
+          "UPDATE question_groups SET expected_keys_json=? WHERE id=?",
+          [JSON.stringify(actualKeys), groupId]
+        );
+      }
+
+      // Explicitly set group_position by expectedKeys order
+      for (let pos = 0; pos < expectedKeys.length; pos++) {
+        await this.client.execute(
+          "UPDATE questions SET group_position=? WHERE external_key=? AND group_id=?",
+          [pos, expectedKeys[pos], groupId]
+        );
+      }
+    } else if (groupQuestions.length > 0) {
+      isComplete = true;
+      await this.client.execute(
+        "UPDATE question_groups SET status='complete', expected_keys_json=? WHERE id=?",
+        [JSON.stringify(groupQuestions.map((q) => q.external_key)), groupId]
+      );
+    }
+
+    // Safety fallback: ensure all questions for this group have group_position set in numerical order
+    const groupQs = await this.client.query<{ id: string; external_key: string }>(
+      `SELECT q.id, q.external_key
+       FROM questions q
+       WHERE q.group_id=? AND q.group_position IS NULL`,
+      [groupId]
     );
+    if (groupQs.length > 0) {
+      groupQs.sort((a, b) => {
+        return a.external_key.localeCompare(b.external_key, undefined, { numeric: true });
+      });
+      for (let i = 0; i < groupQs.length; i++) {
+        await this.client.execute(
+          "UPDATE questions SET group_position=? WHERE id=?",
+          [expectedKeys.length + i, groupQs[i].id]
+        );
+      }
+    }
 
     return isComplete;
   }
@@ -743,11 +1048,15 @@ export class AppDatabase {
     await this.client.batch(statements);
   }
 
-  async listQuestions(filters?: { query?: string; subject?: string; chapter?: string; topic?: string; status?: "draft" | "published"; limit?: number }): Promise<StoredQuestion[]> {
+  async listQuestions(filters?: { query?: string; subject?: string; chapter?: string; topic?: string; status?: "draft" | "published"; limit?: number; batchId?: string }): Promise<StoredQuestion[]> {
     const limit = filters?.limit || 50;
     const whereClauses = ["inactive_at IS NULL"];
     const params: Array<string | number> = [];
 
+    if (filters?.batchId) {
+      whereClauses.push("batch_id = ?");
+      params.push(filters.batchId);
+    }
     if (filters?.chapter) {
       whereClauses.push("chapter = ?");
       params.push(filters.chapter);
@@ -861,7 +1170,7 @@ export class AppDatabase {
     const question = await this.getQuestion(questionId);
     if (!question) throw new Error("سؤال موردنظر برای گزارش پیدا نشد.");
     let owner = await this.getCurrentOwner();
-    if (!owner) owner = { ...(await this.saveOwner("کاربر تستینو")), kind: "local" as const, authUserId: null };
+    if (!owner) owner = { ...(await this.saveOwner("دانش‌آموز")), kind: "local" as const, authUserId: null };
     const cleanNote = note?.trim() || null;
     if (cleanNote && cleanNote.length > 1000) throw new Error("توضیح گزارش حداکثر ۱۰۰۰ نویسه است.");
     try {
@@ -1025,6 +1334,111 @@ export class AppDatabase {
         ],
       },
     ]);
+  }
+
+  async deleteQuestion(id: string): Promise<void> {
+    await this.client.batch([
+      { sql: "DELETE FROM review_items WHERE question_id = ? OR last_attempt_id IN (SELECT id FROM attempts WHERE question_id = ?)", bind: [id, id] },
+      { sql: "DELETE FROM attempt_events WHERE session_question_id IN (SELECT id FROM session_questions WHERE question_id = ?)", bind: [id] },
+      { sql: "DELETE FROM attempts WHERE question_id = ?", bind: [id] },
+      { sql: "DELETE FROM session_questions WHERE question_id = ?", bind: [id] },
+      { sql: "DELETE FROM question_reports WHERE question_id = ?", bind: [id] },
+      { sql: "DELETE FROM question_media WHERE question_id = ?", bind: [id] },
+      { sql: "DELETE FROM question_options WHERE question_id = ?", bind: [id] },
+      { sql: "DELETE FROM question_revisions WHERE question_id = ?", bind: [id] },
+      { sql: "DELETE FROM sync_dirty_entities WHERE entity_type='questionBundle' AND entity_id=?", bind: [id] },
+      { sql: "DELETE FROM questions WHERE id = ?", bind: [id] },
+    ]);
+  }
+
+  async listImportBatches(): Promise<ImportBatch[]> {
+    try {
+      const unbatchedRows = await this.client.query<{ count: number; min_created: number }>(
+        "SELECT COUNT(*) AS count, MIN(created_at) AS min_created FROM questions WHERE batch_id IS NULL AND inactive_at IS NULL"
+      );
+      const unbatchedCount = Number(unbatchedRows[0]?.count || 0);
+      if (unbatchedCount > 0) {
+        const legacyId = "legacy-batch-initial";
+        await this.client.execute(
+          "INSERT OR IGNORE INTO import_batches(id, title, subject, question_count, created_at) VALUES(?,?,?,?,?)",
+          [legacyId, "سؤالات پیشین بانک", "عمومی", unbatchedCount, Number(unbatchedRows[0]?.min_created || Date.now())]
+        );
+        await this.client.execute(
+          "UPDATE questions SET batch_id=? WHERE batch_id IS NULL",
+          [legacyId]
+        );
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const rows = await this.client.query<{
+        id: string;
+        title: string;
+        subject: string | null;
+        question_count: number;
+        created_at: number;
+      }>(
+        `SELECT 
+          b.id,
+          b.title,
+          b.subject,
+          (SELECT COUNT(*) FROM questions q WHERE q.batch_id = b.id AND q.inactive_at IS NULL) AS question_count,
+          b.created_at
+         FROM import_batches b
+         ORDER BY b.created_at DESC`
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        subject: r.subject,
+        questionCount: Number(r.question_count),
+        createdAt: Number(r.created_at),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async deleteImportBatch(batchId: string, isOwner?: boolean): Promise<string[]> {
+    const rows = await this.client.query<{ id: string }>(
+      "SELECT id FROM questions WHERE batch_id = ?",
+      [batchId]
+    );
+    const questionIds = rows.map((r) => r.id);
+
+    if (isOwner) {
+      await this.deleteQuestions(questionIds);
+    } else {
+      for (const qId of questionIds) {
+        await this.hideQuestion(qId);
+      }
+    }
+    await this.client.execute("DELETE FROM import_batches WHERE id = ?", [batchId]);
+    return questionIds;
+  }
+
+  async deleteQuestions(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    for (const id of ids) {
+      await this.deleteQuestion(id);
+    }
+  }
+
+  async deleteAllQuestions(filters?: { subject?: string }): Promise<void> {
+    let ids: string[] = [];
+    if (filters?.subject && filters.subject !== "all") {
+      const rows = await this.client.query<{ id: string }>(
+        "SELECT id FROM questions WHERE subject = ?",
+        [filters.subject]
+      );
+      ids = rows.map((r) => r.id);
+    } else {
+      const rows = await this.client.query<{ id: string }>("SELECT id FROM questions");
+      ids = rows.map((r) => r.id);
+    }
+    await this.deleteQuestions(ids);
   }
 
   async computeQuestionUrgencies(
@@ -1440,7 +1854,7 @@ export class AppDatabase {
           bind: [crypto.randomUUID(), sessionId, question.id, ordinal, JSON.stringify(question), JSON.stringify(order)],
         };
       }),
-    ]);
+    ], { timeoutMs: 60_000 });
     return sessionId;
   }
 
@@ -1507,7 +1921,7 @@ export class AppDatabase {
 
     const sessionRow = sessions[0];
     const config: SessionConfig | null = sessionRow.config_json
-      ? JSON.parse(String(sessionRow.config_json))
+      ? safeRowJson<SessionConfig | null>(sessionRow.config_json, null)
       : null;
 
     if (!config?.isOpenEnded && config?.mode !== "continuous") return null;
@@ -1593,7 +2007,7 @@ export class AppDatabase {
       };
     });
 
-    await this.client.batch(statements);
+    await this.client.batch(statements, { timeoutMs: 60_000 });
     return appendedQuestions;
   }
 
@@ -1603,7 +2017,7 @@ export class AppDatabase {
       [profileId]
     );
     return rows.map((row) => {
-      const config: SessionConfig | null = row.config_json ? JSON.parse(String(row.config_json)) : null;
+      const config: SessionConfig | null = row.config_json ? safeRowJson<SessionConfig | null>(row.config_json, null) : null;
       return {
         id: String(row.id),
         state: row.state as SessionListItem["state"],
@@ -1626,24 +2040,62 @@ export class AppDatabase {
       [id]
     );
     const config: SessionConfig | null = sessionRow.config_json
-      ? JSON.parse(String(sessionRow.config_json))
+      ? safeRowJson<SessionConfig | null>(sessionRow.config_json, null)
       : null;
+    const questionsList: SessionQuestion[] = rows.map((row) => ({
+      id: String(row.id),
+      sessionId: id,
+      ordinal: Number(row.ordinal),
+      selectedOptionId: row.selected_option_id ? String(row.selected_option_id) : null,
+      confidence: row.confidence as SessionQuestion["confidence"],
+      visited: Boolean(row.visited),
+      activeMs: Number(row.active_ms),
+      snapshot: safeRowJson<SessionQuestion["snapshot"]>(row.snapshot_json, null as unknown as SessionQuestion["snapshot"]),
+      optionOrder: safeRowJson<string[]>(row.option_order_json, []),
+    }));
+
+    // Ensure questions within each group chunk are ordered in strict ascending sort order.
+    // This self-heals any existing or newly generated sessions where questions in a passage were inverted.
+    const sortedQuestions: SessionQuestion[] = [];
+    let idx = 0;
+    while (idx < questionsList.length) {
+      const curr = questionsList[idx];
+      const gId = curr.snapshot?.groupId;
+      if (gId) {
+        let nextIdx = idx;
+        while (nextIdx < questionsList.length && questionsList[nextIdx].snapshot?.groupId === gId) {
+          nextIdx++;
+        }
+        const groupSlice = questionsList.slice(idx, nextIdx);
+        groupSlice.sort((a, b) => {
+          const numA = a.snapshot ? extractQuestionSortKey(a.snapshot) : NaN;
+          const numB = b.snapshot ? extractQuestionSortKey(b.snapshot) : NaN;
+          if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
+            return numA - numB;
+          }
+          if (a.snapshot?.externalKey && b.snapshot?.externalKey) {
+            return a.snapshot.externalKey.localeCompare(b.snapshot.externalKey, undefined, { numeric: true });
+          }
+          return a.ordinal - b.ordinal;
+        });
+        const baseOrdinal = curr.ordinal;
+        groupSlice.forEach((item, offset) => {
+          item.ordinal = baseOrdinal + offset;
+          sortedQuestions.push(item);
+        });
+        idx = nextIdx;
+      } else {
+        sortedQuestions.push(curr);
+        idx++;
+      }
+    }
+
     return {
       id,
       state: sessionRow.state as SessionView["state"],
       currentOrdinal: Number(sessionRow.current_ordinal),
       config,
-      questions: rows.map((row) => ({
-        id: String(row.id),
-        sessionId: id,
-        ordinal: Number(row.ordinal),
-        selectedOptionId: row.selected_option_id ? String(row.selected_option_id) : null,
-        confidence: row.confidence as SessionQuestion["confidence"],
-        visited: Boolean(row.visited),
-        activeMs: Number(row.active_ms),
-        snapshot: JSON.parse(String(row.snapshot_json)),
-        optionOrder: JSON.parse(String(row.option_order_json)),
-      })),
+      questions: sortedQuestions,
     };
   }
 
@@ -1716,6 +2168,34 @@ export class AppDatabase {
     await this.client.batch([{ sql: "UPDATE sessions SET state='PAUSED' WHERE id=? AND state='RUNNING'", bind: [id] }]);
   }
 
+  async abandonSession(id: string): Promise<void> {
+    await this.client.batch([
+      { sql: "DELETE FROM review_items WHERE last_attempt_id IN (SELECT id FROM attempts WHERE session_id=?)", bind: [id] },
+      { sql: "DELETE FROM attempt_events WHERE session_id=?", bind: [id] },
+      { sql: "DELETE FROM attempts WHERE session_id=?", bind: [id] },
+      { sql: "DELETE FROM session_questions WHERE session_id=?", bind: [id] },
+      { sql: "DELETE FROM sync_dirty_entities WHERE entity_type='sessionBundle' AND entity_id=?", bind: [id] },
+      { sql: "DELETE FROM sessions WHERE id=?", bind: [id] },
+    ]);
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    await this.abandonSession(id);
+    try {
+      await this.rebuildReviewItems();
+    } catch {
+      // ignore
+    }
+  }
+
+  async hideQuestion(id: string): Promise<void> {
+    const now = Date.now();
+    await this.client.batch([
+      { sql: "UPDATE questions SET inactive_at=? WHERE id=?", bind: [now, id] },
+      { sql: "DELETE FROM session_questions WHERE question_id=?", bind: [id] },
+    ]);
+  }
+
   async finishSession(id: string) {
     const view = await this.getSession(id);
     if (!view || view.state === "FINISHED") return;
@@ -1748,6 +2228,13 @@ export class AppDatabase {
       interval_days: number;
     }>("SELECT question_id,stable_streak,interval_days FROM review_items");
 
+    // Query any existing attempts for this session to reuse IDs and avoid duplicate key / FK mismatches
+    const existingAttempts = await this.client.query<{ id: string; session_question_id: string }>(
+      "SELECT id, session_question_id FROM attempts WHERE session_id=?",
+      [id]
+    );
+    const existingAttemptMap = new Map(existingAttempts.map((a) => [a.session_question_id, a.id]));
+
     const statements = view.questions.flatMap((question) => {
       const result =
         question.selectedOptionId === null
@@ -1755,36 +2242,41 @@ export class AppDatabase {
           : question.selectedOptionId === question.snapshot.correctOptionId
           ? "correct"
           : "wrong";
-      const attemptId = crypto.randomUUID();
+      const existingAttemptId = existingAttemptMap.get(question.id);
+      const attemptId = existingAttemptId || safeRandomUUID();
+      const prevRev = previousReviews.find((item) => item.question_id === question.snapshot.id);
       const review = scheduleReview(
         { id: attemptId, result, visited: question.visited, confidence: question.confidence, finalizedAt: now },
-        previousReviews.find((item) => item.question_id === question.snapshot.id)
+        prevRev
           ? {
-              stableStreak: Number(
-                previousReviews.find((item) => item.question_id === question.snapshot.id)!.stable_streak
-              ),
-              intervalDays: Number(
-                previousReviews.find((item) => item.question_id === question.snapshot.id)!.interval_days
-              ),
+              stableStreak: Number(prevRev.stable_streak),
+              intervalDays: Number(prevRev.interval_days),
             }
           : undefined
       );
 
+      const attemptStmt = existingAttemptId
+        ? {
+            sql: "UPDATE attempts SET result=?, visited=?, confidence=?, active_ms=?, finalized_at=? WHERE id=?",
+            bind: [result, question.visited ? 1 : 0, question.confidence, question.activeMs, now, attemptId],
+          }
+        : {
+            sql: "INSERT INTO attempts(id,session_question_id,session_id,question_id,result,visited,confidence,active_ms,finalized_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            bind: [
+              attemptId,
+              question.id,
+              id,
+              question.snapshot.id,
+              result,
+              question.visited ? 1 : 0,
+              question.confidence,
+              question.activeMs,
+              now,
+            ],
+          };
+
       return [
-        {
-          sql: "INSERT OR IGNORE INTO attempts(id,session_question_id,session_id,question_id,result,visited,confidence,active_ms,finalized_at) VALUES(?,?,?,?,?,?,?,?,?)",
-          bind: [
-            attemptId,
-            question.id,
-            id,
-            question.snapshot.id,
-            result,
-            question.visited ? 1 : 0,
-            question.confidence,
-            question.activeMs,
-            now,
-          ],
-        },
+        attemptStmt,
         ...(review
           ? [
               {
@@ -1806,7 +2298,7 @@ export class AppDatabase {
     await this.client.batch([
       ...statements,
       { sql: "UPDATE sessions SET state='FINISHED',finished_at=? WHERE id=?", bind: [now, id] },
-    ]);
+    ], { timeoutMs: 60_000 });
   }
 
   async rebuildReviewItems(): Promise<number> {
@@ -1941,11 +2433,29 @@ export class AppDatabase {
       }))
     );
 
+    // Real per-subject accuracy from finished attempts — feeds the dashboard
+    // "subject progress" bars with performance data instead of the raw target.
+    const subjectAgg = new Map<string, { correct: number; total: number }>();
+    for (const row of rows) {
+      const key = canonicalizeSubject(row.subject);
+      const agg = subjectAgg.get(key) ?? { correct: 0, total: 0 };
+      agg.total += 1;
+      if (row.result === "correct") agg.correct += 1;
+      subjectAgg.set(key, agg);
+    }
+    const subjectStats = [...subjectAgg.entries()].map(([subject, agg]) => ({
+      subject,
+      correct: agg.correct,
+      total: agg.total,
+      accuracyPct: agg.total ? Math.round((agg.correct / agg.total) * 100) : 0,
+    }));
+
     return {
       questionCount: Number(questionCount?.count || 0),
       reviewCount: Number(reviewCount?.count || 0),
       sessions,
       confidenceSimulation,
+      subjectStats,
     };
   }
 
@@ -2138,8 +2648,16 @@ export class AppDatabase {
       .map((topic) => {
         const items = rows.filter((row) => row.topic === topic);
         const wrong = items.filter((row) => row.result === "wrong").length;
+        // Primary subject of the topic — lets the UI link to a subject-scoped
+        // practice session instead of a generic all-subjects one.
+        const subjectCounts = new Map<string, number>();
+        for (const item of items) {
+          subjectCounts.set(item.subject, (subjectCounts.get(item.subject) ?? 0) + 1);
+        }
+        const subject = [...subjectCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
         return {
           topic,
+          subject,
           total: items.length,
           wrong,
           errorRate: items.length ? Math.round((wrong / items.length) * 100) : 0,
@@ -2303,26 +2821,61 @@ export class AppDatabase {
   }
 
   async deleteAllData(): Promise<void> {
-    await this.client.transaction(async (trx) => {
-      await trx.execute("DELETE FROM review_items");
-      await trx.execute("DELETE FROM attempt_events");
-      await trx.execute("DELETE FROM attempts");
-      await trx.execute("DELETE FROM session_questions");
-      await trx.execute("DELETE FROM sessions");
-      await trx.execute("DELETE FROM question_options");
-      await trx.execute("DELETE FROM question_revisions");
-      await trx.execute("DELETE FROM questions");
-      await trx.execute("DELETE FROM question_groups");
-      await trx.execute("DELETE FROM sources");
-      await trx.execute("DELETE FROM topics");
-      await trx.execute("DELETE FROM chapters");
-      await trx.execute("DELETE FROM subjects");
-      await trx.execute("DELETE FROM profiles");
-      await trx.execute("DELETE FROM applied_mutations");
-      await trx.execute("DELETE FROM outbox");
-      await trx.execute("DELETE FROM sync_state");
-      await trx.execute("DELETE FROM owners");
-    });
+    const tables = [
+      "review_items",
+      "attempt_events",
+      "attempts",
+      "session_questions",
+      "sessions",
+      "question_reports",
+      "question_media",
+      "media_files",
+      "question_options",
+      "question_revisions",
+      "questions",
+      "question_groups",
+      "sources",
+      "topics",
+      "chapters",
+      "offline_subjects",
+      "subjects",
+      "profiles",
+      "applied_mutations",
+      "outbox",
+      "sync_state",
+      "sync_conflicts",
+      "sync_dirty_entities",
+      "sync_entity_cache",
+      "owners",
+    ];
+
+    const statements: SqlStatement[] = [
+      { sql: "PRAGMA foreign_keys=OFF;" },
+      ...tables.map((t) => ({ sql: `DELETE FROM ${t};` })),
+      { sql: "PRAGMA foreign_keys=ON;" },
+    ];
+
+    try {
+      // Generous timeout: deleting a large library (questions + media + sync
+      // trigger fan-out) over OPFS can far exceed the default 6s request timeout.
+      await this.client.batch(statements, { timeoutMs: 60_000 });
+    } catch {
+      // Fallback row-by-row if any table doesn't exist — but SURFACE real
+      // failures: silently swallowing quota/lock errors made the settings page
+      // claim success while rows survived and data "came back".
+      const failures: string[] = [];
+      for (const stmt of statements) {
+        try {
+          await this.client.execute(stmt.sql, stmt.bind);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!/no such table/i.test(message)) failures.push(`${stmt.sql.slice(0, 40)}: ${message}`);
+        }
+      }
+      if (failures.length > 0) {
+        throw new Error(`حذف کامل داده‌ها ناتمام ماند (${failures.length} خطا). اولین خطا: ${failures[0]}`);
+      }
+    }
   }
 }
 

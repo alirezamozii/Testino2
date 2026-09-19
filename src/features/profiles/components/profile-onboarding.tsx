@@ -149,8 +149,27 @@ export function ProfileOnboarding() {
       })
       .catch(() => {});
 
+    // Listen to postMessage from popup/secondary tab callback
+    const handleAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === "TESTINO_AUTH_SUCCESS") {
+        getCurrentAuthUser().then((user) => {
+          if (!active || !user?.email) return;
+          setIsAuthenticated(true);
+          setAuthEmail(user.email);
+          const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
+          setUserName((prev) => prev || metaName || user.email!.split("@")[0]);
+          const avatar = user.user_metadata?.avatar_url as string | undefined;
+          if (avatar) setAvatarUrl(avatar);
+          setIsAuthLoading(false);
+          setError("");
+        }).catch(() => {});
+      }
+    };
+    window.addEventListener("message", handleAuthMessage);
+
     return () => {
       active = false;
+      window.removeEventListener("message", handleAuthMessage);
     };
   }, [db]);
 
@@ -303,9 +322,26 @@ export function ProfileOnboarding() {
     if (!userName.trim()) {
       setUserName(finalName);
     }
+
+    // Check if user already has an existing active profile:
+    // If so, avoid forcing them to re-enter subjects/exam track and navigate directly to dashboard!
+    try {
+      const existingProfiles = await db.listProfiles();
+      if (existingProfiles.length > 0) {
+        localStorage.setItem("testino_onboarding_completed", "true");
+        await queryClient.invalidateQueries();
+        setIsAuthLoading(false);
+        router.push("/");
+        router.refresh();
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
     setIsAuthLoading(false);
 
-    // Automatically advance to Step 2!
+    // If brand new account without profiles, advance to Step 2
     setStep(2);
   }
 
@@ -638,6 +674,9 @@ export function ProfileOnboarding() {
           } else {
             await db.saveOwner(cleanOwnerName, "local");
           }
+
+          // Deactivate previous profiles so this newly configured profile becomes the sole active profile
+          await db.deactivateAllProfiles();
 
           profileId = await db.createProfile({
             name: `${examTitle} - ${effectiveTrack}`,

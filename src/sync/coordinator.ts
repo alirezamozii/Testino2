@@ -41,6 +41,11 @@ export class SyncCoordinator {
       this.syncNow(this.activeOwnerId).catch(() => {});
     }
   };
+  private readonly handleFocus = () => {
+    if (this.isOnline()) {
+      this.syncNow(this.activeOwnerId).catch(() => {});
+    }
+  };
 
   constructor(
     db: DatabasePort,
@@ -51,7 +56,7 @@ export class SyncCoordinator {
     this.outboxRepo = new OutboxRepository(db);
     this.transport = transport || new SupabaseTransport();
     this.config = {
-      autoSyncIntervalMs: 30000,
+      autoSyncIntervalMs: 20000,
       batchSize: 50,
       ...config,
     };
@@ -117,6 +122,7 @@ export class SyncCoordinator {
     window.addEventListener("online", this.handleOnline);
     window.addEventListener("offline", this.handleOffline);
     document.addEventListener("visibilitychange", this.handleVisibility);
+    window.addEventListener("focus", this.handleFocus);
   }
 
   startAutoSync(ownerId?: string) {
@@ -133,7 +139,7 @@ export class SyncCoordinator {
       // Battery/CPU: don't churn the network while the tab is hidden —
       // visibilitychange triggers a sync the moment it becomes visible again.
       if (typeof document !== "undefined" && document.hidden) return;
-      this.syncNow(ownerId).catch(() => {});
+      this.syncNow(this.activeOwnerId || ownerId).catch(() => {});
     }, this.config.autoSyncIntervalMs);
   }
 
@@ -154,6 +160,7 @@ export class SyncCoordinator {
       window.removeEventListener("online", this.handleOnline);
       window.removeEventListener("offline", this.handleOffline);
       document.removeEventListener("visibilitychange", this.handleVisibility);
+      window.removeEventListener("focus", this.handleFocus);
     }
     this.listeners.clear();
   }

@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
+  BookOpen,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -25,11 +26,13 @@ import { useDatabase } from "@/providers/database-provider";
 import type { QuestionPoolMode } from "@/database/app-database";
 import { cn } from "@/lib/utils";
 import { QuestionTrustActions } from "@/features/questions/components/question-trust-actions";
+import { remapExplanationForShuffle } from "@/features/exams/domain/explanation-remapper";
+import { extractQuestionPassageTarget, highlightPassageTargets } from "@/features/exams/domain/passage-underliner";
 
 const PERSIAN_LETTERS = ["الف", "ب", "ج", "د"];
 
 const PRIORITY_REASONS: Record<number, { text: string; bg: string; textCol: string; border: string }> = {
-  0: { text: "غلط قبلی", bg: "bg-rose-50 dark:bg-rose-950/40", textCol: "text-rose-700 dark:text-rose-400", border: "border-rose-300 dark:border-rose-800" },
+  0: { text: "غلط قبلی", bg: "bg-red-50 dark:bg-red-950/40", textCol: "text-red-700 dark:text-red-400", border: "border-red-300 dark:border-red-800" },
   1: { text: "دیده‌شده بدون پاسخ", bg: "bg-amber-50 dark:bg-amber-950/40", textCol: "text-amber-800 dark:text-amber-400", border: "border-amber-300 dark:border-amber-800" },
   2: { text: "با شک یا حدس", bg: "bg-amber-50 dark:bg-amber-950/40", textCol: "text-amber-800 dark:text-amber-400", border: "border-amber-300 dark:border-amber-800" },
   3: { text: "موعد تکرار فاصله‌دار", bg: "bg-blue-50 dark:bg-blue-950/40", textCol: "text-blue-800 dark:text-blue-400", border: "border-blue-300 dark:border-blue-800" },
@@ -56,6 +59,7 @@ export function ReviewRunner() {
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [spoilerRevealed, setSpoilerRevealed] = useState<Record<string, boolean>>({});
   const [isFinished, setIsFinished] = useState(false);
+  const [showFinishConfirm, setShowFinishConfirm] = useState(false);
   const openedAt = useRef<number>(0);
 
   useEffect(() => {
@@ -329,8 +333,17 @@ export function ReviewRunner() {
     .map((optId) => current.snapshot.options.find((o) => o.id === optId))
     .filter(Boolean);
 
+  const displayExplanation = useMemo(() => {
+    if (!current?.snapshot.explanation) return [];
+    return remapExplanationForShuffle(
+      current.snapshot.explanation,
+      current.snapshot.options,
+      options.filter(Boolean) as any
+    );
+  }, [current, options]);
+
   return (
-    <div className="review-runner max-w-4xl mx-auto space-y-4 pb-32 sm:pb-16">
+    <div className="review-runner max-w-4xl mx-auto space-y-4 pb-10">
       {/* Top Header */}
       <div className="flex items-center justify-between gap-2 px-1">
         <Link
@@ -349,7 +362,7 @@ export function ReviewRunner() {
 
         <button
           type="button"
-          onClick={handleFinish}
+          onClick={() => setShowFinishConfirm(true)}
           disabled={pending}
           className="py-2 px-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all cursor-pointer"
         >
@@ -385,6 +398,28 @@ export function ReviewRunner() {
         <QuestionTrustActions question={current.snapshot} compact />
       </div>
 
+      {/* Attached Passage / Reading / Cloze Content */}
+      {current.snapshot.groupContent && current.snapshot.groupContent.length > 0 && (
+        <div className="card-neo p-4 sm:p-5 space-y-3 bg-[var(--surface-2)]/70 border-2 border-[var(--line)]">
+          <div className="flex items-center gap-2 text-xs font-black text-[var(--testino-orange)]">
+            <BookOpen size={14} />
+            <span>متن پیوست (Reading / Cloze Passage)</span>
+          </div>
+          <div dir="ltr" className="max-h-56 overflow-y-auto pr-2 text-xs sm:text-sm leading-relaxed text-[var(--ink)] font-medium neo-scrollbar select-text">
+            <ContentRenderer
+              blocks={(() => {
+                const targetInfo = extractQuestionPassageTarget(current.snapshot.content);
+                return highlightPassageTargets(
+                  current.snapshot.groupContent,
+                  targetInfo.targets,
+                  targetInfo.paragraphNumber
+                );
+              })()}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Question Statement Card */}
       <div className="card-neo p-5 sm:p-6 space-y-4 bg-[var(--surface)]">
         <div className="text-sm sm:text-base font-bold leading-relaxed text-[var(--ink)]">
@@ -396,7 +431,7 @@ export function ReviewRunner() {
       <div className="flex items-center justify-between gap-2 px-1 text-xs">
         <div className="flex items-center gap-1.5 text-[var(--muted)] font-black">
           <Sparkles size={14} className="text-amber-500" />
-          <span>یادآوری فعال ذهنی (Active Recall): ابتدا در ذهن به پاسخ بیندیشید</span>
+          <span>یادآوری فعال: اول در ذهنت پاسخ بده، بعد گزینه‌ها را ببین</span>
         </div>
 
         {!isCurrentRevealed && (
@@ -411,7 +446,7 @@ export function ReviewRunner() {
             className="px-3 py-1.5 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-cream)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-[var(--pastel-yellow)] transition-all flex items-center gap-1.5 cursor-pointer"
           >
             {isOptionRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
-            <span>{isOptionRevealed ? "پوشاندن گزینه‌ها" : "نمایش گزینه‌ها 👁️"}</span>
+            <span>{isOptionRevealed ? "پوشاندن گزینه‌ها" : "نمایش گزینه‌ها"}</span>
           </button>
         )}
       </div>
@@ -435,8 +470,8 @@ export function ReviewRunner() {
                 cardStyle = "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 shadow-[3px_3px_0px_rgba(16,185,129,0.5)] cursor-default";
                 badgeStyle = "bg-emerald-500 text-white border-emerald-600";
               } else if (isSelected && !isOptionCorrect) {
-                cardStyle = "border-rose-500 bg-rose-50 dark:bg-rose-950/40 shadow-[3px_3px_0px_rgba(244,63,94,0.5)] cursor-default";
-                badgeStyle = "bg-rose-500 text-white border-rose-600";
+                cardStyle = "border-red-500 bg-red-50 dark:bg-red-950/40 shadow-[3px_3px_0px_rgba(239,68,68,0.5)] cursor-default";
+                badgeStyle = "bg-red-500 text-white border-red-600";
               } else {
                 cardStyle = "border-[var(--line)] bg-[var(--surface)] opacity-70 cursor-default";
               }
@@ -483,7 +518,7 @@ export function ReviewRunner() {
                         <Check size={16} className="stroke-[3]" />
                       </div>
                     ) : isSelected ? (
-                      <div className="w-7 h-7 rounded-xl bg-rose-500 text-white flex items-center justify-center font-bold">
+                      <div className="w-7 h-7 rounded-xl bg-red-500 text-white flex items-center justify-center font-bold">
                         <X size={16} className="stroke-[3]" />
                       </div>
                     ) : null}
@@ -505,17 +540,11 @@ export function ReviewRunner() {
               <Eye size={22} />
             </div>
             <div className="font-black text-sm text-[var(--ink)]">
-              گزینه‌ها جهت یادآوری فعال ذهنی پوشانده شده‌اند
+              گزینه‌ها پوشانده شده‌اند
             </div>
             <p className="text-[11px] font-bold text-[var(--muted)] max-w-sm mx-auto mt-1 leading-relaxed">
-              ابتدا راه‌حل و پاسخ تست را در ذهن خود مجسم کنید، سپس روی این کادر کلیک نمایید تا گزینه‌ها نمایان شوند.
+              اول پاسخ را در ذهنت بساز، بعد برای دیدن گزینه‌ها کلیک کن.
             </p>
-            <div className="pt-2">
-              <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--surface)] border-2 border-[var(--line-strong)] text-xs font-black text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-[var(--pastel-yellow)] transition-all">
-                <Eye size={15} />
-                <span>نمایش گزینه‌ها</span>
-              </span>
-            </div>
           </div>
         )}
       </div>
@@ -529,13 +558,13 @@ export function ReviewRunner() {
               "p-4 rounded-2xl border-2 shadow-[3px_3px_0px_var(--neo-shadow)] flex items-center gap-3",
               isCorrect
                 ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-200"
-                : "bg-rose-50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-200"
+                : "bg-red-50 dark:bg-red-950/40 border-red-500 text-red-900 dark:text-red-200"
             )}
           >
             <div
               className={cn(
                 "w-10 h-10 rounded-xl border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0 font-bold",
-                isCorrect ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"
+                isCorrect ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
               )}
             >
               {isCorrect ? <Check size={20} className="stroke-[3]" /> : <X size={20} className="stroke-[3]" />}
@@ -554,13 +583,31 @@ export function ReviewRunner() {
 
           {/* Explanation Card */}
           {current.snapshot.explanation && current.snapshot.explanation.length > 0 && (
-            <div className="card-neo p-5 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] space-y-2.5">
-              <div className="flex items-center gap-2 text-[var(--brand-orange)] font-black text-xs">
-                <Lightbulb size={16} />
-                <span>پاسخ تشریحی و نکته کلیدی:</span>
+            <div className="card-neo p-5 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap border-b border-[var(--line)] pb-2">
+                <div className="flex items-center gap-2 text-[var(--brand-orange)] font-black text-xs">
+                  <Lightbulb size={16} />
+                  <span>پاسخ تشریحی و نکته کلیدی:</span>
+                </div>
+                {(() => {
+                  const optIndex = options.findIndex(
+                    (o) => o?.id === current.snapshot.correctOptionId
+                  );
+                  if (optIndex === -1) return null;
+                  const letters = ["الف", "ب", "ج", "د"];
+                  const displayLetter = optIndex >= 0 && optIndex < 4 ? letters[optIndex] : String(optIndex + 1);
+                  return (
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-400 font-black text-[11px] flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-md bg-emerald-600 text-white flex items-center justify-center text-[10px]">
+                        {displayLetter}
+                      </span>
+                      گزینه صحیح: {displayLetter}
+                    </span>
+                  );
+                })()}
               </div>
               <div className="text-xs sm:text-sm font-medium leading-relaxed text-[var(--ink)]">
-                <ContentRenderer blocks={current.snapshot.explanation} />
+                <ContentRenderer blocks={displayExplanation} />
               </div>
             </div>
           )}
@@ -592,7 +639,7 @@ export function ReviewRunner() {
             ) : (
               <button
                 type="button"
-                onClick={handleFinish}
+                onClick={() => setShowFinishConfirm(true)}
                 disabled={pending}
                 className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer"
               >
@@ -623,9 +670,62 @@ export function ReviewRunner() {
             onClick={() => setSelectedIndex((prev) => Math.min(totalQuestions - 1, prev + 1))}
             className="py-3 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] disabled:opacity-30 disabled:pointer-events-none transition-all flex items-center gap-1.5 cursor-pointer"
           >
-            <span>رد کردن و سؤال بعد</span>
+            <span>سؤال بعدی</span>
             <ChevronLeft size={16} />
           </button>
+        </div>
+      )}
+
+      {/* Finish Confirmation — mirrors the exam flow's confirm dialog so review
+          can never be closed by a single accidental tap */}
+      {showFinishConfirm && (
+        <div className="dialog-backdrop" role="presentation" onMouseDown={() => setShowFinishConfirm(false)}>
+          <section
+            className="card-neo max-w-md mx-auto p-6 bg-[var(--surface)] space-y-4 text-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="review-finish-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)]">
+              <Trophy size={26} />
+            </div>
+            <h2 id="review-finish-title" className="text-lg font-black text-[var(--ink)]">
+              مرور تمام شد؟
+            </h2>
+            <p className="text-xs text-[var(--muted)] font-bold leading-relaxed">
+              {questions.filter((q) => !q.selectedOptionId).length > 0
+                ? `${questions.filter((q) => !q.selectedOptionId).length} سؤال بدون پاسخ مانده و نزده ثبت می‌شود.`
+                : "همهٔ سؤالات این مرور پاسخ داده شده‌اند."}
+            </p>
+
+            <div className="space-y-2.5 pt-1 text-right">
+              <button
+                type="button"
+                className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-orange)] text-white shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
+                disabled={pending}
+                onClick={() => void handleFinish()}
+              >
+                <div className="w-8 h-8 rounded-xl bg-white/20 border-2 border-white/30 flex items-center justify-center shrink-0">
+                  {pending ? <RotateCcw size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                </div>
+                <div>
+                  <strong className="block text-xs font-black">پایان مرور و مشاهده کارنامه</strong>
+                  <span className="text-[11px] opacity-90 font-medium">موعد تکرار سؤالات در لایتنر ثبت می‌شود.</span>
+                </div>
+              </button>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+                onClick={() => setShowFinishConfirm(false)}
+              >
+                انصراف و ادامهٔ مرور
+              </button>
+            </div>
+          </section>
         </div>
       )}
     </div>

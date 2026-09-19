@@ -97,7 +97,7 @@ export function SplashScreen({
               <h1 className="text-2xl sm:text-3xl font-black text-[var(--ink)] tracking-tight leading-snug">
                 یک قدم نزدیک‌تر
                 <br />
-                به مقصد! 🏔️
+                به مقصد!
               </h1>
               <p className="text-xs sm:text-sm font-bold text-[var(--muted)] max-w-xs mx-auto leading-relaxed">
                 همه چیز آماده است. نام و درس‌های آزمون خود را مشخص کنید و شروع کنید!

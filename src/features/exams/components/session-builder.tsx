@@ -29,7 +29,6 @@ import {
   Zap,
   FastForward,
   Clock,
-  CheckCircle2,
 } from "lucide-react";
 import { LoadingState } from "@/components/ui/testino-ui";
 import { useDatabase } from "@/providers/database-provider";
@@ -68,8 +67,12 @@ export function SessionBuilder() {
   // Step 4 Settings
   const [feedbackMode, setFeedbackMode] = useState<"deferred" | "instant">("deferred");
   const [isTimed, setIsTimed] = useState(true);
-  const [durationMinutes, setDurationMinutes] = useState(40);
+  const [durationMinutes, setDurationMinutes] = useState(() =>
+    Math.max(5, Math.round((initialCount * 1.25) / 5) * 5)
+  );
   const [customMinutes, setCustomMinutes] = useState("");
+  // Once the user picks a time manually, auto-scaling stops (their override wins).
+  const [timeTouched, setTimeTouched] = useState(false);
   const [negativeMarking, setNegativeMarking] = useState(true);
   const [showAnswerSheet, setShowAnswerSheet] = useState(true);
   const [showExplanations, setShowExplanations] = useState(true);
@@ -269,6 +272,13 @@ export function SessionBuilder() {
 
   const availableCount = eligibleQuestions.length;
 
+  // Standard pacing: ~1.25 min per question, rounded to 5-minute steps.
+  // Time must scale UP logically as the question count grows.
+  const suggestedMinutes = useMemo(
+    () => Math.max(5, Math.round((count * 1.25) / 5) * 5),
+    [count]
+  );
+
   function toggleQuestionMode(modeId: QuestionPoolMode) {
     if (modeId === "random") {
       setSelectedModes(["random"]);
@@ -337,75 +347,75 @@ export function SessionBuilder() {
   }> = [
     {
       id: "new",
-      title: "سوالات جدید و ندیده",
-      desc: "سوالاتی که هنوز در هیچ آزمونی پاسخ نداده‌اید",
+      title: "سوالات جدید",
+      desc: "پاسخ نداده‌اید",
       icon: Sparkles,
       color: "bg-[var(--pastel-green)]",
-      textColor: "text-[var(--ink)]",
-      borderActive: "border-[var(--line-strong)] bg-[var(--pastel-green-soft)]",
+      textColor: "text-[var(--ink-on-color)]",
+      borderActive: "border-[var(--line-strong)] bg-[var(--surface-3)]",
     },
     {
       id: "wrong",
-      title: "سوالات غلط و اشتباهات",
-      desc: "مرور سوالات با پاسخ نادرست جهت یادگیری عمیق",
+      title: "غلط‌ها",
+      desc: "پاسخ نادرست داده‌اید",
       icon: AlertCircle,
       color: "bg-[var(--pastel-red)]",
       textColor: "text-white",
-      borderActive: "border-[var(--line-strong)] bg-[var(--pastel-red-soft)]",
+      borderActive: "border-[var(--line-strong)] bg-[var(--surface-3)]",
     },
     {
       id: "doubtful",
-      title: "سوالات با شک ⭕",
-      desc: "سوالاتی که بین گزینه‌ها مردد بوده‌اید",
+      title: "شک‌دارها",
+      desc: "مردد بوده‌اید",
       icon: HelpCircle,
-      color: "bg-amber-400",
-      textColor: "text-amber-950",
-      borderActive: "border-[var(--line-strong)] bg-amber-50 dark:bg-amber-950/40",
+      color: "bg-[var(--pastel-yellow)]",
+      textColor: "text-[var(--ink-on-color)]",
+      borderActive: "border-[var(--line-strong)] bg-[var(--surface-3)]",
     },
     {
       id: "guess",
-      title: "سوالات حدسی و شانسی ⚡",
-      desc: "تست‌هایی که بدون تسلط و بر پایه حدس زده‌اید",
+      title: "حدسی‌ها",
+      desc: "بدون اطمینان زده‌اید",
       icon: Zap,
-      color: "bg-purple-400",
-      textColor: "text-purple-950",
-      borderActive: "border-[var(--line-strong)] bg-purple-50 dark:bg-purple-950/40",
+      color: "bg-[var(--brand-purple)]",
+      textColor: "text-white",
+      borderActive: "border-[var(--line-strong)] bg-[var(--surface-3)]",
     },
     {
       id: "bookmarked",
-      title: "نشانه‌دارها 🔖",
-      desc: "سوالات گلچین و ستاره‌داری که ذخیره کرده‌اید",
+      title: "نشانه‌دارها",
+      desc: "ذخیره کرده‌اید",
       icon: Bookmark,
-      color: "bg-[var(--brand-yellow)]",
-      textColor: "text-[var(--ink-on-color)]",
-      borderActive: "border-[var(--line-strong)] bg-[var(--pastel-yellow-soft)]",
+      color: "bg-[var(--surface-3)]",
+      textColor: "text-[var(--ink)]",
+      borderActive: "border-[var(--line-strong)] bg-[var(--surface-3)]",
     },
     {
       id: "due",
-      title: "سررسید مرور لایتنر 🔄",
-      desc: "سوالاتی که بر اساس منحنی فراموشی نوبت مرور آن‌هاست",
+      title: "مرور لایتنر",
+      desc: "نوبت مرور رسیده",
       icon: RotateCcw,
-      color: "bg-teal-400",
-      textColor: "text-teal-950",
-      borderActive: "border-[var(--line-strong)] bg-teal-50 dark:bg-teal-950/40",
+      color: "bg-[var(--pastel-teal)]",
+      textColor: "text-[var(--ink-on-color)]",
+      borderActive: "border-[var(--line-strong)] bg-[var(--surface-3)]",
     },
     {
       id: "skipped",
-      title: "رد شده و بی‌پاسخ ⏭️",
-      desc: "سوالاتی که مشاهده کرده ولی پاسخی ثبت نکرده‌اید",
+      title: "بی‌پاسخ",
+      desc: "بدون پاسخ رد شده",
       icon: FastForward,
-      color: "bg-rose-300",
-      textColor: "text-rose-950",
-      borderActive: "border-[var(--line-strong)] bg-rose-50 dark:bg-rose-950/40",
+      color: "bg-[var(--pastel-orange)]",
+      textColor: "text-[var(--ink-on-color)]",
+      borderActive: "border-[var(--line-strong)] bg-[var(--surface-3)]",
     },
     {
       id: "random",
-      title: "ترکیبی از همه 🔀",
-      desc: "ترکیبی جامع و تصادفی از تمامی سوالات بدون تفکیک",
+      title: "همه سوالات",
+      desc: "بدون فیلتر",
       icon: Shuffle,
       color: "bg-[var(--pastel-blue)]",
       textColor: "text-[var(--ink-on-color)]",
-      borderActive: "border-[var(--line-strong)] bg-[var(--pastel-blue-soft)]",
+      borderActive: "border-[var(--line-strong)] bg-[var(--surface-3)]",
     },
   ];
 
@@ -441,7 +451,7 @@ export function SessionBuilder() {
         <div className="space-y-1.5">
           <h2 className="text-xl font-black text-[var(--ink)]">بانک سؤالات شما خالی است</h2>
           <p className="text-xs font-bold text-[var(--muted)] leading-relaxed max-w-sm mx-auto">
-            پروفایل شما با موفقیت فعال است، اما هنوز سؤالی به بانک سؤالات اضافه نشده است. برای برگزاری آزمون و کوئیز، ابتدا سؤالات را وارد کنید.
+            هنوز سوالی در بانک سوالات ثبت نشده است. ابتدا سوالات را وارد کنید.
           </p>
         </div>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
@@ -523,7 +533,7 @@ export function SessionBuilder() {
               </span>
               <h2 className="text-xl sm:text-2xl font-black text-[var(--ink)] pt-1">انتخاب درس‌ها</h2>
               <p className="text-xs sm:text-sm text-[var(--muted)] font-bold">
-                می‌توانید یک یا چند درس را به صورت همزمان تیک بزنید تا سوالات آنها در آزمون قرار گیرند.
+                یک یا چند درس را انتخاب کنید.
               </p>
             </div>
 
@@ -802,19 +812,18 @@ export function SessionBuilder() {
               <span className="inline-block text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[var(--pastel-green)] text-[var(--ink-on-color)] border-2 border-[var(--line-strong)]">
                 مرحله ۳ از ۵
               </span>
-              <h2 className="text-xl sm:text-2xl font-black text-[var(--ink)] pt-1">انتخاب دسته‌بندی و نوع سوالات</h2>
+              <h2 className="text-xl sm:text-2xl font-black text-[var(--ink)] pt-1">نوع سوالات</h2>
               <p className="text-xs sm:text-sm text-[var(--muted)] font-bold">
-                می‌توانید چند دسته را همزمان تیک بزنید تا ترکیبی از آن‌ها آزمون شود، یا حالت جامع (همه سوالات) را انتخاب کنید:
+                دسته‌های موردنظر را انتخاب کنید.
               </p>
             </div>
 
             {/* Selection Status Banner */}
             <div className="p-3 rounded-2xl bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black text-[var(--ink)]">وضعیت انتخاب:</span>
+              <div className="flex items-center gap-2 flex-wrap">
                 {selectedModes.includes("random") ? (
                   <span className="text-xs font-black px-2.5 py-0.5 rounded-lg bg-[var(--pastel-blue)] text-[var(--ink-on-color)] border border-[var(--line-strong)]">
-                    ترکیبی و جامع (تمامی سؤالات)
+                    همه سوالات
                   </span>
                 ) : (
                   <div className="flex flex-wrap gap-1">
@@ -833,7 +842,7 @@ export function SessionBuilder() {
                 )}
               </div>
               <span className="text-xs font-black text-[var(--brand-orange)]">
-                {availableCount} سؤال واجد شرایط در بانک
+                {availableCount.toLocaleString("fa-IR")} سؤال قابل انتخاب
               </span>
             </div>
 
@@ -865,7 +874,7 @@ export function SessionBuilder() {
                         <span className="text-[11px] text-[var(--muted)] font-medium line-clamp-1">{t.desc}</span>
                         <div className="pt-0.5">
                           <span className="inline-block text-[10px] font-black px-2 py-0.5 rounded-md bg-[var(--surface)] text-[var(--ink)] border border-[var(--line)]">
-                            {countInPool} سؤال موجود
+                            {countInPool.toLocaleString("fa-IR")} سؤال
                           </span>
                         </div>
                       </div>
@@ -925,10 +934,10 @@ export function SessionBuilder() {
                   </div>
                   <div>
                     <strong className="block text-xs sm:text-sm font-black text-[var(--ink)]">
-                      آزمون رسمی (کارنامه پس از پایان)
+                      آزمون رسمی
                     </strong>
                     <p className="text-[11px] text-[var(--muted)] font-medium leading-relaxed mt-1">
-                      همانند کنکور سراسری، تا انتهای آزمون پاسخی نمایش داده نمی‌شود و درصدها، رتبه و تحلیل کامل پس از ثبت نهایی آزمون آماده می‌گردد.
+                      پاسخ‌ها و کارنامه فقط پس از پایان آزمون نمایش داده می‌شود.
                     </p>
                   </div>
                 </button>
@@ -949,15 +958,15 @@ export function SessionBuilder() {
                       <Sparkles size={20} />
                     </div>
                     <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-[var(--surface)] border border-[var(--line-strong)] text-[var(--ink)]">
-                      یادگیری عمیق
+                      تمرین
                     </span>
                   </div>
                   <div>
                     <strong className="block text-xs sm:text-sm font-black text-[var(--ink)]">
-                      تمرین و تحلیل آنی (تست‌به‌تست)
+                      تمرین با تحلیل آنی
                     </strong>
                     <p className="text-[11px] text-[var(--muted)] font-medium leading-relaxed mt-1">
-                      بلافاصله پس از ثبت هر گزینه، درستی یا نادرستی پاسخ همراه با شناسنامه تست و پاسخ تشریحی ۳ گامی نمایش داده شده و تایمر مکث می‌کند.
+                      پاسخ و تحلیل هر سوال بلافاصله پس از ثبت گزینه نمایش داده می‌شود.
                     </p>
                   </div>
                 </button>
@@ -987,6 +996,10 @@ export function SessionBuilder() {
                       onClick={() => {
                         setCount(num);
                         setIsContinuous(false);
+                        if (!timeTouched) {
+                          setDurationMinutes(Math.max(5, Math.round((num * 1.25) / 5) * 5));
+                          setCustomMinutes("");
+                        }
                       }}
                       className={cn(
                         "py-2.5 rounded-xl text-xs font-black transition-all border-2 cursor-pointer",
@@ -1016,12 +1029,13 @@ export function SessionBuilder() {
                 </div>
 
                 {isContinuous ? (
-                  <div className="p-2.5 rounded-xl bg-[var(--pastel-green-soft)] border border-[var(--line-strong)] text-[11px] font-bold text-[var(--ink)] leading-relaxed">
-                    🚀 <strong>حالت پیوسته فعال شد:</strong> بدون محدودیت تعداد سوال! سوالات به صورت خودکار زنجیره‌ای لود می‌شوند.
+                  <div className="p-2.5 rounded-xl bg-[var(--pastel-green-soft)] border border-[var(--line-strong)] text-[11px] font-bold text-[var(--ink)] leading-relaxed flex items-center gap-1.5">
+                    <Zap size={14} className="text-[var(--brand-orange)] shrink-0" />
+                    <span><strong>حالت پیوسته فعال شد:</strong> سوالات بدون محدودیت و زنجیره‌ای ادامه پیدا می‌کنند.</span>
                   </div>
                 ) : (
                   <p className="text-[10px] text-[var(--muted)] font-bold">
-                    حداکثر {availableCount} سؤال واجد شرایط در بانک موجود است.
+                    {availableCount.toLocaleString("fa-IR")} سؤال قابل انتخاب.
                   </p>
                 )}
               </div>
@@ -1067,6 +1081,7 @@ export function SessionBuilder() {
                           onClick={() => {
                             setDurationMinutes(m);
                             setCustomMinutes("");
+                            setTimeTouched(true);
                           }}
                           className={cn(
                             "px-2.5 py-1 rounded-xl text-xs font-black border transition-all cursor-pointer",
@@ -1079,6 +1094,22 @@ export function SessionBuilder() {
                         </button>
                       ))}
                     </div>
+
+                    {/* Auto-suggested time for the current question count */}
+                    {suggestedMinutes !== durationMinutes && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDurationMinutes(suggestedMinutes);
+                          setCustomMinutes("");
+                          setTimeTouched(false);
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-black border-2 border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink)] hover:border-[var(--line-strong)] transition-all cursor-pointer"
+                      >
+                        <Timer size={12} />
+                        <span>پیشنهاد برای {count.toLocaleString("fa-IR")} سؤال: {suggestedMinutes.toLocaleString("fa-IR")} دقیقه</span>
+                      </button>
+                    )}
 
                     {/* Custom Minutes Input */}
                     <div className="flex items-center gap-2 pt-2 border-t border-[var(--line)]">
@@ -1093,6 +1124,7 @@ export function SessionBuilder() {
                           onChange={(e) => {
                             const v = e.target.value;
                             setCustomMinutes(v);
+                            setTimeTouched(true);
                             if (v && Number(v) > 0) {
                               setDurationMinutes(Number(v));
                             }
@@ -1144,7 +1176,7 @@ export function SessionBuilder() {
                         negativeMarking ? "text-[var(--brand-orange)] font-black" : "text-transparent"
                       )}
                     >
-                      {negativeMarking ? "✓" : ""}
+                      {negativeMarking ? <Check size={12} strokeWidth={3} /> : null}
                     </div>
                   </div>
                 </button>
@@ -1163,7 +1195,7 @@ export function SessionBuilder() {
                         بر هم زدن تصادفی ترتیب سؤالات
                       </span>
                       <span className="text-[10px] sm:text-[11px] text-[var(--muted)] font-medium block mt-0.5">
-                        سؤالات درک مطلب و ریدینگ همیشه به صورت یکپارچه و به ترتیب حفظ می‌شوند.
+                        ترتیب پسیج‌های درک مطلب حفظ می‌شود.
                       </span>
                     </div>
                     <div
@@ -1178,7 +1210,7 @@ export function SessionBuilder() {
                           shuffleQuestions ? "text-[var(--brand-orange)] font-black" : "text-transparent"
                         )}
                       >
-                        {shuffleQuestions ? "✓" : ""}
+                        {shuffleQuestions ? <Check size={12} strokeWidth={3} /> : null}
                       </div>
                     </div>
                   </button>
@@ -1198,7 +1230,7 @@ export function SessionBuilder() {
                         بر هم زدن تصادفی گزینه‌ها (الف تا د)
                       </span>
                       <span className="text-[10px] sm:text-[11px] text-[var(--muted)] font-medium block mt-0.5">
-                        جلوگیری از حفظ مکانی گزینه‌ها برای تسلط مفهومی بیشتر.
+                        جای گزینه‌ها تصادفی می‌شود.
                       </span>
                     </div>
                     <div
@@ -1213,7 +1245,7 @@ export function SessionBuilder() {
                           shuffleOptions ? "text-[var(--brand-orange)] font-black" : "text-transparent"
                         )}
                       >
-                        {shuffleOptions ? "✓" : ""}
+                        {shuffleOptions ? <Check size={12} strokeWidth={3} /> : null}
                       </div>
                     </div>
                   </button>
@@ -1233,7 +1265,7 @@ export function SessionBuilder() {
                         نمایش کلید پاسخ‌نامه پس از پایان
                       </span>
                       <span className="text-[10px] sm:text-[11px] text-[var(--muted)] font-medium block mt-0.5">
-                        مشاهده تطبیقی گزینه‌های انتخاب‌شده با کلید صحیح در کارنامه نهایی.
+                        مقایسه پاسخ شما با کلید در کارنامه.
                       </span>
                     </div>
                     <div
@@ -1248,7 +1280,7 @@ export function SessionBuilder() {
                           showAnswerSheet ? "text-[var(--brand-orange)] font-black" : "text-transparent"
                         )}
                       >
-                        {showAnswerSheet ? "✓" : ""}
+                        {showAnswerSheet ? <Check size={12} strokeWidth={3} /> : null}
                       </div>
                     </div>
                   </button>
@@ -1268,7 +1300,7 @@ export function SessionBuilder() {
                         نمایش پاسخ تشریحی و تحلیل ۳ گامی
                       </span>
                       <span className="text-[10px] sm:text-[11px] text-[var(--muted)] font-medium block mt-0.5">
-                        دسترسی به ایده و دام تست، حل کامل و دلایل رد سایر گزینه‌ها.
+                        ایده، حل کامل و دلیل رد گزینه‌ها.
                       </span>
                     </div>
                     <div
@@ -1283,7 +1315,7 @@ export function SessionBuilder() {
                           showExplanations ? "text-[var(--brand-orange)] font-black" : "text-transparent"
                         )}
                       >
-                        {showExplanations ? "✓" : ""}
+                        {showExplanations ? <Check size={12} strokeWidth={3} /> : null}
                       </div>
                     </div>
                   </button>
@@ -1335,7 +1367,7 @@ export function SessionBuilder() {
                   <span className="text-[var(--muted)] font-bold">نوع سوالات:</span>
                   <strong className="font-black text-[var(--ink)]">
                     {selectedModes.includes("random")
-                      ? "ترکیبی از تمامی سوالات"
+                      ? "همه سوالات"
                       : selectedModes.map((m) => questionPoolCategories.find((c) => c.id === m)?.title).filter(Boolean).join(" + ")}
                   </strong>
                 </div>
@@ -1345,7 +1377,7 @@ export function SessionBuilder() {
                 <div className="flex justify-between items-center">
                   <span className="text-[var(--muted)] font-bold">شیوه بازخورد:</span>
                   <strong className="font-black text-[var(--ink)]">
-                    {feedbackMode === "instant" ? "تمرین و تحلیل آنی (تست‌به‌تست)" : "آزمون رسمی (کارنامه در پایان)"}
+                    {feedbackMode === "instant" ? "تمرین با تحلیل آنی" : "آزمون رسمی"}
                   </strong>
                 </div>
                 <div className="flex justify-between items-center">
@@ -1360,7 +1392,7 @@ export function SessionBuilder() {
                 <div className="flex justify-between items-center">
                   <span className="text-[var(--muted)] font-bold">تعداد سوال:</span>
                   <strong className="font-black text-[var(--brand-orange)]">
-                    {isContinuous ? "پیوسته و نامحدود (تا هر جا که بخواهید)" : `${count} سؤال`}
+                    {isContinuous ? "پیوسته (نامحدود)" : `${count} سؤال`}
                   </strong>
                 </div>
                 <div className="flex justify-between items-center">

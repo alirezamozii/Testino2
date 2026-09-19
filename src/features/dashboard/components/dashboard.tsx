@@ -477,7 +477,7 @@ export function Dashboard() {
                   </Link>
                 </div>
               ) : (
-                profile.subjects.slice(0, 8).map((subject) => {
+                profile.subjects.map((subject) => {
                   const qCount = subject.questionCount ?? 25;
                   const normGroup = normalizeScoreGroup(subject.scoreGroup);
                   const groupMembers = normGroup
@@ -496,7 +496,7 @@ export function Dashboard() {
                     <div key={subject.id} className="space-y-1.5 p-2 rounded-2xl bg-[var(--surface-2)]/50 border border-[var(--line)]">
                       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-black text-[var(--ink)] truncate max-w-[150px] sm:max-w-none">
+                          <span className="font-black text-[var(--ink)] break-words">
                             {subject.name}
                           </span>
                           {isGrouped ? (

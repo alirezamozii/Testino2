@@ -1,6 +1,13 @@
 import type { DatabasePort } from "@/database/ports";
 import { MediaService } from "@/features/media/domain/media-service";
+import { withTimeout } from "@/lib/with-timeout";
 import type { SyncTransport } from "./ports";
+
+// A media file that fails to download (404, transient storage 500) used to be
+// re-attempted on EVERY sync tick forever — wasted bandwidth + a permanent
+// error status. Back off per-media for 10 minutes before trying again.
+const MEDIA_RETRY_BACKOFF_MS = 10 * 60 * 1000;
+const recentDownloadFailures = new Map<string, number>();
 
 export interface MediaSyncReport {
   uploaded: number;
@@ -31,7 +38,11 @@ export async function uploadLocalMedia(
         report.missing += 1;
         continue;
       }
-      const remotePath = await transport.uploadMedia({ sha256: row.sha256, mime: row.mime, bytes });
+      const remotePath = await withTimeout(
+        transport.uploadMedia({ sha256: row.sha256, mime: row.mime, bytes }),
+        60_000,
+        "ارسال تصویر"
+      );
       await db.execute(
         "UPDATE media_files SET remote_path=?, availability='both' WHERE id=?",
         [remotePath, row.id]
@@ -75,16 +86,27 @@ export async function downloadRemoteMedia(
   );
 
   for (const row of rows) {
+    const lastFailureAt = recentDownloadFailures.get(row.id);
+    if (lastFailureAt && Date.now() - lastFailureAt < MEDIA_RETRY_BACKOFF_MS) {
+      // Backed off: not an error, just skip this tick silently.
+      continue;
+    }
     try {
-      const bytes = await transport.downloadMedia(row.remote_path);
+      const bytes = await withTimeout(
+        transport.downloadMedia(row.remote_path),
+        30_000,
+        "دریافت تصویر"
+      );
       const ingested = await service.ingest(bytes, "content", { declaredMime: row.mime });
       if (ingested.sha256 !== row.sha256) throw new Error("هش تصویر دریافتی با manifest ابری یکسان نیست.");
       await db.execute(
         "UPDATE media_files SET local_path=?, availability='both' WHERE id=?",
         [`media/${row.sha256}.${row.mime === "image/jpeg" ? "jpg" : row.mime.split("/")[1]}`, row.id]
       );
+      recentDownloadFailures.delete(row.id);
       report.downloaded += 1;
     } catch (error) {
+      recentDownloadFailures.set(row.id, Date.now());
       report.missing += 1;
       report.errors.push(error instanceof Error ? error.message : String(error));
       await db.execute("UPDATE media_files SET availability='missing' WHERE id=?", [row.id]);

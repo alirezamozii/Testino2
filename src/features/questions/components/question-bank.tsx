@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileUp, Plus, Search, BookOpen, ChevronLeft, Layers, Edit3, Sparkles, Split } from "lucide-react";
+import { FileUp, Plus, Search, BookOpen, ChevronLeft, Layers, Edit3, Trash2, AlertTriangle, Sparkles, Users } from "lucide-react";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/testino-ui";
 import { useDatabase } from "@/providers/database-provider";
@@ -11,6 +11,9 @@ import { cn } from "@/lib/utils";
 import { BankNavTabs } from "@/components/navigation/bank-nav-tabs";
 import { QuestionEditorModal } from "./question-editor-modal";
 import { QuestionTrustActions } from "./question-trust-actions";
+import { syncCommunityQuestionsForSubjects } from "@/platform/community-questions";
+import { checkIsOwner } from "@/lib/permissions";
+import { getSupabaseClient } from "@/platform/auth/supabase-client";
 import type { StoredQuestion } from "@/features/questions/domain/question-schema";
 
 export function QuestionBank() {
@@ -30,12 +33,100 @@ export function QuestionBank() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<StoredQuestion | null>(null);
 
+  // Deletion States
+  const [deletingQuestion, setDeletingQuestion] = useState<StoredQuestion | null>(null);
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => {
+    void checkIsOwner().then(setIsOwner);
+  }, []);
+
+  async function handleDeleteSingle(questionId: string) {
+    setIsDeleting(true);
+    try {
+      if (isOwner) {
+        await database.db.deleteQuestion(questionId);
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          try {
+            await supabase.from("questions").delete().eq("id", questionId);
+          } catch {
+            // cloud delete failure shouldn't block local
+          }
+        }
+      } else {
+        await database.db.hideQuestion(questionId);
+      }
+      await cache.invalidateQueries({ queryKey: ["questions"] });
+      await cache.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+      await cache.invalidateQueries({ queryKey: ["analytics"] });
+      setDeletingQuestion(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  async function handleBulkDelete(onlyCurrentFilter: boolean) {
+    setIsDeleting(true);
+    try {
+      if (isOwner) {
+        if (onlyCurrentFilter && selectedSubject !== "all") {
+          await database.db.deleteAllQuestions({ subject: selectedSubject });
+        } else {
+          await database.db.deleteAllQuestions();
+        }
+      } else {
+        // Non-owner bulk hide: hide all questions for the filter
+        const qs = await database.db.listQuestions({
+          subject: onlyCurrentFilter && selectedSubject !== "all" ? selectedSubject : undefined,
+          limit: 1000,
+        });
+        for (const q of qs) {
+          await database.db.hideQuestion(q.id);
+        }
+      }
+      await cache.invalidateQueries({ queryKey: ["questions"] });
+      await cache.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+      await cache.invalidateQueries({ queryKey: ["analytics"] });
+      setBulkDeleteModalOpen(false);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   const profilesQuery = useQuery({
     queryKey: ["profiles"],
     queryFn: () => database.db.listProfiles(),
     enabled: database.status === "ready",
   });
   const profileId = profilesQuery.data?.[0]?.id;
+
+  // Community Sync States
+  const [communitySyncMessage, setCommunitySyncMessage] = useState<string | null>(null);
+
+  const activeSubjects = useMemo(() => {
+    return profilesQuery.data?.[0]?.subjects?.map((s) => s.name) || [];
+  }, [profilesQuery.data]);
+
+  // Auto-sync community questions on mount when ready
+  useEffect(() => {
+    if (database.status === "ready" && activeSubjects.length > 0) {
+      void syncCommunityQuestionsForSubjects(activeSubjects, database.db).then((res) => {
+        if (res.addedCount > 0) {
+          cache.invalidateQueries({ queryKey: ["questions"] });
+          cache.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+          setCommunitySyncMessage(`${res.addedCount} سؤال جدید از جامعه داوطلبان افزوده شد`);
+          setTimeout(() => setCommunitySyncMessage(null), 5000);
+        }
+      });
+    }
+  }, [database.status, activeSubjects.join(","), database.db, cache]);
 
   const analyticsQuery = useQuery({
     queryKey: ["analytics", profileId],
@@ -119,6 +210,14 @@ export function QuestionBank() {
           </button>
         </div>
       </div>
+
+      {/* Community Sync Status Banner */}
+      {communitySyncMessage && (
+        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-500 text-emerald-800 dark:text-emerald-200 text-xs font-black flex items-center gap-2 animate-in fade-in shadow-[2px_2px_0px_#10B981]">
+          <Sparkles size={16} className="text-emerald-600 shrink-0" />
+          <span>{communitySyncMessage}</span>
+        </div>
+      )}
 
       {/* Top 3 Stat Cards (Matching Wireframe 05 Phone 1) */}
       <div className="grid grid-cols-3 gap-3">
@@ -294,6 +393,24 @@ export function QuestionBank() {
             </div>
           </div>
 
+          {/* Action Bar (Count + Bulk Delete) */}
+          {displayedQuestions.length > 0 && (
+            <div className="flex items-center justify-between gap-2 px-1 text-xs">
+              <span className="font-bold text-[var(--muted)]">
+                نمایش {displayedQuestions.length} سؤال از بانک
+              </span>
+              <button
+                type="button"
+                onClick={() => setBulkDeleteModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-300 dark:border-rose-900 bg-rose-50/80 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 font-black cursor-pointer transition-all shadow-[1px_1px_0px_var(--neo-shadow)]"
+                title="پاک‌سازی گروهی سؤالات"
+              >
+                <Trash2 size={13} />
+                <span>{selectedSubject !== "all" ? `پاک‌سازی سؤالات ${selectedSubject}` : "پاک‌سازی سؤالات"}</span>
+              </button>
+            </div>
+          )}
+
           {/* Question Cards List */}
           <div className="space-y-3">
             {query.isLoading ? (
@@ -349,6 +466,20 @@ export function QuestionBank() {
                       <span>ویرایش</span>
                     </button>
 
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setDeletingQuestion(question);
+                      }}
+                      className="px-2.5 py-1 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-[11px] font-black flex items-center gap-1 transition-all cursor-pointer shadow-[1px_1px_0px_var(--neo-shadow)]"
+                      title="حذف این سؤال از بانک"
+                    >
+                      <Trash2 size={12} />
+                      <span>حذف</span>
+                    </button>
+
                     <span
                       className={cn(
                         "text-[10px] font-black px-2.5 py-1 rounded-xl border-2 border-[var(--line-strong)]",
@@ -377,6 +508,111 @@ export function QuestionBank() {
         initialQuestion={editingQuestion}
         defaultSubject={selectedSubject !== "all" ? selectedSubject : subjects[0] || ""}
       />
+
+      {/* Single Question Delete Confirmation Modal */}
+      {deletingQuestion && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md rounded-3xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-6 space-y-4 shadow-[6px_6px_0_var(--neo-shadow)] animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-300">
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[var(--ink)]">حذف سؤال از بانک</h3>
+                <p className="text-xs text-[var(--muted)] font-bold">این عملیات غیرقابل بازگشت است.</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[var(--surface-2)] border border-[var(--line)] space-y-1.5 text-xs">
+              <div className="font-black text-[var(--ink)]">
+                درس: {deletingQuestion.subject} {deletingQuestion.chapter ? `• ${deletingQuestion.chapter}` : ""}
+              </div>
+              <div className="text-[var(--muted)] line-clamp-2">
+                <ContentRenderer blocks={deletingQuestion.content} />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeletingQuestion(null)}
+                className="px-4 py-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] text-xs font-black text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => void handleDeleteSingle(deletingQuestion.id)}
+                className="px-4 py-2.5 rounded-xl border-2 border-rose-600 bg-rose-600 hover:bg-rose-700 text-xs font-black text-white transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {isDeleting ? "در حال حذف…" : "بله، حذف شود"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {bulkDeleteModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md rounded-3xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-6 space-y-4 shadow-[6px_6px_0_var(--neo-shadow)] animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-300">
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[var(--ink)]">پاک‌سازی گروهی سؤالات</h3>
+                <p className="text-xs text-[var(--muted)] font-bold">تمامی سؤالات انتخابی از بانک حذف خواهند شد.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[var(--ink)] leading-relaxed font-bold">
+              {selectedSubject !== "all"
+                ? `آیا مطمئن هستید که می‌خواهید تمام سؤالات مربوط به درس «${selectedSubject}» را پاک‌سازی کنید؟`
+                : "آیا مطمئن هستید که می‌خواهید کلیه سؤالات موجود در بانک را حذف و پاک‌سازی کنید؟"}
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setBulkDeleteModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] text-xs font-black text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+              {selectedSubject !== "all" && (
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => void handleBulkDelete(true)}
+                  className="px-4 py-2.5 rounded-xl border-2 border-amber-600 bg-amber-600 hover:bg-amber-700 text-xs font-black text-white transition-colors cursor-pointer disabled:opacity-60"
+                >
+                  {isDeleting ? "در حال پاک‌سازی…" : `فقط سؤالات ${selectedSubject}`}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => void handleBulkDelete(false)}
+                className="px-4 py-2.5 rounded-xl border-2 border-rose-600 bg-rose-600 hover:bg-rose-700 text-xs font-black text-white transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {isDeleting ? "در حال پاک‌سازی…" : "پاک‌سازی تمام سؤالات"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,7 +3,25 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, Check, ChevronDown, ChevronUp, CircleHelp, Eye, Flame, Search, Sparkles, Target } from "lucide-react";
+import {
+  ArrowRight,
+  BookOpen,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  CircleHelp,
+  Eye,
+  Flame,
+  Search,
+  Sparkles,
+  Target,
+  XCircle,
+  HelpCircle,
+  Zap,
+  FastForward,
+  RotateCcw,
+  Star,
+} from "lucide-react";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { ErrorState, LoadingState } from "@/components/ui/testino-ui";
 import type { QuestionPoolMode } from "@/database/app-database";
@@ -23,15 +41,15 @@ const topicToken = (subject: string, chapter: string, topic: string) => `${subje
 const POOL_CATEGORIES: Array<{
   id: ReviewPoolMode;
   title: string;
-  emoji: string;
+  icon: React.ElementType;
   activeClass: string;
 }> = [
-  { id: "wrong", title: "غلط‌ها", emoji: "❌", activeClass: "bg-red-50 dark:bg-red-950/40 border-red-500" },
-  { id: "doubtful", title: "با شک", emoji: "⭕", activeClass: "bg-amber-50 dark:bg-amber-950/40 border-amber-500" },
-  { id: "guess", title: "حدسی", emoji: "⚡", activeClass: "bg-purple-50 dark:bg-purple-950/40 border-purple-500" },
-  { id: "skipped", title: "نزده", emoji: "⏭️", activeClass: "bg-slate-100 dark:bg-slate-900/50 border-slate-500" },
-  { id: "due", title: "لایتنر", emoji: "🔄", activeClass: "bg-blue-50 dark:bg-blue-950/40 border-blue-500" },
-  { id: "mastered", title: "مسلط", emoji: "⭐", activeClass: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500" },
+  { id: "wrong", title: "غلط‌ها", icon: XCircle, activeClass: "bg-red-50 dark:bg-red-950/40 border-red-500 text-red-600" },
+  { id: "doubtful", title: "با شک", icon: HelpCircle, activeClass: "bg-amber-50 dark:bg-amber-950/40 border-amber-500 text-amber-600" },
+  { id: "guess", title: "حدسی", icon: Zap, activeClass: "bg-purple-50 dark:bg-purple-950/40 border-purple-500 text-purple-600" },
+  { id: "skipped", title: "نزده", icon: FastForward, activeClass: "bg-slate-100 dark:bg-slate-900/50 border-slate-500 text-slate-600" },
+  { id: "due", title: "لایتنر", icon: RotateCcw, activeClass: "bg-blue-50 dark:bg-blue-950/40 border-blue-500 text-blue-600" },
+  { id: "mastered", title: "مسلط", icon: Star, activeClass: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-600" },
 ];
 
 const STAT_STYLES: Partial<Record<QuestionPoolMode, string>> = {
@@ -236,16 +254,22 @@ export function ReviewPage() {
       <div className="page review-page mx-auto max-w-6xl space-y-6 pb-12">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div><p className="mb-1 text-xs font-black text-[var(--brand-orange)]">مرکز مرور</p><h1 className="text-2xl font-black tracking-tight text-[var(--ink)] sm:text-3xl">مرور و یادآوری</h1></div>
-          <button type="button" onClick={() => setViewMode("setup")} className="btn-neo-orange inline-flex min-h-12 items-center justify-center gap-2 px-5 py-3 text-sm font-black"><Target size={18} />تنظیم و شروع مرور 🎯</button>
+          <button type="button" onClick={() => setViewMode("setup")} className="btn-neo-orange inline-flex min-h-12 items-center justify-center gap-2 px-5 py-3 text-sm font-black"><Target size={18} />تنظیم و شروع مرور</button>
         </header>
 
         <section aria-label="آمار مرور" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {POOL_CATEGORIES.map((category) => (
-            <article key={category.id} className={cn("card-neo flex min-h-28 flex-col justify-between rounded-2xl border-2 p-4", STAT_STYLES[category.id])}>
-              <div className="flex items-center justify-between"><span className="text-xl" aria-hidden="true">{category.emoji}</span><strong className="text-2xl font-black text-[var(--ink)]">{overviewCounts[category.id] ?? 0}</strong></div>
-              <h2 className="text-sm font-black text-[var(--ink)]">{category.title}</h2>
-            </article>
-          ))}
+          {POOL_CATEGORIES.map((category) => {
+            const IconComp = category.icon;
+            return (
+              <article key={category.id} className={cn("card-neo flex min-h-28 flex-col justify-between rounded-2xl border-2 p-4", STAT_STYLES[category.id])}>
+                <div className="flex items-center justify-between">
+                  <IconComp size={20} className={category.activeClass.split(" ").pop()} aria-hidden="true" />
+                  <strong className="text-2xl font-black text-[var(--ink)]">{overviewCounts[category.id] ?? 0}</strong>
+                </div>
+                <h2 className="text-sm font-black text-[var(--ink)]">{category.title}</h2>
+              </article>
+            );
+          })}
         </section>
 
         <section className="card-neo space-y-4 rounded-3xl border-2 bg-[var(--surface)] p-4 sm:p-6">
@@ -321,7 +345,26 @@ export function ReviewPage() {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {POOL_CATEGORIES.map((category) => {
             const selected = launchModes.includes(category.id);
-            return <button key={category.id} type="button" role="checkbox" aria-checked={selected} onClick={() => toggleMode(category.id)} className={cn("flex min-h-20 flex-col items-start justify-between rounded-2xl border-2 p-3 text-right", selected ? cn(category.activeClass, "shadow-[2px_2px_0px_var(--neo-shadow)]") : "border-[var(--line)] bg-[var(--surface-2)] opacity-70")}><span className="flex w-full items-center justify-between"><span aria-hidden="true">{category.emoji}</span><span className="text-xs font-black text-[var(--ink)]">{filteredPoolCounts[category.id] ?? 0}</span></span><strong className="text-xs font-black text-[var(--ink)]">{category.title}</strong></button>;
+            const IconComp = category.icon;
+            return (
+              <button
+                key={category.id}
+                type="button"
+                role="checkbox"
+                aria-checked={selected}
+                onClick={() => toggleMode(category.id)}
+                className={cn(
+                  "flex min-h-20 flex-col items-start justify-between rounded-2xl border-2 p-3 text-right transition",
+                  selected ? cn(category.activeClass, "shadow-[2px_2px_0px_var(--neo-shadow)]") : "border-[var(--line)] bg-[var(--surface-2)] opacity-70"
+                )}
+              >
+                <span className="flex w-full items-center justify-between">
+                  <IconComp size={16} aria-hidden="true" />
+                  <span className="text-xs font-black text-[var(--ink)]">{filteredPoolCounts[category.id] ?? 0}</span>
+                </span>
+                <strong className="text-xs font-black text-[var(--ink)]">{category.title}</strong>
+              </button>
+            );
           })}
         </div>
         <div><p className="mb-2 text-xs font-black text-[var(--ink)]">تعداد تست</p><div className="grid grid-cols-6 gap-2">{([5, 10, 15, 20, 30, "all"] as CountChoice[]).map((choice) => <button key={choice} type="button" onClick={() => setLaunchCount(choice)} className={cn("min-h-11 rounded-xl border-2 text-xs font-black", launchCount === choice ? "border-[var(--line-strong)] bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)]" : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink)]")}>{choice === "all" ? "همه" : choice}</button>)}</div></div>
@@ -329,7 +372,7 @@ export function ReviewPage() {
 
       <footer className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-3 shadow-[4px_4px_0px_var(--neo-shadow)] sm:static sm:max-w-none">
         <div className="min-w-0"><strong className="block text-sm font-black text-[var(--ink)]">{requestedCount} سؤال انتخابی</strong><span className="block truncate text-[10px] font-bold text-[var(--muted)]">از {matchingCount} سؤال منطبق</span></div>
-        {canStart ? <Link href={reviewRunnerUrl} className="btn-neo-orange inline-flex min-h-12 items-center justify-center gap-2 px-5 text-xs font-black sm:text-sm"><Eye size={17} />شروع مرور با اسپویلر 🚀</Link> : <button type="button" disabled className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border-2 border-[var(--line)] bg-[var(--surface-2)] px-5 text-xs font-black text-[var(--muted)] opacity-70"><CircleHelp size={17} />{selectedSubjects.length === 0 ? "یک درس انتخاب کنید" : launchModes.length === 0 ? "یک منبع انتخاب کنید" : "سؤالی منطبق نیست"}</button>}
+        {canStart ? <Link href={reviewRunnerUrl} className="btn-neo-orange inline-flex min-h-12 items-center justify-center gap-2 px-5 text-xs font-black sm:text-sm"><Eye size={17} />شروع مرور</Link> : <button type="button" disabled className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border-2 border-[var(--line)] bg-[var(--surface-2)] px-5 text-xs font-black text-[var(--muted)] opacity-70"><CircleHelp size={17} />{selectedSubjects.length === 0 ? "یک درس انتخاب کنید" : launchModes.length === 0 ? "یک منبع انتخاب کنید" : "سؤالی منطبق نیست"}</button>}
       </footer>
     </div>
   );

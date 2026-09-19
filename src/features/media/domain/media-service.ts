@@ -19,6 +19,12 @@ class LocalBlobStore {
   private async openIdb(): Promise<IDBDatabase | null> {
     if (typeof window === "undefined" || !window.indexedDB) return null;
     return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value: IDBDatabase | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
       try {
         const req = window.indexedDB.open(this.idbName, 1);
         req.onupgradeneeded = () => {
@@ -27,10 +33,15 @@ class LocalBlobStore {
             db.createObjectStore(this.storeName);
           }
         };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => resolve(null);
+        req.onsuccess = () => finish(req.result);
+        req.onerror = () => finish(null);
+        // A blocked upgrade (another tab holds an old version) used to leave
+        // this promise pending forever — every media get/put then hung, which
+        // wedged syncNow (media upload path) with no error and no timeout.
+        req.onblocked = () => finish(null);
+        setTimeout(() => finish(null), 3000);
       } catch {
-        resolve(null);
+        finish(null);
       }
     });
   }

@@ -1,0 +1,6 @@
+{
+  "name": "Testino - تستینو",
+  "description": "سامانه آزمون‌یار و مرور هوشمند تستینو",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

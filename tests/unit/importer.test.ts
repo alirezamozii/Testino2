@@ -139,4 +139,189 @@ describe("Database Question Importer & Deduplication (TASK-012, TASK-013, TASK-0
     );
     expect(group2[0].status).toBe("complete");
   });
+
+  it("safely handles re-importing groups when group already exists without foreign key failure", async () => {
+    const memoryDb = await createTestDatabase();
+    const appDb = new AppDatabase(memoryDb);
+    await appDb.open();
+
+    const importData = {
+      schemaVersion: "1.0",
+      defaults: { subject: "زبان" },
+      groups: [
+        {
+          key: "group-cloze-1",
+          kind: "cloze",
+          content: "متن کلوز تستی",
+          questionKeys: ["q-cloze-1"],
+        },
+      ],
+      questions: [
+        {
+          ...validQuestion("q-cloze-1", "سؤال کلوز ۱"),
+          groupKey: "group-cloze-1",
+          groupPosition: 0,
+        },
+      ],
+    };
+
+    // First import
+    const parsed1 = parseImportJson(JSON.stringify(importData));
+    const rep1 = await appDb.importQuestions(parsed1);
+    expect(rep1.added).toBe(1);
+    expect(rep1.issues).toHaveLength(0);
+
+    // Second import with the same group and a new question referencing that same group
+    const importData2 = {
+      schemaVersion: "1.0",
+      defaults: { subject: "زبان" },
+      groups: [
+        {
+          key: "group-cloze-1",
+          kind: "cloze",
+          content: "متن کلوز تستی آپدیت شده",
+          questionKeys: ["q-cloze-1", "q-cloze-2"],
+        },
+      ],
+      questions: [
+        {
+          ...validQuestion("q-cloze-2", "سؤال کلوز ۲ جدید"),
+          groupKey: "group-cloze-1",
+          groupPosition: 1,
+        },
+      ],
+    };
+
+    const parsed2 = parseImportJson(JSON.stringify(importData2));
+    const rep2 = await appDb.importQuestions(parsed2);
+    expect(rep2.added).toBe(1);
+    expect(rep2.failed).toBe(0);
+    expect(rep2.issues.filter((i) => !i.isWarning)).toHaveLength(0);
+
+    // Verify question 2 points to the existing group
+    const questionsInDb = await memoryDb.query<{ id: string; group_id: string }>(
+      "SELECT id, group_id FROM questions WHERE external_key='q-cloze-2'"
+    );
+    expect(questionsInDb).toHaveLength(1);
+    const groupsInDb = await memoryDb.query<{ id: string; external_key: string }>(
+      "SELECT id, external_key FROM question_groups WHERE external_key='group-cloze-1'"
+    );
+    expect(groupsInDb).toHaveLength(1);
+    expect(questionsInDb[0].group_id).toBe(groupsInDb[0].id);
+  });
+
+  it("imports user 25-question master exam with cloze and reading passages cleanly and idempotently", async () => {
+    const fs = await import("fs");
+    const path = "C:/Users/Mozart/.gemini/antigravity/brain/a1c0f2cf-2d88-402a-a209-e9961472d03e/scratch/user_fixed.json";
+    if (!fs.existsSync(path)) return;
+
+    const memoryDb = await createTestDatabase();
+    const appDb = new AppDatabase(memoryDb);
+    await appDb.open();
+
+    const raw = fs.readFileSync(path, "utf-8");
+    const parsed1 = parseImportJson(raw);
+    expect(parsed1.valid).toHaveLength(25);
+    expect(parsed1.groups).toHaveLength(4);
+    expect(parsed1.groups.every((g) => g.status === "complete")).toBe(true);
+    expect(parsed1.issues.filter((i) => i.isWarning && i.path === "groups")).toHaveLength(0);
+
+    // 1st import
+    const rep1 = await appDb.importQuestions(parsed1);
+    expect(rep1.added).toBe(25);
+    expect(rep1.failed).toBe(0);
+    expect(rep1.issues.filter((i) => !i.isWarning)).toHaveLength(0);
+
+    // Verify all 4 groups exist in the database and are complete
+    const groupsInDb = await memoryDb.query<{ id: string; external_key: string; status: string }>(
+      "SELECT id, external_key, status FROM question_groups"
+    );
+    expect(groupsInDb).toHaveLength(4);
+    expect(groupsInDb.every((g) => g.status === "complete")).toBe(true);
+
+    // 2nd import: test re-importing the exact same envelope (upserting groups, detecting duplicate questions)
+    const parsed2 = parseImportJson(raw);
+    const rep2 = await appDb.importQuestions(parsed2);
+    expect(rep2.added).toBe(0);
+    expect(rep2.duplicates).toBe(25);
+    expect(rep2.failed).toBe(0);
+    expect(rep2.issues.filter((i) => !i.isWarning)).toHaveLength(0);
+  });
+
+  it("resiliently repairs markdown fences, conversational text, trailing commas, and curly quotes", () => {
+    const rawAiOutput = `
+Here is the requested exam JSON:
+\`\`\`json
+{
+  "schemaVersion": "1.0",
+  "defaults": {
+    "subject": "مدیریت عمومی",
+  },
+  "questions": [
+    {
+      "sourceNumber": "1",
+      "content": "هدف اصلی سازمان چیست؟",
+      "options": [
+        "1) بقا و رشد",
+        "2) افزایش هزینه",
+        "3) کاهش تولید",
+        "4) عدم قطعیت",
+      ],
+      "correctOptionKey": "۱",
+    },
+  ],
+}
+\`\`\`
+Hope this helps! Let me know if you need more questions.
+`;
+
+    const parsed = parseImportJson(rawAiOutput);
+    expect(parsed.valid).toHaveLength(1);
+    expect(parsed.valid[0].correctOptionKey).toBe("1");
+    // Check option prefix was stripped
+    expect((parsed.valid[0].options[0].content[0] as any).value).toBe("بقا و رشد");
+  });
+
+  it("auto-wraps a raw array of questions when AI omits the outer envelope", () => {
+    const rawArray = `[
+      {
+        "content": "صورت تستی بدون پاکت نامه",
+        "options": ["گزینه ۱", "گزینه ۲", "گزینه ۳", "گزینه ۴"],
+        "correctOptionKey": "الف"
+      }
+    ]`;
+
+    const parsed = parseImportJson(rawArray);
+    expect(parsed.valid).toHaveLength(1);
+    expect(parsed.envelope.defaults.subject).toBe("عمومی");
+    expect(parsed.valid[0].correctOptionKey).toBe("1");
+  });
+
+  it("automatically forces shuffleSafe=false when options contain order-dependent phrases", () => {
+    const json = JSON.stringify({
+      schemaVersion: "1.0",
+      defaults: { subject: "مدیریت" },
+      questions: [
+        {
+          content: "کدام مورد از وظایف مدیر است؟",
+          options: ["برنامه‌ریزی", "سازماندهی", "گزینه ۱ و ۲", "هیچ‌کدام"],
+          correctOptionKey: "3",
+          shuffleSafe: true, // even if AI wrongfully marked it true
+        },
+        {
+          content: "تعریف استراتژی چیست؟",
+          options: ["مسیر بلندمدت", "برنامه کوتاه‌مدت", "فرآیند تولید", "سنجش روزانه"],
+          correctOptionKey: "1",
+        },
+      ],
+    });
+
+    const parsed = parseImportJson(json);
+    expect(parsed.valid).toHaveLength(2);
+    // Question 1 has "گزینه ۱ و ۲" -> must be forced to false
+    expect(parsed.valid[0].shuffleSafe).toBe(false);
+    // Question 2 is independent -> defaults to true
+    expect(parsed.valid[1].shuffleSafe).toBe(true);
+  });
 });
+

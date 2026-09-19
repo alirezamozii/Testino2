@@ -87,6 +87,7 @@ export const sourceSchema = z.object({
   kind: z.enum(["EXAM", "AI", "PERSONAL"]).default("PERSONAL"),
   title: z.string().trim().max(300).optional(),
   year: z.number().int().optional(),
+  number: z.string().trim().max(50).optional(),
 });
 
 export const importQuestionSchema = z.object({
@@ -120,8 +121,17 @@ export const importGroupSchema = z.object({
   subject: z.string().trim().min(1).max(200).optional(),
   chapter: z.string().trim().min(1).max(200).nullish(),
   topic: z.string().trim().min(1).max(200).nullish(),
-  content: z.array(blockSchema).min(1).max(100),
-  questionKeys: z.array(z.string().trim().min(1).max(128)).min(1).max(100),
+  content: z.union([
+    z.array(blockSchema).min(1).max(100),
+    z.string().trim().min(1).transform((val) => [
+      {
+        type: "text" as const,
+        value: val,
+        direction: (/[a-zA-Z]/.test(val) ? "ltr" : "rtl") as "ltr" | "rtl",
+      },
+    ]),
+  ]),
+  questionKeys: z.array(z.string().trim().min(1).max(128)).optional().default([]),
 });
 
 export const taxonomyTopicSchema = z.string().trim().min(1).max(200);
@@ -179,4 +189,5 @@ export interface StoredQuestion {
   source?: { kind: "EXAM" | "AI" | "PERSONAL"; title?: string; year?: number; number?: string };
   reportCount?: number;
   createdAt: number;
+  batchId?: string | null;
 }
