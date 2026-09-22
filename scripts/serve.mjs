@@ -54,6 +54,24 @@ const server = http.createServer(async (req, res) => {
         } catch {
           // not found
         }
+      } else if (file.includes("__next.") && file.endsWith(".txt")) {
+        // Next.js RSC payload fallback: try checking nested folder or index.txt
+        try {
+          const dir = path.dirname(file);
+          const name = path.basename(file);
+          // e.g. __next.review.run.__PAGE__.txt -> __next.review/run/__PAGE__.txt
+          const converted = path.join(dir, name.replace(/__next\.([^.]+)\.([^.]+)\.__PAGE__\.txt/, "__next.$1/$2/__PAGE__.txt"));
+          await stat(converted);
+          file = converted;
+        } catch {
+          try {
+            const indexTxt = path.join(path.dirname(file), "index.txt");
+            await stat(indexTxt);
+            file = indexTxt;
+          } catch {
+            // ignore
+          }
+        }
       }
     }
 

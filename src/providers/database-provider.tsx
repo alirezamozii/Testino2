@@ -136,10 +136,7 @@ export function DatabaseProvider({ children }: { children: React.ReactNode }) {
     // Testability hook — lets E2E tests assert on real DB state (health,
     // schema version, profiles) instead of guessing from the UI.
     if (typeof window !== "undefined") {
-      (window as unknown as { __testinoDb?: unknown }).__testinoDb = {
-        health: () => db.health(),
-        listProfiles: () => db.listProfiles(),
-      };
+      (window as unknown as { __testinoDb?: unknown }).__testinoDb = db;
     }
 
     return () => {

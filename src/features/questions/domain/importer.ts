@@ -131,7 +131,7 @@ function slugify(text: string): string {
 
 function normalizeOptionKey(key: unknown, defaultKey: string): string {
   if (key === undefined || key === null) return defaultKey;
-  let s = toEnglishDigits(String(key).trim());
+  const s = toEnglishDigits(String(key).trim());
 
   // Persian letter keys
   if (s === "الف") return "1";
@@ -193,17 +193,63 @@ function normalizeRawQuestion(
     q.key = `${subjSlug}-${yr}-q${sNum}`;
   }
 
-  // 5. Normalize content if provided as plain string
-  if (typeof q.content === "string") {
-    q.content = [{ type: "text", value: q.content.trim() }];
+function normalizeContentBlock(rawBlock: unknown): unknown {
+  if (typeof rawBlock === "string") {
+    return { type: "text", value: rawBlock.trim() };
+  }
+  if (typeof rawBlock !== "object" || rawBlock === null) {
+    return rawBlock;
+  }
+  const b = { ...(rawBlock as Record<string, unknown>) };
+
+  // Normalize table block headers and rows if provided as plain strings/numbers
+  if (b.type === "table") {
+    if (Array.isArray(b.headers)) {
+      b.headers = b.headers.map((h: unknown) => {
+        if (typeof h === "string" || typeof h === "number") {
+          return { type: "text", value: String(h).trim() };
+        }
+        return h;
+      });
+    }
+    if (Array.isArray(b.rows)) {
+      b.rows = b.rows.map((row: unknown) => {
+        if (Array.isArray(row)) {
+          return row.map((cell: unknown) => {
+            if (typeof cell === "string" || typeof cell === "number") {
+              return { type: "text", value: String(cell).trim() };
+            }
+            return cell;
+          });
+        }
+        return row;
+      });
+    }
   }
 
-  // 6. Normalize explanation if provided as plain string or empty
-  if (typeof q.explanation === "string") {
-    q.explanation = [{ type: "text", value: q.explanation.trim() }];
-  } else if (!q.explanation) {
-    q.explanation = [];
+  // Normalize chart block if chartType is coordinate -> xy
+  if (b.type === "chart" && b.chartType === "coordinate") {
+    b.chartType = "xy";
   }
+
+  return b;
+}
+
+function normalizeContentBlocks(blocks: unknown): unknown {
+  if (typeof blocks === "string") {
+    return [{ type: "text", value: blocks.trim() }];
+  }
+  if (Array.isArray(blocks)) {
+    return blocks.map(normalizeContentBlock);
+  }
+  return blocks;
+}
+
+  // 5. Normalize content if provided as plain string or containing raw table/chart cells
+  q.content = normalizeContentBlocks(q.content);
+
+  // 6. Normalize explanation if provided as plain string, empty or containing raw table/chart cells
+  q.explanation = normalizeContentBlocks(q.explanation || []);
 
   // 7. Normalize options
   if (Array.isArray(q.options)) {
@@ -243,6 +289,8 @@ function normalizeRawQuestion(
           let cleanText = o.content.trim();
           cleanText = cleanText.replace(/^(?:[1-4]|[۱-۴]|الف|ب|ج|د|[A-Da-d])[\s\.\-\)\:]+\s*/, "");
           o.content = [{ type: "text", value: cleanText || o.content.trim() }];
+        } else if (Array.isArray(o.content)) {
+          o.content = normalizeContentBlocks(o.content);
         }
         return o;
       }
@@ -258,12 +306,12 @@ function normalizeRawQuestion(
 
   // 9. Smart shuffleSafe detection:
   // If any option contains order-dependent phrases (e.g., "گزینه ۱ و ۲", "همه موارد", "هیچ‌کدام"), force shuffleSafe = false!
-  const hasOrderDependency = Array.isArray(q.options) && q.options.some((opt: any) => {
+  const hasOrderDependency = Array.isArray(q.options) && q.options.some((opt: unknown) => {
     let txt = "";
     if (typeof opt === "string") {
       txt = opt;
-    } else if (opt && typeof opt === "object" && Array.isArray(opt.content)) {
-      txt = opt.content.map((c: any) => c.value || "").join(" ");
+    } else if (opt && typeof opt === "object" && "content" in opt && Array.isArray((opt as { content: unknown[] }).content)) {
+      txt = (opt as { content: Array<{ value?: string }> }).content.map((c) => c?.value || "").join(" ");
     }
     return /(?:گزینه|مورد|موارد|الف|ب|ج|د)\s*(?:[1-4]|[۱-۴]|الف|ب|ج|د)?\s*(?:و|یا|,)\s*(?:[1-4]|[۱-۴]|الف|ب|ج|د)|(?:همه|تمام|هر\s*سه|هر\s*چهار)\s*موارد|هیچ[\s‌]*کدام|all\s+of\s+the\s+above|none\s+of\s+the\s+above/i.test(txt);
   });

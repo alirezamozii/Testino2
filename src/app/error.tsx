@@ -1,3 +1,10 @@
 "use client";
 import { ErrorState } from "@/components/ui/testino-ui";
-export default function GlobalError({ reset }: { error: Error & { digest?: string }; reset: () => void }) { return <main className="focus-shell"><ErrorState message="این بخش درست بارگذاری نشد. داده‌های ذخیره‌شده حذف نشده‌اند." retry={reset} /></main>; }
+export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  console.error("GlobalError caught:", error);
+  return (
+    <main className="focus-shell">
+      <ErrorState message={`این بخش درست بارگذاری نشد: ${error?.message || ""}`} retry={reset} />
+    </main>
+  );
+}

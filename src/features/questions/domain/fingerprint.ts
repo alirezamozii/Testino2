@@ -20,7 +20,11 @@ function canonicalBlocks(blocks: ContentBlock[]): string {
         return `TB:${rowsStr}`;
       }
       if (b.type === "chart") {
-        return `C:${b.chartType}:${b.labels.join(",")}`;
+        const chartId =
+          b.chartType === "xy" || b.chartType === "coordinate"
+            ? `XY:${b.lines?.length || 0}-${b.regions?.length || 0}-${b.points?.length || 0}`
+            : (b.labels || []).join(",");
+        return `C:${b.chartType}:${chartId}`;
       }
       return "";
     })

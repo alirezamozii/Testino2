@@ -13,11 +13,13 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  HelpCircle,
   Lightbulb,
   RotateCcw,
   Sparkles,
   Trophy,
   X,
+  Zap,
 } from "lucide-react";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { LoadingState } from "@/components/ui/testino-ui";
@@ -113,6 +115,12 @@ export function ReviewRunner() {
         const subjectsParam = searchParams.get("subjects");
         const chaptersParam = searchParams.get("chapters");
         const topicsParam = searchParams.get("topics");
+        const sessionIdParam = searchParams.get("sessionId");
+        const sessionIdsParam = searchParams.get("sessionIds");
+        const sessionIdsList = sessionIdsParam
+          ? sessionIdsParam.split(",").map((s) => s.trim()).filter(Boolean)
+          : undefined;
+        const dateRangeParam = searchParams.get("dateRange") as "all" | "7d" | "30d" | "90d" | null;
 
         const subjectsList = subjectsParam
           ? subjectsParam.split(",").map((s) => s.trim()).filter(Boolean)
@@ -131,6 +139,9 @@ export function ReviewRunner() {
           subjects: subjectsList,
           chapters: chaptersList,
           topics: topicsList,
+          sessionId: sessionIdParam || undefined,
+          sessionIds: sessionIdsList,
+          dateRange: dateRangeParam || undefined,
           shuffleQuestions: false, // Maintain adaptive mastery order (urgent first!)
         });
 
@@ -226,6 +237,12 @@ export function ReviewRunner() {
       await cache.invalidateQueries({ queryKey: ["session", activeSessionId] });
       await cache.invalidateQueries({ queryKey: ["reviews"] });
       await cache.invalidateQueries({ queryKey: ["dashboard"] });
+      await cache.invalidateQueries({ queryKey: ["history"] });
+      await cache.invalidateQueries({ queryKey: ["sessions"] });
+      await cache.invalidateQueries({ queryKey: ["profile-sessions"] });
+      await cache.invalidateQueries({ queryKey: ["review-stats"] });
+      await cache.invalidateQueries({ queryKey: ["question-pool-stats"] });
+      await cache.invalidateQueries({ queryKey: ["review-study-questions"] });
       setIsFinished(true);
     } catch (err) {
       console.error("Failed to finish review session:", err);
@@ -233,6 +250,22 @@ export function ReviewRunner() {
       setPending(false);
     }
   }, [activeSessionId, cache, db]);
+
+  const options = useMemo(() => {
+    if (!current?.optionOrder || !current.snapshot?.options) return [];
+    return current.optionOrder
+      .map((optId) => current.snapshot.options.find((o) => o.id === optId))
+      .filter((opt): opt is NonNullable<typeof opt> => Boolean(opt));
+  }, [current]);
+
+  const displayExplanation = useMemo(() => {
+    if (!current?.snapshot?.explanation) return [];
+    return remapExplanationForShuffle(
+      current.snapshot.explanation,
+      current.snapshot.options,
+      options
+    );
+  }, [current, options]);
 
   if (creatingSession || sessionQuery.isLoading) {
     return <LoadingState label="در حال فراخوانی و آماده‌سازی سؤالات اولویت‌دار مرور…" />;
@@ -311,6 +344,12 @@ export function ReviewRunner() {
             بازگشت به مرکز مرور
           </Link>
           <Link
+            href="/history/"
+            className="py-3 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--pastel-blue-soft)] text-[var(--ink)] text-xs font-black block shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-[var(--pastel-blue)] transition-all"
+          >
+            مشاهده این جلسه در تاریخچه آزمون‌ها
+          </Link>
+          <Link
             href="/"
             className="py-3 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black block shadow-[2px_2px_0px_var(--neo-shadow)]"
           >
@@ -328,19 +367,6 @@ export function ReviewRunner() {
 
   // Active Recall Spoiler State: true if revealed manually or already answered
   const isOptionRevealed = Boolean(spoilerRevealed[current.id] || isCurrentRevealed);
-
-  const options = current.optionOrder
-    .map((optId) => current.snapshot.options.find((o) => o.id === optId))
-    .filter(Boolean);
-
-  const displayExplanation = useMemo(() => {
-    if (!current?.snapshot.explanation) return [];
-    return remapExplanationForShuffle(
-      current.snapshot.explanation,
-      current.snapshot.options,
-      options.filter(Boolean) as any
-    );
-  }, [current, options]);
 
   return (
     <div className="review-runner max-w-4xl mx-auto space-y-4 pb-10">
@@ -460,25 +486,35 @@ export function ReviewRunner() {
             const letter = PERSIAN_LETTERS[optIdx] || String(optIdx + 1);
             const isSelected = current.selectedOptionId === option.id;
             const isOptionCorrect = option.id === current.snapshot.correctOptionId;
+            const isUserWrong = isSelected && !isOptionCorrect;
 
-            // State styling
-            let cardStyle = "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)] cursor-pointer";
-            let badgeStyle = "bg-[var(--surface-cream)] text-[var(--ink-on-color)]";
+            // Card styling matching session-player.tsx
+            const cardStyle = cn(
+              "w-full p-4 rounded-2xl border-2 text-right transition-all flex items-center gap-3.5",
+              isCurrentRevealed
+                ? isOptionCorrect
+                  ? "border-emerald-500 bg-[var(--pastel-green-soft)] text-emerald-950 dark:text-emerald-100 shadow-[3px_3px_0px_#10b981] cursor-default"
+                  : isUserWrong
+                  ? "border-red-500 bg-[var(--pastel-red-soft)] text-red-950 dark:text-red-100 shadow-[3px_3px_0px_#ef4444] cursor-default"
+                  : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)] opacity-60 cursor-default"
+                : isSelected
+                ? "border-[var(--line-strong)] bg-[var(--pastel-blue-soft)] shadow-[4px_4px_0px_var(--neo-shadow)] -translate-y-0.5 cursor-pointer"
+                : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-cream)] cursor-pointer"
+            );
 
-            if (isCurrentRevealed) {
-              if (isOptionCorrect) {
-                cardStyle = "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 shadow-[3px_3px_0px_rgba(16,185,129,0.5)] cursor-default";
-                badgeStyle = "bg-emerald-500 text-white border-emerald-600";
-              } else if (isSelected && !isOptionCorrect) {
-                cardStyle = "border-red-500 bg-red-50 dark:bg-red-950/40 shadow-[3px_3px_0px_rgba(239,68,68,0.5)] cursor-default";
-                badgeStyle = "bg-red-500 text-white border-red-600";
-              } else {
-                cardStyle = "border-[var(--line)] bg-[var(--surface)] opacity-70 cursor-default";
-              }
-            } else if (isSelected) {
-              cardStyle = "border-[var(--line-strong)] bg-[var(--pastel-blue-soft)] shadow-[4px_4px_0px_var(--neo-shadow)]";
-              badgeStyle = "bg-[var(--pastel-blue)] text-[var(--ink-on-color)]";
-            }
+            // Badge styling matching session-player.tsx
+            const badgeStyle = cn(
+              "w-8 h-8 rounded-xl border-2 flex items-center justify-center font-black text-xs shrink-0 transition-colors",
+              isCurrentRevealed
+                ? isOptionCorrect
+                  ? "bg-emerald-500 text-white border-emerald-600"
+                  : isUserWrong
+                  ? "bg-red-500 text-white border-red-600"
+                  : "bg-[var(--surface)] text-[var(--muted)] border-[var(--line)]"
+                : isSelected
+                ? "bg-[var(--pastel-blue)] text-[var(--ink-on-color)] border-[var(--line-strong)]"
+                : "bg-[var(--surface-cream)] text-[var(--ink-on-color)] border-[var(--line-strong)]"
+            );
 
             return (
               <button
@@ -489,39 +525,53 @@ export function ReviewRunner() {
                   if (!isOptionRevealed) {
                     setSpoilerRevealed((prev) => ({ ...prev, [current.id]: true }));
                   } else {
-                    handleSelectOption(option.id, "sure");
+                    handleSelectOption(option.id, current.confidence ?? "sure");
                   }
                 }}
-                className={cn(
-                  "w-full p-4 rounded-2xl border-2 text-right transition-all flex items-center gap-3.5",
-                  cardStyle
-                )}
+                className={cardStyle}
               >
-                <div
-                  className={cn(
-                    "w-8 h-8 rounded-xl border-2 border-[var(--line-strong)] flex items-center justify-center font-black text-xs shrink-0 transition-colors",
-                    badgeStyle
-                  )}
-                >
+                {/* Persian Letter Badge */}
+                <div className={badgeStyle}>
                   {letter}
                 </div>
 
-                <div className="flex-1 text-right font-bold text-xs sm:text-sm text-[var(--ink)]">
+                {/* Option Content */}
+                <div
+                  className={cn(
+                    "flex-1 text-right font-bold text-xs sm:text-sm leading-relaxed",
+                    isCurrentRevealed
+                      ? isOptionCorrect
+                        ? "text-emerald-950 dark:text-emerald-100 font-black"
+                        : isUserWrong
+                        ? "text-red-950 dark:text-red-100 font-black"
+                        : "text-[var(--muted)]"
+                      : "text-[var(--ink)]"
+                  )}
+                >
                   <ContentRenderer blocks={option.content} />
                 </div>
 
-                {/* Status Indicator */}
-                {isCurrentRevealed && (
-                  <div className="shrink-0">
-                    {isOptionCorrect ? (
-                      <div className="w-7 h-7 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-bold">
-                        <Check size={16} className="stroke-[3]" />
-                      </div>
-                    ) : isSelected ? (
-                      <div className="w-7 h-7 rounded-xl bg-red-500 text-white flex items-center justify-center font-bold">
-                        <X size={16} className="stroke-[3]" />
-                      </div>
-                    ) : null}
+                {/* Trailing Status Badge or Radio Indicator (matching session-player.tsx) */}
+                {isCurrentRevealed ? (
+                  isOptionCorrect ? (
+                    <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white text-[10px] sm:text-xs font-black shrink-0 flex items-center gap-1 shadow-sm">
+                      <Check size={14} className="stroke-[3]" />
+                      <span>پاسخ صحیح</span>
+                    </span>
+                  ) : isUserWrong ? (
+                    <span className="px-2.5 py-1 rounded-xl bg-red-600 text-white text-[10px] sm:text-xs font-black shrink-0 flex items-center gap-1 shadow-sm">
+                      <X size={14} className="stroke-[3]" />
+                      <span>انتخاب شما</span>
+                    </span>
+                  ) : null
+                ) : (
+                  <div
+                    className={cn(
+                      "w-6 h-6 rounded-full border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0 transition-all",
+                      isSelected ? "bg-[var(--ink)]" : "bg-[var(--surface)]"
+                    )}
+                  >
+                    {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-[var(--surface)]" />}
                   </div>
                 )}
               </button>
@@ -579,6 +629,49 @@ export function ReviewRunner() {
                   : "این تست در اولویت بالای صف مرور باقی می‌ماند تا در جلسات بعدی مجدداً تثبیت شود."}
               </span>
             </div>
+          </div>
+
+          {/* Confidence Action Pills matching session-player.tsx */}
+          <div className="flex items-center gap-2.5 pt-1">
+            {/* 1. شک دارم */}
+            <button
+              type="button"
+              onClick={() => {
+                const nextConf = current.confidence === "doubtful" ? "sure" : "doubtful";
+                handleSelectOption(current.selectedOptionId!, nextConf);
+              }}
+              disabled={pending}
+              className={cn(
+                "py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-1.5 text-xs font-black transition-all cursor-pointer",
+                current.confidence === "doubtful"
+                  ? "bg-amber-100 dark:bg-amber-950/70 text-amber-950 dark:text-amber-200 border-amber-500 shadow-[2px_2px_0px_#f59e0b]"
+                  : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
+              )}
+              title="اگر بین دو یا سه گزینه تردید داشتید"
+            >
+              <HelpCircle size={15} />
+              <span>{current.confidence === "doubtful" ? "با شک پاسخ دادم" : "شک داشتم"}</span>
+            </button>
+
+            {/* 2. حدس زدم */}
+            <button
+              type="button"
+              onClick={() => {
+                const nextConf = current.confidence === "guess" ? "sure" : "guess";
+                handleSelectOption(current.selectedOptionId!, nextConf);
+              }}
+              disabled={pending}
+              className={cn(
+                "py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-1.5 text-xs font-black transition-all cursor-pointer",
+                current.confidence === "guess"
+                  ? "bg-purple-100 dark:bg-purple-950/70 text-purple-950 dark:text-purple-200 border-purple-500 shadow-[2px_2px_0px_#8b5cf6]"
+                  : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
+              )}
+              title="اگر بدون اطمینان و حدسی پاسخ دادید"
+            >
+              <Zap size={15} />
+              <span>{current.confidence === "guess" ? "حدسی پاسخ دادم" : "حدس زدم"}</span>
+            </button>
           </div>
 
           {/* Explanation Card */}

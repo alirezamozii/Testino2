@@ -48,22 +48,63 @@ export const tableBlockSchema = z.object({
 
 export const chartBlockSchema = z.object({
   type: z.literal("chart"),
-  chartType: z.enum(["bar", "line"]),
-  labels: z.array(z.string().trim().min(1)).min(1).max(1000),
+  chartType: z.enum(["bar", "line", "xy", "coordinate"]),
+  labels: z.array(z.string().trim().min(1)).min(1).max(1000).optional(),
   series: z.array(z.object({
     name: z.string().trim().min(1),
     values: z.array(z.number().finite()),
-  })).min(1).max(10),
+  })).min(1).max(10).optional(),
+  xRange: z.tuple([z.number(), z.number()]).optional(),
+  yRange: z.tuple([z.number(), z.number()]).optional(),
+  xLabel: z.string().trim().optional(),
+  yLabel: z.string().trim().optional(),
+  lines: z.array(z.object({
+    label: z.string().trim().optional(),
+    points: z.array(z.tuple([z.number(), z.number()])).min(2),
+    color: z.string().optional(),
+    dashed: z.boolean().optional(),
+    strokeWidth: z.number().optional(),
+    labelPosition: z.enum(["start", "end", "mid", "smart"]).optional(),
+  })).optional(),
+  regions: z.array(z.object({
+    label: z.string().trim().optional(),
+    points: z.array(z.tuple([z.number(), z.number()])).min(3),
+    color: z.string().optional(),
+    opacity: z.number().optional(),
+  })).optional(),
+  points: z.array(z.object({
+    label: z.string().trim(),
+    x: z.number(),
+    y: z.number(),
+    highlight: z.boolean().optional(),
+    color: z.string().optional(),
+    labelDirection: z.enum(["top", "bottom", "left", "right", "top-right", "top-left", "bottom-right", "bottom-left"]).optional(),
+  })).optional(),
+  arrows: z.array(z.object({
+    label: z.string().trim().optional(),
+    from: z.tuple([z.number(), z.number()]),
+    to: z.tuple([z.number(), z.number()]),
+    color: z.string().optional(),
+  })).optional(),
   caption: z.string().trim().optional(),
 }).superRefine((chart, ctx) => {
-  const labelCount = chart.labels.length;
-  for (let i = 0; i < chart.series.length; i++) {
-    if (chart.series[i].values.length !== labelCount) {
+  if (chart.chartType === "bar" || chart.chartType === "line") {
+    if (!chart.labels || !chart.series) {
       ctx.addIssue({
         code: "custom",
-        path: ["series", i, "values"],
-        message: `طول مقادیر سری «${chart.series[i].name}» (${chart.series[i].values.length}) با تعداد برچسب‌ها (${labelCount}) مطابقت ندارد.`,
+        message: "نمودار میله‌ای یا خطی نیازمند labels و series است.",
       });
+      return;
+    }
+    const labelCount = chart.labels.length;
+    for (let i = 0; i < chart.series.length; i++) {
+      if (chart.series[i].values.length !== labelCount) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["series", i, "values"],
+          message: `طول مقادیر سری «${chart.series[i].name}» (${chart.series[i].values.length}) با تعداد برچسب‌ها (${labelCount}) مطابقت ندارد.`,
+        });
+      }
     }
   }
 });

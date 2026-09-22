@@ -47,3 +47,7 @@ tsconfig.tsbuildinfo
 
 # Scratch and temporary OCR files
 scratch/
+bun.lock*
+project-markdown.txt
+*.tmp
+*.temp

@@ -750,9 +750,106 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-blue); out
 .option-card-testino.selected { border: 2px solid var(--brand-green); background: color-mix(in srgb, var(--brand-green) 8%, var(--surface)); box-shadow: 2px 2px 0px var(--brand-green); }
 .option-letter-badge { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--line); font-size: 13px; font-weight: 900; }
 .option-card-testino.selected .option-letter-badge { color: #fff; background: var(--brand-green); border-color: var(--brand-green); }
-.katex-display { margin: 12px 0 !important; direction: ltr !important; text-align: center !important; overflow-x: auto !important; overflow-y: hidden !important; padding: 6px 0; scrollbar-width: none; }
-.katex { direction: ltr !important; font-size: 1.1em !important; overflow: visible !important; }
-.katex-html, .formula-inline, .inline-formula { overflow: visible !important; }
+/* =========================================================================
+   KaTeX & Math Formula Precision Typography & BiDi Isolation
+   ========================================================================= */
+.inline-formula,
+.formula-inline {
+  display: inline-block !important;
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+  vertical-align: -0.1em !important;
+  margin: 0 0.05rem !important;
+  padding: 0 !important;
+  line-height: normal !important;
+  color: inherit !important;
+  overflow: visible !important;
+}
+
+.katex {
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+  font-size: 1.18em !important;
+  color: inherit !important;
+  overflow: visible !important;
+  text-rendering: auto !important;
+  letter-spacing: 0.01em !important;
+}
+
+/* Thicker strokes for math symbols, radicals, and fractions so they pop alongside bold Persian fonts */
+.katex .mord,
+.katex .mbin,
+.katex .mrel,
+.katex .mop,
+.katex .minner {
+  font-weight: 550 !important;
+}
+
+/* Clear, solid fraction bar */
+.katex .frac-line {
+  border-bottom-width: 0.12em !important;
+  border-color: currentColor !important;
+}
+
+/* Thicker radical / square root vinculum */
+.katex .sqrt > .vlist-t > .vlist-r:first-child,
+.katex .sqrt > .vlist > .vlist-t > .vlist-r:first-child {
+  border-top-width: 0.12em !important;
+  border-color: currentColor !important;
+}
+
+/* High-clarity Matrix styling & delimiters */
+.katex .matrix {
+  margin: 0.25rem 0.35rem !important;
+}
+.katex .delimsizing {
+  font-weight: 600 !important;
+}
+
+.katex-html {
+  overflow: visible !important;
+  direction: ltr !important;
+  unicode-bidi: isolate !important;
+}
+
+.katex-display,
+.formula-block {
+  display: block !important;
+  margin: 1.25rem 0 !important;
+  padding: 0.75rem 0.5rem !important;
+  direction: ltr !important;
+  text-align: center !important;
+  unicode-bidi: isolate !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  max-width: 100% !important;
+  scrollbar-width: none !important;
+  color: inherit !important;
+}
+
+.katex-display .katex,
+.formula-block .katex {
+  font-size: 1.34em !important;
+  font-weight: 600 !important;
+}
+
+/* Persian Rich Text Block: generous line height to prevent dot & superscript collisions */
+.rich-content .text-block {
+  line-height: 2.2 !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+/* Graceful KaTeX Error Fallback - never show scary bright red text in exams */
+.katex-error {
+  color: var(--ink-soft) !important;
+  background-color: transparent !important;
+  font-family: inherit !important;
+  font-size: 0.95em !important;
+  border-bottom: 1px dashed var(--muted) !important;
+  padding: 0 2px !important;
+}
+
 .formula-inline::-webkit-scrollbar,
 .inline-formula::-webkit-scrollbar,
 .katex::-webkit-scrollbar,

@@ -29,6 +29,7 @@ import {
   ChevronUp,
   GraduationCap,
   ExternalLink,
+  ShieldCheck,
 } from "lucide-react";
 import {
   SUBJECT_CONFIGS,
@@ -79,6 +80,7 @@ export function PromptBuilder() {
   const csvFileInputRef = useRef<HTMLInputElement>(null);
 
   const [customNotes, setCustomNotes] = useState<string>("");
+  const [enforceCapsuleLeitner, setEnforceCapsuleLeitner] = useState<boolean>(true);
   const [copied, setCopied] = useState<boolean>(false);
 
   // Accordion / Collapsible states for clean decluttered UI
@@ -183,6 +185,15 @@ export function PromptBuilder() {
   // Build the live prompt
   const generatedPrompt = useMemo(() => {
     const effectiveYear = isCustomYear ? customYear.trim() : year;
+    const notesParts: string[] = [];
+    if (enforceCapsuleLeitner) {
+      notesParts.push("تأکید ویژه بر گام ۵ پاسخ تشریحی: نکته طلایی کپسولی باید فوق‌العاده کوتاه، جذاب، خوش‌خوان و کاملاً آماده برای ثبت در فلاش‌کارت جعبه لایتنر باشد.");
+    }
+    if (customNotes.trim()) {
+      notesParts.push(customNotes.trim());
+    }
+    const effectiveCustomNotes = notesParts.length > 0 ? notesParts.join("\n\n") : undefined;
+
     const params: PromptGenerationParams = {
       subjectId: selectedSubjectId,
       forceSubjectTitle: activeProfileSubject ? activeProfileSubject.name : undefined,
@@ -192,7 +203,7 @@ export function PromptBuilder() {
       startQ,
       endQ,
       keyCsv: keyCsv.trim() || undefined,
-      customNotes: customNotes.trim() || undefined,
+      customNotes: effectiveCustomNotes,
       includeGroups: selectedSubjectId === "ENG",
       existingTopicsByChapter,
     };
@@ -200,7 +211,6 @@ export function PromptBuilder() {
   }, [
     selectedSubjectId,
     activeProfileSubject,
-    currentConfig.titleFa,
     sourceKind,
     sourceTitle,
     year,
@@ -210,6 +220,7 @@ export function PromptBuilder() {
     endQ,
     keyCsv,
     customNotes,
+    enforceCapsuleLeitner,
     existingTopicsByChapter,
   ]);
 
@@ -869,6 +880,98 @@ export function PromptBuilder() {
                 <span>{ai.name}</span>
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Educational Constitution & Adaptive Architecture Banner */}
+        <div className="p-4 sm:p-5 rounded-2xl border-2 border-[var(--line-strong)] bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-transparent shadow-[3px_3px_0px_var(--neo-shadow)] space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-[var(--testino-orange)] text-white flex items-center justify-center font-black shadow-sm shrink-0">
+                <ShieldCheck size={18} />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-black text-[var(--ink)] flex items-center gap-2">
+                  <span>معماری هوشمند و منعطف تحلیل پاسخ تشریحی (فهم‌محور و بدون اطناب)</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800">
+                    انطباق هوشمند با سؤال
+                  </span>
+                </h4>
+                <p className="text-[11px] text-[var(--muted)] font-bold mt-0.5">
+                  معیار اصلی: فهم بی‌دردسر برای داوطلب؛ تفکیک ارکان الزامی از بخش‌های اقتضایی بدون شماره‌گذاری منقطع یا قالب‌بندی مکانیکی
+                </p>
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 cursor-pointer bg-[var(--surface)] px-3 py-1.5 rounded-xl border border-[var(--line)] shadow-sm hover:border-[var(--testino-orange)] transition-colors select-none">
+              <input
+                type="checkbox"
+                checked={enforceCapsuleLeitner}
+                onChange={(e) => setEnforceCapsuleLeitner(e.target.checked)}
+                className="w-4 h-4 rounded text-[var(--testino-orange)] accent-[var(--testino-orange)] cursor-pointer"
+              />
+              <span className="text-xs font-black text-[var(--ink)]">
+                📌 تأکید مضاعف بر خلاصه کپسولی (جعبه لایتنر)
+              </span>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-[var(--surface)] border border-emerald-300 dark:border-emerald-800 space-y-1">
+              <div className="text-[11px] font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <span>✅ الزامی</span>
+              </div>
+              <div className="text-xs font-black text-[var(--ink)]">اثبات علمی گزینه</div>
+              <div className="text-[10px] text-[var(--muted)] font-bold line-clamp-1">ذکر متن کامل گزینه (ShuffleSafe)</div>
+            </div>
+
+            <div className="p-2 sm:p-2.5 rounded-xl bg-[var(--surface)] border border-rose-300 dark:border-rose-800 space-y-1">
+              <div className="text-[11px] font-black text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                <span>❌ الزامی</span>
+              </div>
+              <div className="text-xs font-black text-[var(--ink)]">کالبدشکافی ۳ گزینه</div>
+              <div className="text-[10px] text-[var(--muted)] font-bold line-clamp-1">ابطال مستند تک‌تک گزینه‌ها</div>
+            </div>
+
+            <div className="p-2 sm:p-2.5 rounded-xl bg-[var(--surface)] border border-blue-300 dark:border-blue-800 space-y-1">
+              <div className="text-[11px] font-black text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                <span>📌 الزامی</span>
+              </div>
+              <div className="text-xs font-black text-[var(--ink)]">نکته کپسولی لایتنر</div>
+              <div className="text-[10px] text-[var(--muted)] font-bold line-clamp-1">مرور سریع و تیز ۱-۲ خطی</div>
+            </div>
+
+            <div className="p-2 sm:p-2.5 rounded-xl bg-[var(--surface)] border border-amber-300 dark:border-amber-800 space-y-1">
+              <div className="text-[11px] font-black text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <span>💡 اقتضایی</span>
+              </div>
+              <div className="text-xs font-black text-[var(--ink)]">شهود و تمثیل ملموس</div>
+              <div className="text-[10px] text-[var(--muted)] font-bold line-clamp-1">مفاهیم انتزاعی با مثال عینی</div>
+            </div>
+
+            <div className="p-2 sm:p-2.5 rounded-xl bg-[var(--surface)] border border-purple-300 dark:border-purple-800 space-y-1">
+              <div className="text-[11px] font-black text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                <span>⚠️ اقتضایی</span>
+              </div>
+              <div className="text-xs font-black text-[var(--ink)]">دام تستی طراح</div>
+              <div className="text-[10px] text-[var(--muted)] font-bold line-clamp-1">تله‌های واقعی و خطاهای شایع</div>
+            </div>
+          </div>
+
+          {/* Quality & Cleanliness Indicators */}
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-bold">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)] shadow-sm">
+              <span>🚫</span>
+              <span>ممنوعیت اصطلاحات انگلیسی خودسرانه در پرانتز/گیومه</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)] shadow-sm">
+              <span>✨</span>
+              <span>تایپوگرافی پاکیزه (بدون هشتگ و ستاره‌های مارک‌داون)</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)] shadow-sm">
+              <span>🎯</span>
+              <span>پیوستگی عناوین (بدون پرش عددی یا گام ۱، ۲، ۵)</span>
+            </span>
           </div>
         </div>
 
