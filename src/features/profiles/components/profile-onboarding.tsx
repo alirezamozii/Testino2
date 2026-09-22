@@ -1527,6 +1527,7 @@ export function ProfileOnboarding() {
                               <div className="flex items-center justify-between text-[10px]">
                                 <button
                                   type="button"
+                                  aria-label="گروه مشترک با درس دیگر"
                                   onClick={() => setMergePickerForIndex(idx)}
                                   className="inline-flex items-center gap-1 font-bold text-[var(--muted)] hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
                                 >

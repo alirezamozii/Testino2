@@ -81,12 +81,21 @@ export async function completeOnboarding(page: Page, subjectName = "مدیریت
   await expect(page.getByText(subjectName).first()).toBeVisible();
 
   // The shared-group editor must be COLLAPSED by default (UX fix regression test)
-  await expect(page.getByText("این درس با درس دیگری یک گروه است؟")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /گروه مشترک|ادغام/ })
+  ).toBeVisible();
 
-  await page.getByRole("button", { name: "ادامه", exact: true }).last().click();
+  // If a multi-step continues with "ادامه", click it; otherwise proceed to finish
+  const continueBtn = page.getByRole("button", { name: "ادامه", exact: true }).last();
+  if (await continueBtn.isVisible().catch(() => false)) {
+    await continueBtn.click();
+  }
+  const planBtn = page.getByRole("button", { name: "۶ ماه" });
+  if (await planBtn.isVisible().catch(() => false)) {
+    await planBtn.click();
+  }
 
-  // Step 4 — plan & finish
-  await page.getByRole("button", { name: "۶ ماه" }).click();
+  // Complete onboarding and enter dashboard
   await page.getByRole("button", { name: /ورود به داشبورد/ }).click();
 
   try {
