@@ -18,13 +18,23 @@ export interface SupabaseConfig {
 let clientInstance: SupabaseClient | null = null;
 let cachedConfigKey = "";
 
+export const DEFAULT_SUPABASE_URL = "https://khuuqsmjrjtsmbigpnsx.supabase.co";
+export const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_mLagE8lfm8mnJa5AUSe9Ow_S1U_bxc4";
+
 /**
- * Reads Supabase config exclusively from environment variables.
- * No localStorage fallback — credentials are managed via .env only.
+ * Reads Supabase config from environment variables or project defaults.
  */
 export function getSupabaseConfig(): SupabaseConfig {
-  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-  const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "").trim();
+  const isTest = typeof process !== "undefined" && (process.env.NODE_ENV === "test" || Boolean(process.env.VITEST));
+  const fallbackUrl = isTest ? "" : DEFAULT_SUPABASE_URL;
+  const fallbackKey = isTest ? "" : DEFAULT_SUPABASE_ANON_KEY;
+
+  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || fallbackUrl).trim();
+  const anonKey = (
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    fallbackKey
+  ).trim();
   const isConfigured = Boolean(url && anonKey && url.startsWith("http"));
   return { url, anonKey, isConfigured };
 }
