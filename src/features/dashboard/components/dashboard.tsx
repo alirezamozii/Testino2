@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -15,7 +15,6 @@ import {
   RotateCcw,
   Sparkles,
   Sprout,
-  Target,
 } from "lucide-react";
 import { LoadingState } from "@/components/ui/testino-ui";
 import { SignedPercent } from "@/components/ui/signed-number";

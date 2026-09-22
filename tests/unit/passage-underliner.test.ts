@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   extractQuestionPassageTarget,
-  extractTargetUnderlineWords,
   highlightPassageTargets,
 } from "../../src/features/exams/domain/passage-underliner";
 import type { ContentBlock } from "../../src/features/questions/domain/question-schema";

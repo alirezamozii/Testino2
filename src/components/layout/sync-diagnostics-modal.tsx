@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { AlertCircle, Check, Copy, RefreshCw, ShieldCheck, X } from "lucide-react";
 import type { SyncReport, SyncStatus } from "@/sync/ports";
 
@@ -26,10 +26,8 @@ export function SyncDiagnosticsModal({
   const [copied, setCopied] = useState(false);
   const [retrySuccess, setRetrySuccess] = useState(false);
 
-  if (!isOpen) return null;
-
-  const rawErrors = lastReport?.errors?.filter(Boolean) || [];
-  const errorText = rawErrors.length > 0 ? rawErrors.join("\n") : "خطای نامشخص در همگام‌سازی ابری.";
+  const rawErrors = useMemo(() => lastReport?.errors ?? [], [lastReport?.errors]);
+  const errorText = rawErrors.join(" ");
 
   const isOwnerError =
     errorText.includes("OwnerNotFound") ||
@@ -41,10 +39,11 @@ export function SyncDiagnosticsModal({
     errorText.includes("احراز هویت") ||
     errorText.includes("نشست کاربر");
 
-  const handleCopyLog = async () => {
+  const handleCopyLog = useCallback(async () => {
+    const timestamp = lastReport?.completedAt ? new Date(lastReport.completedAt).toLocaleString("fa-IR") : new Date().toLocaleString("fa-IR");
     const diagnosticInfo = [
       "=== گزارش وضعیت همگام‌سازی تستیونو ===",
-      `زمان: ${new Date(lastReport?.completedAt || Date.now()).toLocaleString("fa-IR")}`,
+      `زمان: ${timestamp}`,
       `وضعیت: ${status}`,
       `تعداد تغییرات در صف ارسال: ${pendingCount}`,
       `تعداد ارسال‌شده: ${lastReport?.pushedCount ?? 0}`,
@@ -58,10 +57,10 @@ export function SyncDiagnosticsModal({
       await navigator.clipboard.writeText(diagnosticInfo);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
-    } catch {
-      // fallback
+    } catch (e) {
+      console.error("Failed to copy sync log", e);
     }
-  };
+  }, [lastReport, status, pendingCount, rawErrors]);
 
   const handleManualRetry = async () => {
     setRetrySuccess(false);
@@ -76,6 +75,8 @@ export function SyncDiagnosticsModal({
       // handled in parent
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">

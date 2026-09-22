@@ -16,7 +16,6 @@ import {
   ClipboardList,
   Clock,
   Download,
-  FileText,
   HelpCircle,
   Hourglass,
   Laptop,
@@ -31,8 +30,6 @@ import {
   RotateCcw,
   Sparkles,
   Timer,
-  Trash2,
-  Wrench,
   X,
   XCircle,
   Zap,
@@ -47,8 +44,6 @@ import { simulateOverallConfidence } from "@/features/analytics/domain/confidenc
 import { SignedNumber, SignedPercent, formatSignedPercentString } from "@/components/ui/signed-number";
 import { useDatabase } from "@/providers/database-provider";
 import { extractQuestionSortKey, extractOriginalQuestionNumber } from "@/database/app-database";
-import { checkIsOwner } from "@/lib/permissions";
-import { getSupabaseClient } from "@/platform/auth/supabase-client";
 import { cn } from "@/lib/utils";
 
 const PERSIAN_LETTERS = ["الف", "ب", "ج", "د"];
@@ -90,8 +85,8 @@ export function SessionPlayer() {
   const [showNavSheet, setShowNavSheet] = useState(false);
   const [showSourceModal, setShowSourceModal] = useState(false);
   const [isPassagePinned, setIsPassagePinned] = useState(true);
-  const [fontSize, setFontSize] = useState<"normal" | "large" | "xlarge">("normal");
-  const [quickNote, setQuickNote] = useState(() => {
+  const [fontSize] = useState<"normal" | "large" | "xlarge">("normal");
+  const [quickNote] = useState(() => {
     if (typeof window === "undefined" || !id) return "";
     try {
       const raw = localStorage.getItem(`testino_exam_tools_${id}`);
@@ -107,11 +102,6 @@ export function SessionPlayer() {
   const [showFinishConfirm, setShowFinishConfirm] = useState(false);
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
   const [isAbandoning, setIsAbandoning] = useState(false);
-  const [isOwner, setIsOwner] = useState(false);
-
-  useEffect(() => {
-    void checkIsOwner().then((res) => setIsOwner(res));
-  }, []);
 
   const [resultFilter, setResultFilter] = useState<"all" | "correct" | "wrong" | "unanswered">("all");
   const [navFilter, setNavFilter] = useState<"all" | "sure" | "doubtful" | "guess" | "skipped" | "unvisited">("all");
@@ -203,8 +193,8 @@ export function SessionPlayer() {
       .map((q, qIdx) => ({ ...q, qIdx }))
       .filter((q) => currentGroupId && q.snapshot.groupId === currentGroupId)
       .sort((a, b) => {
-        const numA = extractQuestionSortKey(a.snapshot as any);
-        const numB = extractQuestionSortKey(b.snapshot as any);
+        const numA = extractQuestionSortKey(a.snapshot);
+        const numB = extractQuestionSortKey(b.snapshot);
         if (!isNaN(numA) && !isNaN(numB) && numA !== numB) {
           return numA - numB;
         }
@@ -225,7 +215,7 @@ export function SessionPlayer() {
 
     if (isCloze && passageQuestions.length > 0) {
       const mappings = passageQuestions.map((pq, posIdx) => ({
-        origNum: extractOriginalQuestionNumber(pq.snapshot as any) || (pq.snapshot.source?.number ? String(pq.snapshot.source.number) : undefined),
+        origNum: extractOriginalQuestionNumber(pq.snapshot) || (pq.snapshot.source?.number ? String(pq.snapshot.source.number) : undefined),
         posNum: String(posIdx + 1),
         targetNum: pq.qIdx + 1,
       }));
@@ -265,7 +255,7 @@ export function SessionPlayer() {
     }
 
     return blocks;
-  }, [current?.snapshot.groupContent, current?.snapshot.content, isCloze, passageQuestions]);
+  }, [current, isCloze, passageQuestions]);
 
   // Align blank in active question statement to actual session question number
   const displayQuestionContent = useMemo(() => {
@@ -274,7 +264,7 @@ export function SessionPlayer() {
     }
 
     const targetNum = index + 1;
-    const origNum = extractOriginalQuestionNumber(current.snapshot as any) || (current.snapshot.source?.number ? String(current.snapshot.source.number) : undefined);
+    const origNum = extractOriginalQuestionNumber(current.snapshot) || (current.snapshot.source?.number ? String(current.snapshot.source.number) : undefined);
 
     return current.snapshot.content.map((block) => {
       if (block.type !== "text" || typeof block.value !== "string") return block;
@@ -285,14 +275,14 @@ export function SessionPlayer() {
         text = text.replace(new RegExp(`(\\[)\\s*${origNum}\\s*(\\])`, "g"), `[${targetNum}]`);
       }
 
-      // Replace any blank marker in question statement with targetNum
-      text = text.replace(/([_\\.]{2,}\s*)?([(\[])\s*\d+\s*([)\]])/g, (match, prefix, open, close) => {
+      // Also replace any unresolved blank marker if present
+      text = text.replace(/([_\\.]{2,}\s*)?([(\[])\s*\d+\s*([)\]])/, (match, prefix, open, close) => {
         return `${prefix || ""}${open}${targetNum}${close}`;
       });
 
       return { ...block, value: text };
     });
-  }, [current?.id, current?.snapshot, index, isCloze, passageQuestions.length]);
+  }, [current, index, isCloze, passageQuestions.length]);
 
   // Monotonic timer for current active screen
   useEffect(() => {
@@ -331,7 +321,7 @@ export function SessionPlayer() {
       current
         ? current.optionOrder
             .map((optionId) => current.snapshot.options.find((option) => option.id === optionId))
-            .filter(Boolean)
+            .filter((opt): opt is NonNullable<typeof opt> => Boolean(opt))
         : [],
     [current]
   );
@@ -341,7 +331,7 @@ export function SessionPlayer() {
     return remapExplanationForShuffle(
       current.snapshot.explanation,
       current.snapshot.options,
-      options.filter(Boolean) as any
+      options
     );
   }, [current, options]);
 
@@ -1405,6 +1395,20 @@ export function SessionPlayer() {
   // Bookmark is a pure visual marker (persisted locally); confidence is the persisted state.
   const isFlagged = flaggedIndices.has(index);
 
+  const sureCount = sData.questions.filter(
+    (q) => q.selectedOptionId && (q.confidence === "sure" || !q.confidence)
+  ).length;
+  const doubtfulCount = sData.questions.filter(
+    (q) => q.selectedOptionId && q.confidence === "doubtful"
+  ).length;
+  const guessCount = sData.questions.filter(
+    (q) => q.selectedOptionId && q.confidence === "guess"
+  ).length;
+  const skippedCount = sData.questions.filter(
+    (q) => !q.selectedOptionId && q.visited
+  ).length;
+  const unvisitedCount = sData.questions.filter((q) => !q.visited).length;
+
   return (
     <div className="exam-player max-w-4xl mx-auto space-y-4 pb-10 transition-colors duration-200">
       {/* Top Slim Progress Bar (Neo Style) */}
@@ -1588,18 +1592,14 @@ export function SessionPlayer() {
                 </div>
               </div>
 
-              {(() => {
-                const originalQuestionNum = extractOriginalQuestionNumber(current.snapshot as any);
-
-                return originalQuestionNum ? (
-                  <div className="p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--line)] flex items-center justify-between">
-                    <span className="text-[10px] sm:text-xs text-[var(--muted)] font-bold">شماره در کنکور / آزمون اصلی:</span>
-                    <strong className="font-black text-[var(--ink)] text-xs sm:text-sm font-mono">
-                      سؤال {originalQuestionNum} کنکور
-                    </strong>
-                  </div>
-                ) : null;
-              })()}
+              {current?.snapshot && extractOriginalQuestionNumber(current.snapshot) && (
+                <div className="p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--line)] flex items-center justify-between">
+                  <span className="text-[10px] sm:text-xs text-[var(--muted)] font-bold">شماره در کنکور / آزمون اصلی:</span>
+                  <strong className="font-black text-[var(--ink)] text-xs sm:text-sm font-mono">
+                    سؤال {extractOriginalQuestionNumber(current.snapshot)} کنکور
+                  </strong>
+                </div>
+              )}
 
               <div className="p-2.5 rounded-xl bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] text-[11px] font-bold text-[var(--ink)] space-y-1">
                 <div>
@@ -1633,23 +1633,8 @@ export function SessionPlayer() {
       )}
 
       {/* Navigation Grid Sheet (Wireframe 10 / Screen 10) */}
-      {showNavSheet && (() => {
-        const sureCount = sData.questions.filter(
-          (q) => q.selectedOptionId && (q.confidence === "sure" || !q.confidence)
-        ).length;
-        const doubtfulCount = sData.questions.filter(
-          (q) => q.selectedOptionId && q.confidence === "doubtful"
-        ).length;
-        const guessCount = sData.questions.filter(
-          (q) => q.selectedOptionId && q.confidence === "guess"
-        ).length;
-        const skippedCount = sData.questions.filter(
-          (q) => !q.selectedOptionId && q.visited
-        ).length;
-        const unvisitedCount = sData.questions.filter((q) => !q.visited).length;
-
-        return (
-          <div className="card-neo p-5 sm:p-6 space-y-4 bg-[var(--surface)] border-2 border-[var(--line-strong)] shadow-[4px_4px_0px_var(--neo-shadow)] animate-in fade-in duration-150">
+      {showNavSheet && (
+        <div className="card-neo p-5 sm:p-6 space-y-4 bg-[var(--surface)] border-2 border-[var(--line-strong)] shadow-[4px_4px_0px_var(--neo-shadow)] animate-in fade-in duration-150">
             <div className="flex items-center justify-between pb-3 border-b-2 border-[var(--line)]">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-[var(--pastel-blue)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)]">
@@ -1794,8 +1779,7 @@ export function SessionPlayer() {
               </div>
             </div>
           </div>
-        );
-      })()}
+      )}
 
       {/* Group Reading / Cloze Passage Panel */}
       {hasPassage && current && (

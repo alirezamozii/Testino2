@@ -39,7 +39,7 @@ describe("remapExplanationForShuffle", () => {
     ];
 
     const result = remapExplanationForShuffle(blocks, originalOptions, shuffledOptions);
-    const text = (result[0] as any).value;
+    const text = result[0]?.type === "text" ? result[0].value : "";
 
     // Original 2 (opt-2 "سازماندهی") is now at new index 2 -> گزینه ۳ (ج)
     expect(text).toContain("گزینه ۳ (ج)");
@@ -77,7 +77,7 @@ Step 3: Distractor analysis:
     ];
 
     const result = remapExplanationForShuffle(blocks, engOriginal, engShuffled);
-    const text = (result[0] as any).value;
+    const text = result[0]?.type === "text" ? result[0].value : "";
 
     // Option 2 (source) moved to pos 3 (ج)
     expect(text).toContain("Option 3 (ج) is correct");

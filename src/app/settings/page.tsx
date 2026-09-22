@@ -35,7 +35,7 @@ import { useDatabase } from "@/providers/database-provider";
 import { useTheme, ACCENT_OPTIONS } from "@/providers/theme-provider";
 import { cn } from "@/lib/utils";
 import { canonicalizeSubject, isSameSubject } from "@/features/questions/domain/subject-registry";
-import { partitionSubjectsForDisplay, getSanjeshMetrics, normalizeScoreGroup } from "@/features/profiles/domain/score-groups";
+import { partitionSubjectsForDisplay, normalizeScoreGroup } from "@/features/profiles/domain/score-groups";
 import { CloudSyncCard } from "@/features/account/components/cloud-sync-card";
 import { createBackup, restoreBackup } from "@/features/backup/domain/backup-service";
 import { registerSubject } from "@/platform/shared-subjects";
@@ -82,16 +82,11 @@ export default function SettingsPage() {
   const [newSubjTarget, setNewSubjTarget] = useState(70);
   const [newSubjQuestions, setNewSubjQuestions] = useState(25);
   const [newSubjCoefficient, setNewSubjCoefficient] = useState(1);
-  const [newSubjScoreGroup, setNewSubjScoreGroup] = useState("");
   const [subjectError, setSubjectError] = useState("");
   const [showAbout, setShowAbout] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [actionError, setActionError] = useState("");
-  // Only subjects whose group editor is explicitly opened show the group input —
-  // the vast majority of users never use shared score groups.
-  const [groupEditorFor, setGroupEditorFor] = useState<string | null>(null);
-  const [addGroupEnabled, setAddGroupEnabled] = useState(false);
   const [draggedSubjectId, setDraggedSubjectId] = useState<string | null>(null);
   const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null);
   const [mergePickerFor, setMergePickerFor] = useState<string | null>(null);
@@ -263,8 +258,6 @@ export default function SettingsPage() {
       setNewSubjTarget(70);
       setNewSubjQuestions(25);
       setNewSubjCoefficient(1);
-      setNewSubjScoreGroup("");
-      setAddGroupEnabled(false);
       showStatus(`درس «${name}» افزوده و در کاتالوگ جامعه ثبت شد.`);
     } catch (err) {
       setSubjectError(err instanceof Error ? err.message : "خطا در افزودن درس");
@@ -296,17 +289,6 @@ export default function SettingsPage() {
       showStatus("تنظیمات درس ذخیره شد.");
     } catch (err) {
       failAction(err, "خطا در ذخیره تنظیمات درس");
-    }
-  }
-
-  async function handleUpdateScoreGroup(subjectId: string, value: string, previousValue: string) {
-    if (value === previousValue) return;
-    try {
-      await database.db.updateProfileSubject(subjectId, { scoreGroup: value || null });
-      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
-      showStatus(value ? "گروه ذخیره شد." : "گروه حذف شد.");
-    } catch (err) {
-      failAction(err, "خطا در ذخیره گروه");
     }
   }
 

@@ -359,7 +359,7 @@ function findQuestionByRef(ref: string, questions: ImportQuestion[]): ImportQues
     match = questions.find(
       (q) =>
         (q.sourceNumber && toEnglishDigits(String(q.sourceNumber).trim()) === strippedDigits) ||
-        (q.source && (q.source as any).number !== undefined && toEnglishDigits(String((q.source as any).number).trim()) === strippedDigits) ||
+        (q.source && typeof q.source === "object" && "number" in q.source && (q.source as { number?: unknown }).number !== undefined && toEnglishDigits(String((q.source as { number?: unknown }).number).trim()) === strippedDigits) ||
         q.key === strippedDigits
     );
     if (match) return match;
@@ -451,12 +451,13 @@ export function splitMultipleJsonObjects(source: string): string[] {
   return [text];
 }
 
+type EnvelopeHeader = Omit<ImportEnvelope, "questions" | "groups">;
+
 function parseSingleEnvelope(
-  rawObj: Record<string, unknown>,
-  _envelopeIndex = 0
+  rawObj: Record<string, unknown>
 ): {
-  header: any;
-  canonicalDefaults: any;
+  header: EnvelopeHeader;
+  canonicalDefaults: ImportEnvelope["defaults"];
   valid: ImportQuestion[];
   parsedGroups: ParsedGroupResult[];
   issues: ImportIssue[];
@@ -537,7 +538,7 @@ function parseSingleEnvelope(
           if (!finalQuestionKeys.includes(matchedQ.key)) {
             finalQuestionKeys.push(matchedQ.key);
           }
-          (matchedQ as any).groupKey = groupKey;
+          matchedQ.groupKey = groupKey;
         } else {
           // If ref is already a valid key in validKeys (direct key match)
           if (validKeys.has(ref)) {
@@ -567,7 +568,7 @@ function parseSingleEnvelope(
         if (gObj.kind === "cloze") {
           const clozeQuestions = valid.filter((q) => !q.groupKey && q.chapter?.toLowerCase().includes("cloze"));
           for (const cq of clozeQuestions) {
-            (cq as any).groupKey = groupKey;
+            cq.groupKey = groupKey;
             finalQuestionKeys.push(cq.key);
           }
         }
@@ -577,7 +578,7 @@ function parseSingleEnvelope(
       finalQuestionKeys.forEach((key, pos) => {
         const q = valid.find((item) => item.key === key);
         if (q && q.groupPosition === undefined) {
-          (q as any).groupPosition = pos;
+          q.groupPosition = pos;
         }
       });
 
@@ -633,7 +634,7 @@ function parseSingleEnvelope(
   }
 
   return {
-    header,
+    header: header.data,
     canonicalDefaults,
     valid,
     parsedGroups,
@@ -677,10 +678,10 @@ export function parseImportJson(source: string): ParsedImport {
       }
     }
 
-    const singleResult = parseSingleEnvelope(rawObj, 0);
+    const singleResult = parseSingleEnvelope(rawObj);
     return {
       envelope: {
-        ...singleResult.header.data,
+        ...singleResult.header,
         defaults: singleResult.canonicalDefaults,
         questions: singleResult.valid,
         groups: singleResult.parsedGroups.map((g) => g.group),
@@ -697,8 +698,8 @@ export function parseImportJson(source: string): ParsedImport {
   const allGroups: ParsedGroupResult[] = [];
   const allIssues: ImportIssue[] = [];
   const allFingerprints = new Map<string, string>();
-  let firstHeader: any = null;
-  let firstCanonicalDefaults: any = null;
+  let firstHeader: EnvelopeHeader | null = null;
+  let firstCanonicalDefaults: ImportEnvelope["defaults"] | null = null;
   const seenGroupKeys = new Set<string>();
 
   for (let envIdx = 0; envIdx < chunks.length; envIdx++) {
@@ -728,7 +729,7 @@ export function parseImportJson(source: string): ParsedImport {
     }
 
     try {
-      const parsedChunk = parseSingleEnvelope(rawObj, envIdx);
+      const parsedChunk = parseSingleEnvelope(rawObj);
       if (!firstHeader) {
         firstHeader = parsedChunk.header;
         firstCanonicalDefaults = parsedChunk.canonicalDefaults;
@@ -738,13 +739,14 @@ export function parseImportJson(source: string): ParsedImport {
       for (const gr of parsedChunk.parsedGroups) {
         let uniqueKey = gr.group.key;
         if (seenGroupKeys.has(uniqueKey)) {
-          const yr = (rawObj.defaults as any)?.source?.year || (envIdx + 1);
+          const defaultsObj = rawObj.defaults as { source?: { year?: number } } | undefined;
+          const yr = defaultsObj?.source?.year || (envIdx + 1);
           uniqueKey = `${gr.group.key}-${yr}`;
           const oldKey = gr.group.key;
           gr.group.key = uniqueKey;
           for (const q of parsedChunk.valid) {
             if (q.groupKey === oldKey) {
-              (q as any).groupKey = uniqueKey;
+              q.groupKey = uniqueKey;
             }
           }
         }
@@ -768,7 +770,7 @@ export function parseImportJson(source: string): ParsedImport {
 
   return {
     envelope: {
-      ...(firstHeader?.data || { schemaVersion: "1.0" }),
+      ...(firstHeader || { schemaVersion: "1.0", taxonomy: [], media: [] }),
       defaults: firstCanonicalDefaults || { subject: "عمومی" },
       questions: allValid,
       groups: allGroups.map((g) => g.group),

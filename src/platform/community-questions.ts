@@ -10,7 +10,7 @@ import { registerSubject } from "@/platform/shared-subjects";
 import { canonicalizeSubject } from "@/features/questions/domain/subject-registry";
 import { checkIsOwner } from "@/lib/permissions";
 import type { AppDatabase } from "@/database/app-database";
-import type { ContentBlock, StoredQuestion } from "@/features/questions/domain/question-schema";
+import type { ContentBlock } from "@/features/questions/domain/question-schema";
 
 export interface CommunitySyncResult {
   addedCount: number;
@@ -168,7 +168,7 @@ export async function syncCommunityQuestionsForSubjects(
         // If question already exists locally, update it if the cloud version is newer (owner edit)
         const localCreated = Number(existing.createdAt || 0);
         if (remoteUpdated > localCreated) {
-          await (db as any).client.batch([
+          await db.getClient().batch([
             {
               sql: `UPDATE questions SET
                       subject=?, chapter=?, topic=?, content_json=?, explanation_json=?,
@@ -201,7 +201,7 @@ export async function syncCommunityQuestionsForSubjects(
       }
 
       // Insert new question into local SQLite
-      await (db as any).client.batch([
+      await db.getClient().batch([
         {
           sql: `INSERT OR IGNORE INTO questions(id, external_key, subject, chapter, topic, content_json, explanation_json, correct_option_id, status, shuffle_safe, created_at)
                 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

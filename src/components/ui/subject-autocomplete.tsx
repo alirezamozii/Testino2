@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Sparkles, Users, BookOpen, Check } from "lucide-react";
+import { Sparkles, Check } from "lucide-react";
 import { searchSubjectDetails, type SubjectSuggestion } from "@/platform/shared-subjects";
 import { cn } from "@/lib/utils";
 
@@ -32,13 +32,15 @@ export function SubjectAutocomplete({
 
   // Debounced search on input change
   useEffect(() => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+
     if (!value || value.trim().length < 1) {
-      setSuggestions([]);
-      setIsOpen(false);
+      searchTimeoutRef.current = setTimeout(() => {
+        setSuggestions([]);
+        setIsOpen(false);
+      }, 0);
       return;
     }
-
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
 
     searchTimeoutRef.current = setTimeout(async () => {
       try {

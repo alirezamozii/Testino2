@@ -53,7 +53,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     if (database.status !== "ready") return;
     try {
       const outbox = new OutboxRepository(database.db.getClient());
-      let owner = await database.db.getCurrentOwner();
+      const owner = await database.db.getCurrentOwner();
       let ownerId = owner?.id;
       if (!ownerId) {
         const rows = await database.db.getClient().query<{ id: string }>(

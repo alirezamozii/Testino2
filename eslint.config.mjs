@@ -9,6 +9,6 @@ export default defineConfig([
       "@next/next/no-img-element": "off",
     },
   },
-  globalIgnores([".next/**", "out/**", "public/sql-wasm.*", "android/**", "electron/**", "dist/**", "next-env.d.ts", "test-results/**", "playwright-report/**"]),
+  globalIgnores([".next/**", "out/**", "public/sql-wasm.*", "android/**", "electron/**", "dist/**", "release/**", "releases/**", "next-env.d.ts", "test-results/**", "playwright-report/**"]),
 ]);
 

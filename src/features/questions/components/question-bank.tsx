@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileUp, Plus, Search, BookOpen, ChevronLeft, Layers, Edit3, Trash2, AlertTriangle, Sparkles, Users } from "lucide-react";
+import { FileUp, Plus, Search, BookOpen, ChevronLeft, Layers, Edit3, Trash2, AlertTriangle, Sparkles } from "lucide-react";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/testino-ui";
 import { useDatabase } from "@/providers/database-provider";
@@ -114,6 +114,8 @@ export function QuestionBank() {
     return profilesQuery.data?.[0]?.subjects?.map((s) => s.name) || [];
   }, [profilesQuery.data]);
 
+  const activeSubjectsKey = activeSubjects.join(",");
+
   // Auto-sync community questions on mount when ready
   useEffect(() => {
     if (database.status === "ready" && activeSubjects.length > 0) {
@@ -126,7 +128,7 @@ export function QuestionBank() {
         }
       });
     }
-  }, [database.status, activeSubjects.join(","), database.db, cache]);
+  }, [database.status, activeSubjects, activeSubjectsKey, database.db, cache]);
 
   const analyticsQuery = useQuery({
     queryKey: ["analytics", profileId],

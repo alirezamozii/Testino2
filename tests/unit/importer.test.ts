@@ -278,8 +278,8 @@ Hope this helps! Let me know if you need more questions.
     const parsed = parseImportJson(rawAiOutput);
     expect(parsed.valid).toHaveLength(1);
     expect(parsed.valid[0].correctOptionKey).toBe("1");
-    // Check option prefix was stripped
-    expect((parsed.valid[0].options[0].content[0] as any).value).toBe("بقا و رشد");
+    const firstBlock = parsed.valid[0].options[0].content[0];
+    expect(firstBlock?.type === "text" ? firstBlock.value : "").toBe("بقا و رشد");
   });
 
   it("auto-wraps a raw array of questions when AI omits the outer envelope", () => {

@@ -245,7 +245,14 @@ function safeRowJson<T>(raw: unknown, fallback: T): T {
   }
 }
 
-export function extractOriginalQuestionNumber(q: StoredQuestion): string | undefined {
+export interface QuestionNumberExtractable {
+  externalKey?: string | null;
+  source?: { number?: string | number | null } | null;
+  content?: unknown;
+  groupPosition?: number | null;
+}
+
+export function extractOriginalQuestionNumber(q: QuestionNumberExtractable): string | undefined {
   // 1. If source.number exists and is not a 4-digit year like 1390-1499 or 1990-2099
   if (q.source?.number) {
     const s = String(q.source.number).trim();
@@ -279,7 +286,7 @@ export function extractOriginalQuestionNumber(q: StoredQuestion): string | undef
 
   // 3. For cloze/reading questions, check if content has a blank marker like (8) or _______(8)
   if (Array.isArray(q.content)) {
-    for (const b of q.content) {
+    for (const b of q.content as Array<{ type?: string; value?: unknown }>) {
       if (b && b.type === "text" && typeof b.value === "string") {
         const blankMatch = b.value.match(/(?:_{2,}|\.{2,}|\(\s*)(\d+)(?:\s*\))/);
         if (blankMatch) {
@@ -295,7 +302,7 @@ export function extractOriginalQuestionNumber(q: StoredQuestion): string | undef
   return undefined;
 }
 
-export function extractQuestionSortKey(q: StoredQuestion): number {
+export function extractQuestionSortKey(q: QuestionNumberExtractable): number {
   if (typeof q.groupPosition === "number" && !isNaN(q.groupPosition)) {
     return q.groupPosition;
   }
@@ -2075,7 +2082,7 @@ export class AppDatabase {
     }
 
     const modes = filters?.modes;
-    if (modes && modes.length > 0 && !modes.includes("all" as any)) {
+    if (modes && modes.length > 0 && !(modes as string[]).includes("all")) {
       questions = questions.filter((q) => {
         const stats = attemptsByQuestion.get(q.id);
         return modes.some((mode) => {

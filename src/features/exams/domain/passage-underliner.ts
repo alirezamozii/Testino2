@@ -148,13 +148,6 @@ function escapeRegex(str: string): string {
 }
 
 /**
- * Common short pronouns where multiple occurrences might appear.
- */
-const PRONOUN_TARGETS = new Set([
-  "his", "he", "him", "her", "she", "it", "its", "they", "them", "their", "theirs", "this", "that", "these", "those"
-]);
-
-/**
  * Automatically highlights/underlines target words in passage blocks,
  * strictly respecting paragraph boundaries when a paragraph number is specified.
  * Also prepends clean paragraph badges (¶ 1, ¶ 2, ...) to clearly distinguish paragraphs.
@@ -181,7 +174,6 @@ export function highlightPassageTargets(
 
     // Split block into individual paragraphs by double newlines or single newlines
     const rawParas = block.value.split(/\n\s*\n/);
-    const isMultiParagraph = rawParas.length > 1;
 
     const processedParas = rawParas.map((paraText) => {
       globalParaIndex++;
@@ -213,11 +205,7 @@ export function highlightPassageTargets(
             ? new RegExp(`\\b(${escaped})\\b`, "gi")
             : new RegExp(`(?<![0-9\\u06F0-\\u06F9a-zA-Z\\u0600-\\u06FF])(${escaped})(?![0-9\\u06F0-\\u06F9a-zA-Z\\u0600-\\u06FF])`, "gu");
 
-          const isPronoun = PRONOUN_TARGETS.has(target.toLowerCase());
-          let occurrenceCount = 0;
-
           modified = modified.replace(pattern, (match, p1, offset, fullText) => {
-            occurrenceCount++;
 
             // If already inside an active <u> or <ins> or <mark> tag, leave it
             const before = fullText.slice(0, offset);

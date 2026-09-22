@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 /**
  * Registers Capacitor native listeners ONCE for the app's lifetime.
@@ -13,11 +13,17 @@ import { usePathname } from "next/navigation";
  * the back button fired N confirm dialogs and N× history.back().
  */
 export function CapacitorLifecycle() {
+  const router = useRouter();
+  const routerRef = useRef(router);
   // Read the live route through a ref so the listeners stay registered once.
   const pathnameRef = useRef<string>("/");
   const pathname = usePathname();
 
-  // Keep the ref current after each render (writing refs during render is unsafe)
+  // Keep refs current after each render (writing refs during render is unsafe)
+  useEffect(() => {
+    routerRef.current = router;
+  }, [router]);
+
   useEffect(() => {
     pathnameRef.current = pathname || "/";
   }, [pathname]);
@@ -78,9 +84,9 @@ export function CapacitorLifecycle() {
             const parsed = new URL(openedUrl);
             const path = `${parsed.host || ""}${parsed.pathname}`.replace(/\/+$/, "");
             const query = parsed.search || "";
-            window.location.assign(`/${path}${query}` || "/");
+            routerRef.current.push(`/${path}${query}` || "/");
           } catch {
-            window.location.assign("/");
+            routerRef.current.push("/");
           }
         });
 

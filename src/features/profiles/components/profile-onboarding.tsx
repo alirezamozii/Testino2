@@ -20,7 +20,6 @@ import {
   Link2,
   GripVertical,
   Unlink,
-  Layers,
 } from "lucide-react";
 import { useDatabase } from "@/providers/database-provider";
 import { useQueryClient } from "@tanstack/react-query";
@@ -84,9 +83,6 @@ export function ProfileOnboarding() {
   const [newSubjCoeff, setNewSubjCoeff] = useState(3);
   const [newSubjTarget, setNewSubjTarget] = useState(70);
   const [newSubjQuestions, setNewSubjQuestions] = useState(25);
-  const [isGroupMergeEnabled, setIsGroupMergeEnabled] = useState(false);
-  const [showGroupMerge, setShowGroupMerge] = useState(false);
-  const [newSubjScoreGroup, setNewSubjScoreGroup] = useState("");
   const [subjectError, setSubjectError] = useState("");
   const [draggedSubjectIndex, setDraggedSubjectIndex] = useState<number | null>(null);
   const [dragOverTargetIndex, setDragOverTargetIndex] = useState<number | null>(null);
@@ -584,8 +580,6 @@ export function ProfileOnboarding() {
     setNewSubjCoeff(3);
     setNewSubjTarget(70);
     setNewSubjQuestions(25);
-    setIsGroupMergeEnabled(false);
-    setNewSubjScoreGroup("");
     setSubjectError("");
   }
 

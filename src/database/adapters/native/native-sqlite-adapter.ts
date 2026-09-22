@@ -50,6 +50,7 @@ export class NativeSqliteAdapter implements DatabasePort {
   }
 
   async batch(statements: SqlStatement[], _opts?: { timeoutMs?: number }): Promise<void> {
+    void _opts;
     this.assertOpen();
     if (this.nativeConn) {
       for (const stmt of statements) {

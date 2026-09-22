@@ -10,7 +10,6 @@
 import { getSupabaseClient } from "@/platform/auth/supabase-client";
 import {
   CANONICAL_MANAGEMENT_SUBJECTS,
-  canonicalizeSubject,
   canonicalizeSubjectList,
   normalizeSubjectName,
 } from "@/features/questions/domain/subject-registry";

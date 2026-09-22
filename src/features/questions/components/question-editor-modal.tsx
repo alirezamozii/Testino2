@@ -17,7 +17,6 @@ import {
   Loader2,
   UploadCloud,
   Sparkles,
-  Users,
 } from "lucide-react";
 import type { ContentBlock, StoredQuestion } from "@/features/questions/domain/question-schema";
 import { useDatabase } from "@/providers/database-provider";
@@ -26,7 +25,6 @@ import { cn } from "@/lib/utils";
 import { optimizeImageForUpload } from "@/features/media/domain/image-optimizer";
 import { SubjectAutocomplete } from "@/components/ui/subject-autocomplete";
 import { publishQuestionToCommunity } from "@/platform/community-questions";
-import { registerSubject } from "@/platform/shared-subjects";
 import { checkIsOwner } from "@/lib/permissions";
 
 interface AttachedImage {
