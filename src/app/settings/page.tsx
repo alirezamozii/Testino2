@@ -89,7 +89,7 @@ export default function SettingsPage() {
   const [actionError, setActionError] = useState("");
   const [draggedSubjectId, setDraggedSubjectId] = useState<string | null>(null);
   const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null);
-  const [mergePickerFor, setMergePickerFor] = useState<string | null>(null);
+  const [groupEditorFor, setGroupEditorFor] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const toggleGroup = (groupName: string) => {
@@ -316,7 +316,17 @@ export default function SettingsPage() {
     } finally {
       setDraggedSubjectId(null);
       setDragOverTargetId(null);
-      setMergePickerFor(null);
+    }
+  }
+
+  async function handleUpdateScoreGroup(subjectId: string, groupName: string, previousValue: string) {
+    if (groupName === previousValue) return;
+    try {
+      await database.db.updateProfileSubject(subjectId, { scoreGroup: groupName || null });
+      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      showStatus("گروه ذخیره شد.");
+    } catch (err) {
+      failAction(err, "خطا در ذخیره گروه");
     }
   }
 
@@ -967,35 +977,54 @@ export default function SettingsPage() {
                           </span>
                         </div>
 
-                        {mergePickerFor === s.id ? (
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] font-bold text-[var(--muted)]">ادغام با:</span>
-                            {otherSubjects.slice(0, 4).map((other) => (
-                              <button
-                                key={other.id}
-                                type="button"
-                                onClick={() => handleMergeSubjects(s.id, other.id)}
-                                className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border border-sky-300 hover:bg-sky-500 hover:text-white transition-colors"
-                              >
-                                {other.name}
-                              </button>
-                            ))}
+                        {groupEditorFor === s.id ? (
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full pt-1.5 border-t border-[var(--line-strong)]/10">
+                            <label className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--muted)] flex-1">
+                              <span>گروه مشترک:</span>
+                              <input
+                                aria-label={`گروه مشترک ${s.name}`}
+                                type="text"
+                                defaultValue={s.scoreGroup ?? ""}
+                                onBlur={(event) => handleUpdateScoreGroup(s.id, event.currentTarget.value.trim(), s.scoreGroup ?? "")}
+                                placeholder="مثلاً: مدیریت یا اقتصاد"
+                                className="min-w-0 flex-1 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-2 py-1 text-xs font-bold text-[var(--ink)]"
+                              />
+                            </label>
+                            {otherSubjects.length > 0 && (
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <span className="text-[10px] font-bold text-[var(--muted)]">یا ادغام با:</span>
+                                {otherSubjects.slice(0, 3).map((other) => (
+                                  <button
+                                    key={other.id}
+                                    type="button"
+                                    onClick={() => {
+                                      handleMergeSubjects(s.id, other.id);
+                                      setGroupEditorFor(null);
+                                    }}
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border border-sky-300 hover:bg-sky-500 hover:text-white transition-colors"
+                                  >
+                                    {other.name}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                             <button
                               type="button"
-                              onClick={() => setMergePickerFor(null)}
-                              className="text-[10px] text-[var(--muted)] hover:text-[var(--ink)]"
+                              onClick={() => setGroupEditorFor(null)}
+                              className="text-[10px] text-[var(--muted)] hover:text-[var(--ink)] self-end sm:self-auto cursor-pointer"
                             >
-                              انصراف
+                              بستن
                             </button>
                           </div>
                         ) : (
                           <button
                             type="button"
-                            onClick={() => setMergePickerFor(s.id)}
-                            className="inline-flex items-center gap-1 text-[10px] text-[var(--muted)] hover:text-sky-600 transition-colors"
+                            onClick={() => setGroupEditorFor(s.id)}
+                            className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--muted)] hover:text-sky-600 transition-colors cursor-pointer"
+                            aria-label={`گروه مشترک با درس دیگر برای ${s.name}`}
                           >
                             <Link2 size={11} className="text-sky-500" />
-                            <span>ادغام در گروه کنکوری</span>
+                            <span>گروه مشترک با درس دیگر (ادغام)</span>
                           </button>
                         )}
                       </div>
