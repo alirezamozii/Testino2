@@ -67,6 +67,8 @@ jobs:
     name: Build Android APK
     needs: [build-web]
     runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -110,9 +112,7 @@ jobs:
       # When secrets are absent the Gradle config falls back to debug signing
       # automatically, so assembleRelease always succeeds and produces an installable APK.
       - name: Decode Release Keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
           echo "KEYSTORE_PATH=release.keystore" >> $GITHUB_ENV
