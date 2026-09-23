@@ -77,10 +77,17 @@ export function OfflineLibraryCard({
     try {
       const report = await service.downloadEnabled(ownerId, profileId);
       if (report.errors.length) {
-        setFeedback({
-          kind: "error",
-          text: `${report.questions.toLocaleString("fa-IR")} سؤال ذخیره شد؛ ${report.missingMedia.toLocaleString("fa-IR")} رسانه هنوز در دسترس نیست.`,
-        });
+        if (report.questions === 0 && report.media === 0) {
+          setFeedback({
+            kind: "error",
+            text: `ارتباط با سرور ابری برقرار نشد (پروژه ابری در دسترس نیست یا متوقف شده است). توجه: سؤالات موجود در سیستم شما از قبل به صورت آفلاین فعال و در دسترس هستند.`,
+          });
+        } else {
+          setFeedback({
+            kind: "error",
+            text: `${report.questions.toLocaleString("fa-IR")} سؤال ذخیره شد؛ ${report.missingMedia > 0 ? `${report.missingMedia.toLocaleString("fa-IR")} تصویر در دسترس نیست.` : "برخی رسانه‌ها دریافت نشدند."}`,
+          });
+        }
       } else {
         setFeedback({
           kind: "success",
@@ -89,7 +96,10 @@ export function OfflineLibraryCard({
       }
       await queryClient.invalidateQueries({ queryKey: ["offline-library", ownerId, profileId] });
     } catch (error) {
-      setFeedback({ kind: "error", text: error instanceof Error ? error.message : "دانلود آفلاین ناموفق بود." });
+      setFeedback({
+        kind: "error",
+        text: `خطا در دریافت ابری: ${error instanceof Error ? error.message : "اتصال با سرور برقرار نشد."} (بانک سؤالات محلی شما آفلاین کار می‌کند)`,
+      });
     } finally {
       setDownloading(false);
     }
@@ -102,9 +112,9 @@ export function OfflineLibraryCard({
           <HardDriveDownload size={20} />
         </div>
         <div>
-          <h3 id="offline-library-title" className="text-sm font-black text-[var(--ink)]">کتابخانهٔ آفلاین</h3>
+          <h3 id="offline-library-title" className="text-sm font-black text-[var(--ink)]">کتابخانهٔ آفلاین (دریافت از سرور ابری)</h3>
           <p className="text-[11px] leading-5 text-[var(--muted)] font-bold">
-            درس‌های انتخابی را یک‌بار دانلود کن تا بدون اینترنت هم در دسترس باشند.
+            دریافت سؤالات از حساب ابری برای استفادهٔ بدون اینترنت (سؤالات واردشده به سیستم شما همیشه به‌صورت آفلاین فعال هستند).
           </p>
         </div>
       </div>
