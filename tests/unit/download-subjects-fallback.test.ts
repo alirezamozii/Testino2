@@ -6,7 +6,7 @@ describe("SupabaseTransport downloadSubjects fallback", () => {
   it("falls back to querying change_log directly when download_subject_content RPC fails", async () => {
     const mockRpc = vi.fn().mockRejectedValue(new Error("Could not find the function public.download_subject_content in schema cache"));
 
-    const mockQueryBuilder: Record<string, any> = {};
+    const mockQueryBuilder: Record<string, unknown> = {};
     mockQueryBuilder.eq = vi.fn().mockReturnValue(mockQueryBuilder);
     mockQueryBuilder.gt = vi.fn().mockReturnValue(mockQueryBuilder);
     mockQueryBuilder.filter = vi.fn().mockReturnValue(mockQueryBuilder);
