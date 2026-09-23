@@ -105,17 +105,79 @@ export class SupabaseTransport implements SyncTransport {
     const cleaned = [...new Set(subjectNames.map((name) => name.trim()).filter(Boolean))];
     if (!cleaned.length) return { changes: [], nextCursor: cursor || "0", hasMore: false };
 
-    const { data, error } = await withTimeout(
-      client.rpc("download_subject_content", {
-        p_subject_names: cleaned,
-        p_cursor: cursor || "0",
-        p_limit: Math.min(Math.max(limit, 1), 100),
-      }),
-      RPC_TIMEOUT_MS,
-      "دانلود محتوای درس"
-    );
-    if (error) throw new Error(`خطای دانلود آفلاین درس‌ها: ${error.message}`);
-    return this.mapPullResult(data, cursor);
+    const effectiveLimit = Math.min(Math.max(limit, 1), 100);
+    const numericCursor = Number(cursor || "0") || 0;
+
+    let rpcError: unknown = null;
+    try {
+      const { data, error } = await withTimeout(
+        client.rpc("download_subject_content", {
+          p_subject_names: cleaned,
+          p_cursor: cursor || "0",
+          p_limit: effectiveLimit,
+        }),
+        RPC_TIMEOUT_MS,
+        "دانلود محتوای درس"
+      );
+
+      if (!error && data) {
+        return this.mapPullResult(data, cursor);
+      }
+      rpcError = error;
+    } catch (err) {
+      rpcError = err;
+    }
+
+    // Fallback: If RPC does not exist (e.g. PGRST202) or fails, query change_log directly via PostgREST
+    try {
+      const inVal = `(${cleaned.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(",")})`;
+      let filterBuilder = client
+        .from("change_log")
+        .select("change_seq, entity_type, entity_id, server_version, is_tombstone, payload, created_at")
+        .eq("entity_type", "questionBundle")
+        .gt("change_seq", numericCursor);
+
+      if (cleaned.length > 0) {
+        filterBuilder = filterBuilder.filter("payload->question->>subject", "in", inVal);
+      }
+
+      const query = filterBuilder
+        .order("change_seq", { ascending: true })
+        .limit(effectiveLimit + 1);
+
+      const { data: rows, error: queryErr } = await withTimeout(
+        query,
+        RPC_TIMEOUT_MS,
+        "دریافت سؤالات از تغییرات"
+      );
+
+      if (queryErr) {
+        throw new Error(queryErr.message);
+      }
+
+      const list = Array.isArray(rows) ? rows : [];
+      const hasMore = list.length > effectiveLimit;
+      const pageRows = hasMore ? list.slice(0, effectiveLimit) : list;
+      const nextCursor = pageRows.length > 0 ? String(pageRows[pageRows.length - 1].change_seq) : cursor;
+
+      return {
+        changes: pageRows.map((c: Record<string, unknown>) => ({
+          changeSeq: String(c.change_seq || "0"),
+          entityType: String(c.entity_type || ""),
+          entityId: String(c.entity_id || ""),
+          serverVersion: Number(c.server_version || 1),
+          isTombstone: Boolean(c.is_tombstone),
+          payload: (c.payload as Record<string, unknown>) || {},
+          createdAt: String(c.created_at || new Date().toISOString()),
+        })),
+        nextCursor: String(nextCursor),
+        hasMore,
+      };
+    } catch (fallbackErr) {
+      const rpcMsg = rpcError ? (rpcError instanceof Error ? rpcError.message : String(rpcError)) : "";
+      const fbMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      throw new Error(`خطای دریافت سؤالات از سرور: ${fbMsg || rpcMsg}`);
+    }
   }
 
   async uploadMedia(input: { sha256: string; mime: string; bytes: Uint8Array }): Promise<string> {

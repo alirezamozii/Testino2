@@ -77,17 +77,23 @@ export function OfflineLibraryCard({
     try {
       const report = await service.downloadEnabled(ownerId, profileId);
       if (report.errors.length) {
+        const firstError = report.errors[0];
         if (report.questions === 0 && report.media === 0) {
           setFeedback({
             kind: "error",
-            text: `ارتباط با سرور ابری برقرار نشد (پروژه ابری در دسترس نیست یا متوقف شده است). توجه: سؤالات موجود در سیستم شما از قبل به صورت آفلاین فعال و در دسترس هستند.`,
+            text: `خطا در دریافت سؤالات ابری: ${firstError} (سؤالات محلی شما همچنان به صورت آفلاین فعال هستند).`,
           });
         } else {
           setFeedback({
             kind: "error",
-            text: `${report.questions.toLocaleString("fa-IR")} سؤال ذخیره شد؛ ${report.missingMedia > 0 ? `${report.missingMedia.toLocaleString("fa-IR")} تصویر در دسترس نیست.` : "برخی رسانه‌ها دریافت نشدند."}`,
+            text: `${report.questions.toLocaleString("fa-IR")} سؤال ذخیره شد؛ اما ${firstError}`,
           });
         }
+      } else if (report.questions === 0 && report.media === 0) {
+        setFeedback({
+          kind: "success",
+          text: "هیچ سؤال جدیدی برای درس‌های انتخاب‌شده در سرور ابری یافت نشد. تمام سؤالات محلی شما به صورت آفلاین فعال هستند.",
+        });
       } else {
         setFeedback({
           kind: "success",
