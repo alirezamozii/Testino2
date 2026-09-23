@@ -44,11 +44,14 @@ export interface SessionConfig {
   topicFilters?: string[] | null;
   requestedCount?: number | null;
   selectedCount?: number | null;
+  isOpenEnded?: boolean;
   shuffleQuestions?: boolean;
   shuffleOptions?: boolean;
   feedbackMode?: "instant" | "deferred";
+  instantFeedback?: boolean;
   durationMinutes?: number | null;
   negativeMarking?: boolean;
+  scorePolicy?: { penaltyNumerator: number; penaltyDenominator: number };
 }
 
 export interface CreateSessionOptions {
