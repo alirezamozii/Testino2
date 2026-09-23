@@ -397,6 +397,17 @@ async function applyQuestionBundle(trx: DatabasePort, payload: Record<string, un
     };
     await upsertRaw(trx, "media_files", remoteMedia, MEDIA_COLUMNS);
   }
+  // Skip duplicate questions if already imported/present locally by external_key
+  if (question.external_key) {
+    const existing = await trx.query<{ id: string }>(
+      "SELECT id FROM questions WHERE external_key=? LIMIT 1",
+      [question.external_key]
+    );
+    if (existing.length && existing[0].id !== question.id) {
+      return;
+    }
+  }
+
   await upsertRaw(trx, "questions", question, QUESTION_COLUMNS);
   await trx.execute("DELETE FROM question_options WHERE question_id=?", [question.id]);
   for (const option of records(payload.options)) await upsertRaw(trx, "question_options", option, OPTION_COLUMNS);

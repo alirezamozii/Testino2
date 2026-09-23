@@ -492,7 +492,9 @@ export function Dashboard() {
 
                   const stats = statsBySubject.get(canonicalizeSubject(subject.name));
                   const accuracy = stats?.accuracyPct ?? 0;
+                  const penalized = stats?.penalizedPct ?? 0;
                   const hasSubjectAttempts = Boolean(stats && stats.total > 0);
+                  const fillWidth = Math.max(0, Math.min(100, penalized));
                   return (
                     <div key={subject.id} className="space-y-1.5 p-2 rounded-2xl bg-[var(--surface-2)]/50 border border-[var(--line)]">
                       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
@@ -529,15 +531,23 @@ export function Dashboard() {
                         <div
                           dir="ltr"
                           className="relative flex-1 bg-[var(--surface-3)] h-2.5 rounded-full overflow-hidden border border-[var(--line)]"
-                          title={`پیشرفت تا هدف ${subject.targetPercentage}٪`}
+                          title={
+                            hasSubjectAttempts
+                              ? `درصد کنکوری با کسر نمره منفی: ${penalized}٪ | دقت: ${accuracy}٪ | هدف: ${subject.targetPercentage}٪`
+                              : `هدف: ${subject.targetPercentage}٪`
+                          }
                         >
-                          {/* Real accuracy fill — 0% to 100% left-to-right */}
+                          {/* Real Konkur score fill — 0% to 100% left-to-right */}
                           <div
                             className={cn(
                               "h-full rounded-full transition-all duration-500",
-                              hasSubjectAttempts ? "bg-[var(--brand-green)]" : "bg-transparent"
+                              hasSubjectAttempts
+                                ? penalized < 0
+                                  ? "bg-red-500"
+                                  : "bg-[var(--brand-green)]"
+                                : "bg-transparent"
                             )}
-                            style={{ width: hasSubjectAttempts ? `${accuracy}%` : "0%" }}
+                            style={{ width: hasSubjectAttempts ? `${fillWidth}%` : "0%" }}
                           />
                           {/* Target marker on standard scale (0% left -> 100% right) */}
                           <div
@@ -546,9 +556,23 @@ export function Dashboard() {
                             title={`هدف: ${subject.targetPercentage}٪`}
                           />
                         </div>
-                        <span className="text-[10px] font-black text-[var(--ink)] shrink-0 w-16 text-left">
-                          {hasSubjectAttempts ? `${accuracy.toLocaleString("fa-IR")}٪ درست` : "بدون آزمون"}
-                        </span>
+                        <div
+                          className="text-[10px] font-black shrink-0 flex items-center gap-1.5 min-w-[70px] justify-end"
+                          title={hasSubjectAttempts ? `درصد رسمی کنکور با نمره منفی: ${penalized}٪ | دقت: ${accuracy}٪` : undefined}
+                        >
+                          {hasSubjectAttempts ? (
+                            <>
+                              <span className={penalized < 0 ? "text-red-500 font-black" : "text-[var(--ink)] font-black"}>
+                                {penalized.toLocaleString("fa-IR")}٪ کنکور
+                              </span>
+                              <span className="text-[9px] font-bold text-[var(--muted)]">
+                                (دقت {accuracy.toLocaleString("fa-IR")}٪)
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-[var(--muted)] font-bold">بدون آزمون</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

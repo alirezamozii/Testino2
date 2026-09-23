@@ -36,17 +36,17 @@ export type QuestionPoolMode = "new" | "wrong" | "doubtful" | "guess" | "bookmar
 
 export interface SessionConfig {
   profileId: string;
-  mode?: QuestionPoolMode | "continuous";
+  mode?: QuestionPoolMode | "continuous" | "ordered";
   modes?: QuestionPoolMode[];
   subjectFilter?: string | null;
   subjectFilters?: string[] | null;
   chapterFilters?: string[] | null;
   topicFilters?: string[] | null;
   requestedCount?: number | null;
-  isOpenEnded?: boolean;
-  scorePolicy?: { penaltyNumerator: number; penaltyDenominator: number };
+  selectedCount?: number | null;
+  shuffleQuestions?: boolean;
+  shuffleOptions?: boolean;
   feedbackMode?: "instant" | "deferred";
-  instantFeedback?: boolean;
   durationMinutes?: number | null;
   negativeMarking?: boolean;
 }
@@ -54,11 +54,13 @@ export interface SessionConfig {
 export interface CreateSessionOptions {
   profileId?: string;
   count?: number | null;
-  mode?: QuestionPoolMode | "continuous";
+  mode?: QuestionPoolMode | "continuous" | "ordered";
   modes?: QuestionPoolMode[];
   subject?: string | null;
   subjects?: string[];
+  chapter?: string | null;
   chapters?: string[];
+  topic?: string | null;
   topics?: string[];
   isOpenEnded?: boolean;
   shuffleQuestions?: boolean;
@@ -109,6 +111,7 @@ export interface SessionQuestion {
   activeMs: number;
   snapshot: StoredQuestion;
   optionOrder: string[];
+  isAnswered?: boolean;
 }
 
 export interface SessionView {
@@ -117,6 +120,8 @@ export interface SessionView {
   currentOrdinal: number;
   config?: SessionConfig | null;
   questions: SessionQuestion[];
+  finalizedAt?: number | null;
+  percentage?: number;
 }
 
 
@@ -1682,8 +1687,12 @@ export class AppDatabase {
       ? opts.subjects
       : (opts.subject && opts.subject !== "all" ? [opts.subject] : null);
     const subjectFilter = subjects && subjects.length === 1 ? subjects[0] : (opts.subject && opts.subject !== "all" ? opts.subject : null);
-    const chapterFilters = opts.chapters && opts.chapters.length > 0 ? opts.chapters : null;
-    const topicFilters = opts.topics && opts.topics.length > 0 ? opts.topics : null;
+    const chapterFilters = (opts.chapters && opts.chapters.length > 0)
+      ? opts.chapters
+      : (opts.chapter && opts.chapter !== "all" ? [opts.chapter] : null);
+    const topicFilters = (opts.topics && opts.topics.length > 0)
+      ? opts.topics
+      : (opts.topic && opts.topic !== "all" ? [opts.topic] : null);
 
     let questions = await this.listQuestions({ limit: 10_000, status: "published" });
     const incompleteGroups = await this.client.query<{ id: string }>(
@@ -1713,7 +1722,7 @@ export class AppDatabase {
     }
     if (chapterFilters && chapterFilters.length > 0 && topicFilters && topicFilters.length > 0) {
       questions = questions.filter(
-        (q) => matchesChapterFilters(q, chapterFilters) || matchesTopicFilters(q, topicFilters)
+        (q) => matchesChapterFilters(q, chapterFilters) && matchesTopicFilters(q, topicFilters)
       );
     } else if (chapterFilters && chapterFilters.length > 0) {
       questions = questions.filter((q) => matchesChapterFilters(q, chapterFilters));
@@ -1723,7 +1732,7 @@ export class AppDatabase {
 
     const selectedModes: QuestionPoolMode[] = (opts.modes && opts.modes.length > 0)
       ? opts.modes
-      : mode === "continuous" ? ["random"] : [mode as QuestionPoolMode];
+      : mode === "continuous" || mode === "ordered" ? ["random"] : [mode as QuestionPoolMode];
 
     const isAllRandom = selectedModes.includes("random") || selectedModes.length === 0;
 
@@ -2313,6 +2322,7 @@ export class AppDatabase {
       confidence: row.confidence as SessionQuestion["confidence"],
       visited: Boolean(row.visited),
       activeMs: Number(row.active_ms),
+      isAnswered: Boolean(row.selected_option_id),
       snapshot: safeRowJson<SessionQuestion["snapshot"]>(row.snapshot_json, null as unknown as SessionQuestion["snapshot"]),
       optionOrder: safeRowJson<string[]>(row.option_order_json, []),
     }));
@@ -2353,12 +2363,29 @@ export class AppDatabase {
       }
     }
 
+    let percentage: number | undefined;
+    if (sessionRow.state === "FINISHED" && sortedQuestions.length > 0) {
+      let correct = 0;
+      let wrong = 0;
+      for (const q of sortedQuestions) {
+        if (!q.selectedOptionId) continue;
+        const isCorrect = q.snapshot && q.selectedOptionId === q.snapshot.correctOptionId;
+        if (isCorrect) correct++;
+        else wrong++;
+      }
+      const net = correct - wrong / 3;
+      percentage = Math.round((net / sortedQuestions.length) * 100);
+      if (wrong === 0 && correct === sortedQuestions.length) percentage = 100;
+    }
+
     return {
       id,
       state: sessionRow.state as SessionView["state"],
       currentOrdinal: Number(sessionRow.current_ordinal),
       config,
       questions: sortedQuestions,
+      finalizedAt: sessionRow.finalized_at ? Number(sessionRow.finalized_at) : null,
+      percentage,
     };
   }
 
@@ -2697,21 +2724,37 @@ export class AppDatabase {
     );
 
     // Real per-subject accuracy from finished attempts — feeds the dashboard
-    // "subject progress" bars with performance data instead of the raw target.
-    const subjectAgg = new Map<string, { correct: number; total: number }>();
+    // Real per-subject accuracy & Konkur score from finished attempts — feeds the dashboard
+    // "subject progress" bars with official Sanjesh penalized scoring and accuracy.
+    const subjectAgg = new Map<string, { correct: number; wrong: number; unanswered: number; total: number }>();
     for (const row of rows) {
       const key = canonicalizeSubject(row.subject);
-      const agg = subjectAgg.get(key) ?? { correct: 0, total: 0 };
+      const agg = subjectAgg.get(key) ?? { correct: 0, wrong: 0, unanswered: 0, total: 0 };
       agg.total += 1;
-      if (row.result === "correct") agg.correct += 1;
+      if (row.result === "correct") {
+        agg.correct += 1;
+      } else if (row.result === "wrong") {
+        agg.wrong += 1;
+      } else {
+        agg.unanswered += 1;
+      }
       subjectAgg.set(key, agg);
     }
-    const subjectStats = [...subjectAgg.entries()].map(([subject, agg]) => ({
-      subject,
-      correct: agg.correct,
-      total: agg.total,
-      accuracyPct: agg.total ? Math.round((agg.correct / agg.total) * 100) : 0,
-    }));
+    const subjectStats = [...subjectAgg.entries()].map(([subject, agg]) => {
+      const accuracyPct = agg.total ? Math.round((agg.correct / agg.total) * 100) : 0;
+      // Konkur formula: (3 * correct - wrong) / (3 * total) * 100
+      const net = agg.correct - agg.wrong / 3;
+      const penalizedPct = agg.total ? Math.round((net / agg.total) * 100 * 10) / 10 : 0;
+      return {
+        subject,
+        correct: agg.correct,
+        wrong: agg.wrong,
+        unanswered: agg.unanswered,
+        total: agg.total,
+        accuracyPct,
+        penalizedPct,
+      };
+    });
 
     return {
       questionCount: Number(questionCount?.count || 0),
