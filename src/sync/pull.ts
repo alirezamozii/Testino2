@@ -81,9 +81,19 @@ export async function applyRemoteChange(
     const now = Date.now();
     switch (entityType) {
       case "question":
+      case "questionBundle":
         await trx.execute("UPDATE questions SET inactive_at=? WHERE id=?", [now, entityId]);
         break;
+      case "session":
+      case "sessionBundle":
+        await trx.execute("DELETE FROM review_items WHERE last_attempt_id IN (SELECT id FROM attempts WHERE session_id=?)", [entityId]);
+        await trx.execute("DELETE FROM attempt_events WHERE session_id=?", [entityId]);
+        await trx.execute("DELETE FROM attempts WHERE session_id=?", [entityId]);
+        await trx.execute("DELETE FROM session_questions WHERE session_id=?", [entityId]);
+        await trx.execute("DELETE FROM sessions WHERE id=?", [entityId]);
+        break;
       case "profile":
+      case "profileBundle":
         await trx.execute("UPDATE profiles SET inactive_at=? WHERE id=?", [now, entityId]);
         break;
       case "subject":
@@ -364,6 +374,15 @@ const QUESTION_MEDIA_COLUMNS = ["id", "question_id", "group_id", "media_id", "ro
 
 async function applyQuestionBundle(trx: DatabasePort, payload: Record<string, unknown>): Promise<void> {
   const question = record(payload.question);
+  if (payload.is_tombstone || question?.inactive_at) {
+    const qId = String(question?.id || payload.id || payload.entityId || "");
+    if (qId) {
+      const inactiveAt = typeof question?.inactive_at === "number" ? question.inactive_at : Date.now();
+      await trx.execute("UPDATE questions SET inactive_at=? WHERE id=?", [inactiveAt, qId]);
+      await trx.execute("DELETE FROM session_questions WHERE question_id=?", [qId]);
+      return;
+    }
+  }
   if (!question) throw new Error("بستهٔ سؤال ابری ناقص است.");
   const source = record(payload.source);
   const group = record(payload.group);
@@ -496,7 +515,15 @@ async function applySessionBundle(
   payload: Record<string, unknown>
 ): Promise<void> {
   const session = record(payload.session);
-  if (!session) throw new Error("بستهٔ جلسهٔ ابری ناقص است.");
+  if (!session || session.is_tombstone || session.state === "DELETED" || payload.is_tombstone) {
+    const sessionId = String(session?.id || entityId);
+    await trx.execute("DELETE FROM review_items WHERE last_attempt_id IN (SELECT id FROM attempts WHERE session_id=?)", [sessionId]);
+    await trx.execute("DELETE FROM attempt_events WHERE session_id=?", [sessionId]);
+    await trx.execute("DELETE FROM attempts WHERE session_id=?", [sessionId]);
+    await trx.execute("DELETE FROM session_questions WHERE session_id=?", [sessionId]);
+    await trx.execute("DELETE FROM sessions WHERE id=?", [sessionId]);
+    return;
+  }
   const local = await trx.query<{ state: string }>("SELECT state FROM sessions WHERE id=? LIMIT 1", [session.id]);
   if (local[0]?.state === "FINISHED" && session.state !== "FINISHED") return;
 

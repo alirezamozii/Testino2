@@ -2,6 +2,7 @@ import { SqliteWorkerClient } from "./adapters/web/worker-client";
 import type { DatabasePort } from "./ports";
 import type { SqlStatement } from "./protocol";
 import { runMigrations } from "./migrate";
+import { OutboxRepository } from "./repositories/outbox-repository";
 import type { ParsedImport } from "@/features/questions/domain/importer";
 import type { ContentBlock, StoredQuestion } from "@/features/questions/domain/question-schema";
 import { scheduleReview, type ReviewState } from "@/features/review/domain/scheduler";
@@ -1371,6 +1372,27 @@ export class AppDatabase {
   }
 
   async deleteQuestion(id: string): Promise<void> {
+    const owner = await this.getCurrentOwner().catch(() => null);
+    const ownerId = owner?.id;
+    if (ownerId) {
+      try {
+        const outbox = new OutboxRepository(this.client);
+        await outbox.enqueue(ownerId, {
+          mutationId: `tombstone:questionBundle:${id}:${Date.now()}`,
+          entityType: "questionBundle",
+          entityId: id,
+          baseVersion: 1,
+          payload: {
+            id,
+            is_tombstone: true,
+            question: { id, inactive_at: Date.now() },
+          },
+        });
+      } catch {
+        // ignore outbox enqueue error on offline/ephemeral
+      }
+    }
+
     await this.client.batch([
       { sql: "DELETE FROM review_items WHERE question_id = ? OR last_attempt_id IN (SELECT id FROM attempts WHERE question_id = ?)", bind: [id, id] },
       { sql: "DELETE FROM attempt_events WHERE session_question_id IN (SELECT id FROM session_questions WHERE question_id = ?)", bind: [id] },
@@ -1441,6 +1463,29 @@ export class AppDatabase {
       [batchId]
     );
     const questionIds = rows.map((r) => r.id);
+
+    const owner = await this.getCurrentOwner().catch(() => null);
+    const ownerId = owner?.id;
+    if (ownerId && questionIds.length > 0) {
+      try {
+        const outbox = new OutboxRepository(this.client);
+        for (const qId of questionIds) {
+          await outbox.enqueue(ownerId, {
+            mutationId: `tombstone:questionBundle:${qId}:${Date.now()}`,
+            entityType: "questionBundle",
+            entityId: qId,
+            baseVersion: 1,
+            payload: {
+              id: qId,
+              is_tombstone: true,
+              question: { id: qId, inactive_at: Date.now() },
+            },
+          });
+        }
+      } catch {
+        // ignore outbox enqueue error on offline/ephemeral
+      }
+    }
 
     if (isOwner) {
       await this.deleteQuestions(questionIds);
@@ -2473,6 +2518,26 @@ export class AppDatabase {
   }
 
   async deleteSession(id: string): Promise<void> {
+    const owner = await this.getCurrentOwner().catch(() => null);
+    const ownerId = owner?.id;
+    if (ownerId) {
+      try {
+        const outbox = new OutboxRepository(this.client);
+        await outbox.enqueue(ownerId, {
+          mutationId: `tombstone:sessionBundle:${id}:${Date.now()}`,
+          entityType: "sessionBundle",
+          entityId: id,
+          baseVersion: 1,
+          payload: {
+            id,
+            is_tombstone: true,
+            session: { id, state: "DELETED", is_tombstone: true },
+          },
+        });
+      } catch {
+        // ignore outbox failure if offline/unconfigured
+      }
+    }
     await this.abandonSession(id);
     try {
       await this.rebuildReviewItems();

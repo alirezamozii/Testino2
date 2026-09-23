@@ -33,7 +33,7 @@ import { BankNavTabs } from "@/components/navigation/bank-nav-tabs";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { QuestionEditorModal } from "@/features/questions/components/question-editor-modal";
 import { checkIsOwner } from "@/lib/permissions";
-import { getSupabaseClient } from "@/platform/auth/supabase-client";
+import { useSync } from "@/providers/sync-provider";
 import type { StoredQuestion } from "@/features/questions/domain/question-schema";
 
 const sample = JSON.stringify(
@@ -62,6 +62,7 @@ type Report = Awaited<ReturnType<ReturnType<typeof useDatabase>["db"]["importQue
 
 export function QuestionImporter() {
   const { db, status } = useDatabase();
+  const { syncNow } = useSync();
   const client = useQueryClient();
   const [source, setSource] = useState("");
   const [report, setReport] = useState<Report | null>(null);
@@ -114,20 +115,8 @@ export function QuestionImporter() {
   async function handleDeleteBatch(batch: ImportBatch) {
     setIsDeletingBatch(true);
     try {
-      const deletedQuestionIds = await db.deleteImportBatch(batch.id, isOwner);
-      if (isOwner && deletedQuestionIds.length > 0) {
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          try {
-            for (let i = 0; i < deletedQuestionIds.length; i += 50) {
-              const chunk = deletedQuestionIds.slice(i, i + 50);
-              await supabase.from("questions").delete().in("id", chunk);
-            }
-          } catch {
-            // cloud delete failure shouldn't block local
-          }
-        }
-      }
+      await db.deleteImportBatch(batch.id, isOwner);
+      syncNow().catch(() => {});
       await client.invalidateQueries({ queryKey: ["import-batches"] });
       await client.invalidateQueries({ queryKey: ["questions"] });
       await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
@@ -157,17 +146,10 @@ export function QuestionImporter() {
     try {
       if (isOwner) {
         await db.deleteQuestion(questionId);
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          try {
-            await supabase.from("questions").delete().eq("id", questionId);
-          } catch {
-            // cloud delete failure shouldn't block local
-          }
-        }
       } else {
         await db.hideQuestion(questionId);
       }
+      syncNow().catch(() => {});
       await client.invalidateQueries({ queryKey: ["import-batches"] });
       await client.invalidateQueries({ queryKey: ["questions"] });
       await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
