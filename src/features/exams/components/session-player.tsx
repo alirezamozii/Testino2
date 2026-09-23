@@ -2283,9 +2283,9 @@ export function SessionPlayer() {
                 <div className="w-8 h-8 rounded-xl bg-[var(--pastel-blue)] border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0">
                   <Pause size={16} />
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <strong className="block text-xs font-black text-[var(--ink)]">ذخیره و خروج موقت (ادامه بعداً)</strong>
-                  <span className="text-[11px] text-[var(--muted)] font-medium">آزمون ذخیره می‌شود و بعداً از همین سؤال ادامه می‌دهی.</span>
+                  <span className="text-[11px] text-[var(--muted)] font-medium leading-relaxed block mt-0.5 text-pretty">آزمون ذخیره می‌شود و بعداً از همین سؤال ادامه می‌دهی.</span>
                 </div>
               </button>
 
@@ -2299,11 +2299,11 @@ export function SessionPlayer() {
                 <div className="w-8 h-8 rounded-xl bg-white border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0 text-emerald-800">
                   {isFinishing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <strong className="block text-xs font-black">
                     {isFinishing ? "در حال ثبت و نهایی‌سازی…" : "تحویل آزمون و مشاهده کارنامه"}
                   </strong>
-                  <span className="text-[11px] opacity-90 font-medium">
+                  <span className="text-[11px] opacity-90 font-medium leading-relaxed block mt-0.5 text-pretty">
                     آزمون پایان یافته و کارنامه و درصدها محاسبه و ثبت می‌شوند.
                   </span>
                 </div>
@@ -2322,9 +2322,9 @@ export function SessionPlayer() {
                 <div className="w-8 h-8 rounded-xl bg-rose-200 dark:bg-rose-900 border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0 text-rose-800 dark:text-rose-200">
                   <LogOut size={16} />
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <strong className="block text-xs font-black">انصراف و لغو آزمون (بدون ثبت داده)</strong>
-                  <span className="text-[11px] opacity-80 font-medium">آزمون به کلی حذف می‌شود و هیچ نتیجه، کارنامه یا آماری ذخیره نخواهد شد.</span>
+                  <span className="text-[11px] opacity-80 font-medium leading-relaxed block mt-0.5 text-pretty">آزمون به کلی حذف شده و هیچ کارنامه یا آماری ذخیره نمی‌شود.</span>
                 </div>
               </button>
             </div>
