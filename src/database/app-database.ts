@@ -53,6 +53,7 @@ export interface SessionConfig {
   durationMinutes?: number | null;
   negativeMarking?: boolean;
   scorePolicy?: { penaltyNumerator: number; penaltyDenominator: number };
+  sourceKinds?: Array<"EXAM" | "PERSONAL" | "AI"> | null;
 }
 
 export interface CreateSessionOptions {
@@ -76,6 +77,7 @@ export interface CreateSessionOptions {
   sessionId?: string | null;
   sessionIds?: string[] | null;
   dateRange?: "all" | "7d" | "30d" | "90d" | null;
+  sourceKinds?: Array<"EXAM" | "PERSONAL" | "AI">;
 }
 
 export interface ReviewStudyItem {
@@ -1457,7 +1459,7 @@ export class AppDatabase {
     }
   }
 
-  async deleteImportBatch(batchId: string, isOwner?: boolean): Promise<string[]> {
+  async deleteImportBatch(batchId: string): Promise<string[]> {
     const rows = await this.client.query<{ id: string }>(
       "SELECT id FROM questions WHERE batch_id = ?",
       [batchId]
@@ -1487,14 +1489,24 @@ export class AppDatabase {
       }
     }
 
-    if (isOwner) {
-      await this.deleteQuestions(questionIds);
-    } else {
-      for (const qId of questionIds) {
-        await this.hideQuestion(qId);
+    // Always delete the questions completely from local database
+    await this.deleteQuestions(questionIds);
+    await this.client.execute("DELETE FROM import_batches WHERE id = ?", [batchId]);
+
+    // Also purge directly from Supabase if connected
+    if (typeof window !== "undefined" && questionIds.length > 0) {
+      try {
+        const { getSupabaseClient } = await import("@/platform/auth/supabase-client");
+        const client = getSupabaseClient();
+        if (client) {
+          await client.from("change_log").delete().in("entity_id", questionIds);
+          await client.from("questions").delete().in("id", questionIds);
+        }
+      } catch {
+        // ignore
       }
     }
-    await this.client.execute("DELETE FROM import_batches WHERE id = ?", [batchId]);
+
     return questionIds;
   }
 
@@ -1518,6 +1530,40 @@ export class AppDatabase {
       ids = rows.map((r) => r.id);
     }
     await this.deleteQuestions(ids);
+  }
+
+  async resetQuestionBank(): Promise<void> {
+    await this.client.batch([
+      { sql: "DELETE FROM review_items" },
+      { sql: "DELETE FROM attempt_events" },
+      { sql: "DELETE FROM attempts" },
+      { sql: "DELETE FROM session_questions" },
+      { sql: "DELETE FROM sessions" },
+      { sql: "DELETE FROM question_reports" },
+      { sql: "DELETE FROM question_media" },
+      { sql: "DELETE FROM question_options" },
+      { sql: "DELETE FROM question_revisions" },
+      { sql: "DELETE FROM sync_dirty_entities WHERE entity_type IN ('questionBundle', 'sessionBundle', 'question', 'session')" },
+      { sql: "DELETE FROM questions" },
+      { sql: "DELETE FROM question_groups" },
+      { sql: "DELETE FROM sources" },
+      { sql: "DELETE FROM import_batches" },
+      { sql: "DELETE FROM outbox WHERE entity_type IN ('questionBundle', 'sessionBundle', 'question', 'session')" },
+      { sql: "UPDATE sync_state SET remote_cursor='0', last_error_code=NULL" },
+    ]);
+
+    if (typeof window !== "undefined") {
+      try {
+        const { getSupabaseClient } = await import("@/platform/auth/supabase-client");
+        const client = getSupabaseClient();
+        if (client) {
+          await client.from("change_log").delete().in("entity_type", ["questionBundle", "sessionBundle", "question", "session"]);
+          await client.from("questions").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+        }
+      } catch {
+        // ignore
+      }
+    }
   }
 
   async computeQuestionUrgencies(
@@ -1776,6 +1822,14 @@ export class AppDatabase {
       questions = questions.filter((q) => matchesChapterFilters(q, chapterFilters));
     } else if (topicFilters && topicFilters.length > 0) {
       questions = questions.filter((q) => matchesTopicFilters(q, topicFilters));
+    }
+
+    if (opts.sourceKinds && opts.sourceKinds.length > 0 && opts.sourceKinds.length < 3) {
+      const allowedSources = new Set(opts.sourceKinds);
+      questions = questions.filter((q) => {
+        const kind = q.source?.kind || "PERSONAL";
+        return allowedSources.has(kind);
+      });
     }
 
     const selectedModes: QuestionPoolMode[] = (opts.modes && opts.modes.length > 0)

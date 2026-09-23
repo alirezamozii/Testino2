@@ -428,18 +428,44 @@ async function applyQuestionBundle(trx: DatabasePort, payload: Record<string, un
     created_at: question.created_at || Date.now(),
   };
 
-  // Skip duplicate questions if already imported/present locally by external_key
-  if (safeQuestion.external_key) {
+  // Map or merge duplicate questions if already present locally by external_key
+  const rawKey = String(safeQuestion.external_key || "").trim();
+  if (rawKey) {
     const existing = await trx.query<{ id: string }>(
-      "SELECT id FROM questions WHERE external_key=? LIMIT 1",
-      [safeQuestion.external_key]
+      "SELECT id FROM questions WHERE LOWER(TRIM(external_key)) = LOWER(TRIM(?)) LIMIT 1",
+      [rawKey]
     );
-    if (existing.length && existing[0].id !== safeQuestion.id) {
-      return;
+    if (existing.length) {
+      // Map to existing ID so ON CONFLICT(id) gracefully updates without duplicate key collision
+      safeQuestion.id = existing[0].id;
     }
   }
 
-  await upsertRaw(trx, "questions", safeQuestion, QUESTION_COLUMNS);
+  try {
+    await upsertRaw(trx, "questions", safeQuestion, QUESTION_COLUMNS);
+  } catch (err) {
+    if (String(err).includes("UNIQUE") && rawKey) {
+      await trx.execute(
+        `UPDATE questions SET
+          subject=?, chapter=?, topic=?, content_json=?, explanation_json=?,
+          correct_option_id=?, status=?, shuffle_safe=?
+         WHERE LOWER(TRIM(external_key)) = LOWER(TRIM(?))`,
+        [
+          safeQuestion.subject,
+          (safeQuestion as Record<string, unknown>).chapter ?? null,
+          (safeQuestion as Record<string, unknown>).topic ?? null,
+          safeQuestion.content_json,
+          safeQuestion.explanation_json,
+          (safeQuestion as Record<string, unknown>).correct_option_id ?? null,
+          safeQuestion.status,
+          safeQuestion.shuffle_safe,
+          rawKey,
+        ]
+      );
+    } else {
+      throw err;
+    }
+  }
   await trx.execute("DELETE FROM question_options WHERE question_id=?", [question.id]);
   for (const option of records(payload.options)) await upsertRaw(trx, "question_options", option, OPTION_COLUMNS);
   for (const revision of records(payload.revisions)) {
@@ -494,10 +520,10 @@ async function ensureSnapshotQuestion(trx: DatabasePort, sessionQuestion: Record
   } catch {
     // Keep a recoverable draft placeholder if an older snapshot is malformed.
   }
-  const targetKey = snapshot.externalKey ? String(snapshot.externalKey) : "";
+  const targetKey = snapshot.externalKey ? String(snapshot.externalKey).trim() : "";
   if (targetKey) {
     const existingByKey = await trx.query<{ id: string }>(
-      "SELECT id FROM questions WHERE external_key=? LIMIT 1",
+      "SELECT id FROM questions WHERE LOWER(TRIM(external_key)) = LOWER(TRIM(?)) LIMIT 1",
       [targetKey]
     );
     if (existingByKey.length) {

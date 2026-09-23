@@ -65,6 +65,23 @@ export function SessionBuilder() {
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
   const [expandedChapters, setExpandedChapters] = useState<string[]>([]);
 
+  // Source selection: 'EXAM' (کنکور), 'PERSONAL' (تألیفی), 'AI' (شبیه‌ساز)
+  const [selectedSources, setSelectedSources] = useState<Array<"EXAM" | "PERSONAL" | "AI">>([
+    "EXAM",
+    "PERSONAL",
+    "AI",
+  ]);
+
+  function toggleSource(src: "EXAM" | "PERSONAL" | "AI") {
+    setSelectedSources((prev) => {
+      if (prev.includes(src)) {
+        if (prev.length === 1) return prev; // keep at least one source selected
+        return prev.filter((item) => item !== src);
+      }
+      return [...prev, src];
+    });
+  }
+
   // Step 4 Settings
   const [feedbackMode, setFeedbackMode] = useState<"deferred" | "instant">("deferred");
   const [isTimed, setIsTimed] = useState(true);
@@ -225,7 +242,38 @@ export function SessionBuilder() {
         list = list.filter((q) => q.topic && topSet.has(q.topic));
       }
     }
+    if (selectedSources.length > 0 && selectedSources.length < 3) {
+      const allowedSources = new Set(selectedSources);
+      list = list.filter((q) => {
+        const kind = q.source?.kind || "PERSONAL";
+        return allowedSources.has(kind);
+      });
+    }
     return list;
+  }, [allPublished, selectedSubjects, scopeMode, selectedChapters, selectedTopics, selectedSources]);
+
+  const sourceCounts = useMemo(() => {
+    let exam = 0;
+    let personal = 0;
+    let ai = 0;
+    let base = allPublished.filter((q) => selectedSubjects.some((s) => isSameSubject(s, q.subject)));
+    if (scopeMode === "custom") {
+      if (selectedChapters.length > 0) {
+        const chSet = new Set(selectedChapters);
+        base = base.filter((q) => (q.chapter ? chSet.has(q.chapter) : chSet.has("عمومی / بدون فصل")));
+      }
+      if (selectedTopics.length > 0) {
+        const topSet = new Set(selectedTopics);
+        base = base.filter((q) => q.topic && topSet.has(q.topic));
+      }
+    }
+    for (const q of base) {
+      const kind = q.source?.kind || "PERSONAL";
+      if (kind === "EXAM") exam++;
+      else if (kind === "AI") ai++;
+      else personal++;
+    }
+    return { EXAM: exam, PERSONAL: personal, AI: ai };
   }, [allPublished, selectedSubjects, scopeMode, selectedChapters, selectedTopics]);
 
   const poolCounts = useMemo(() => {
@@ -341,6 +389,7 @@ export function SessionBuilder() {
         instantFeedback: feedbackMode === "instant",
         durationMinutes: isTimed ? durationMinutes : null,
         negativeMarking,
+        sourceKinds: selectedSources,
       });
       router.push(`/sessions/run/?id=${id}`);
     } catch (cause) {
@@ -966,6 +1015,75 @@ export function SessionBuilder() {
               </span>
             </div>
 
+            {/* Source Selection Checkboxes */}
+            <div className="p-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)] space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-right">
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black text-[var(--ink)]">منبع سؤالات آزمون</h3>
+                  <p className="text-[11px] text-[var(--muted)] font-medium">
+                    با تیک زدن گزینه‌ها مشخص کنید سؤالات از کدام منابع انتخاب شوند (امکان انتخاب همزمان چند مورد)
+                  </p>
+                </div>
+                <span className="text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-lg bg-[var(--surface-2)] text-[var(--ink)] border border-[var(--line)] self-start sm:self-auto">
+                  {selectedSources.length === 3 ? "همه منابع فعال" : `${selectedSources.length} منبع انتخابی`}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                {[
+                  {
+                    id: "EXAM" as const,
+                    title: "کنکور سراسری",
+                    desc: "سؤالات رسمی سازمان سنجش",
+                    count: sourceCounts.EXAM,
+                  },
+                  {
+                    id: "PERSONAL" as const,
+                    title: "تألیفی و جزوات",
+                    desc: "تست‌های تألیفی و دست‌نویس اساتید",
+                    count: sourceCounts.PERSONAL,
+                  },
+                  {
+                    id: "AI" as const,
+                    title: "شبیه‌ساز هوش مصنوعی",
+                    desc: "سؤالات مفهومی و تمرینی",
+                    count: sourceCounts.AI,
+                  },
+                ].map((src) => {
+                  const isChecked = selectedSources.includes(src.id);
+                  return (
+                    <button
+                      key={src.id}
+                      type="button"
+                      onClick={() => toggleSource(src.id)}
+                      className={cn(
+                        "p-3 rounded-xl border-2 text-right transition-all flex items-center justify-between gap-2 cursor-pointer select-none",
+                        isChecked
+                          ? "border-[var(--brand-orange)] bg-[var(--surface-cream)] shadow-[2px_2px_0px_var(--neo-shadow)]"
+                          : "border-[var(--line)] bg-[var(--surface-2)] opacity-70 hover:opacity-100"
+                      )}
+                    >
+                      <div className="space-y-0.5 min-w-0">
+                        <strong className="block text-xs font-black text-[var(--ink)]">{src.title}</strong>
+                        <span className="block text-[10px] text-[var(--muted)] font-medium truncate">{src.desc}</span>
+                        <span className="inline-block text-[10px] font-black text-[var(--brand-orange)] pt-0.5">
+                          {src.count.toLocaleString("fa-IR")} سؤال
+                        </span>
+                      </div>
+                      <div
+                        className={cn(
+                          "w-5 h-5 rounded-md border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0 transition-all",
+                          isChecked ? "bg-[var(--brand-orange)] text-white" : "bg-[var(--surface)] text-transparent"
+                        )}
+                      >
+                        <Check size={12} className="stroke-[3]" />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* 8 Categories Multi-Select Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               {questionPoolCategories.map((t) => {
@@ -1526,6 +1644,17 @@ export function SessionBuilder() {
                     {isTimed ? `${durationMinutes} دقیقه` : "آزاد (بدون محدودیت)"}
                   </strong>
                 </div>
+              </div>
+
+              <div className="flex justify-between items-center pb-3 border-b border-[var(--line)]">
+                <span className="text-[var(--muted)] font-bold">منبع سؤالات:</span>
+                <strong className="font-black text-[var(--ink)]">
+                  {selectedSources.length === 3
+                    ? "همه منابع فعال"
+                    : selectedSources
+                        .map((s) => (s === "EXAM" ? "کنکور سراسری" : s === "PERSONAL" ? "تألیفی و جزوات" : "شبیه‌ساز"))
+                        .join(" + ")}
+                </strong>
               </div>
 
               <div className="space-y-1 pt-1">

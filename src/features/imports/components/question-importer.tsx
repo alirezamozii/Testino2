@@ -82,6 +82,8 @@ export function QuestionImporter() {
   const [loadingBatchId, setLoadingBatchId] = useState<string | null>(null);
   const [deletingBatch, setDeletingBatch] = useState<ImportBatch | null>(null);
   const [isDeletingBatch, setIsDeletingBatch] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
     void checkIsOwner().then(setIsOwner);
@@ -95,7 +97,7 @@ export function QuestionImporter() {
   });
   const batches = importBatchesQuery.data || [];
 
-  async function toggleExpandBatch(batchId: string) {
+  const toggleExpandBatch = async (batchId: string) => {
     if (expandedBatchId === batchId) {
       setExpandedBatchId(null);
     } else {
@@ -110,12 +112,12 @@ export function QuestionImporter() {
         }
       }
     }
-  }
+  };
 
   async function handleDeleteBatch(batch: ImportBatch) {
     setIsDeletingBatch(true);
     try {
-      await db.deleteImportBatch(batch.id, isOwner);
+      await db.deleteImportBatch(batch.id);
       syncNow().catch(() => {});
       await client.invalidateQueries({ queryKey: ["import-batches"] });
       await client.invalidateQueries({ queryKey: ["questions"] });
@@ -144,11 +146,7 @@ export function QuestionImporter() {
   async function handleDeleteSingle(questionId: string, batchId?: string) {
     setIsDeleting(true);
     try {
-      if (isOwner) {
-        await db.deleteQuestion(questionId);
-      } else {
-        await db.hideQuestion(questionId);
-      }
+      await db.deleteQuestion(questionId);
       syncNow().catch(() => {});
       await client.invalidateQueries({ queryKey: ["import-batches"] });
       await client.invalidateQueries({ queryKey: ["questions"] });
@@ -168,6 +166,22 @@ export function QuestionImporter() {
       console.error(e);
     } finally {
       setIsDeleting(false);
+    }
+  }
+
+  async function handleResetQuestionBank() {
+    setIsResetting(true);
+    try {
+      await db.resetQuestionBank();
+      syncNow().catch(() => {});
+      await client.invalidateQueries();
+      setBatchQuestions({});
+      setExpandedBatchId(null);
+      setShowResetConfirm(false);
+    } catch (err) {
+      alert("خطا در پاک‌سازی بانک سؤالات: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsResetting(false);
     }
   }
 
@@ -436,7 +450,18 @@ export function QuestionImporter() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {batches.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-xs font-black text-rose-700 dark:text-rose-300 transition-colors shadow-[1px_1px_0px_var(--neo-shadow)] cursor-pointer"
+                title="حذف کامل تمام سوالات از دیتابیس داخلی و سرور ابری"
+              >
+                <Trash2 size={13} />
+                <span>پاک‌سازی کامل بانک سوالات</span>
+              </button>
+            )}
             <Link
               href="/bank/booklet/"
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] hover:bg-[var(--surface-cream)] text-xs font-black text-[var(--ink)] transition-colors shadow-[1px_1px_0px_var(--neo-shadow)]"
@@ -702,6 +727,52 @@ export function QuestionImporter() {
                 className="px-4 py-2.5 rounded-xl border-2 border-rose-600 bg-rose-600 hover:bg-rose-700 text-xs font-black text-white transition-colors cursor-pointer disabled:opacity-60"
               >
                 {isDeleting ? "در حال حذف…" : "بله، حذف شود"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Wipe All Questions Confirmation Dialog */}
+      {showResetConfirm && (
+        <div className="dialog-backdrop animate-in fade-in" onClick={() => !isResetting && setShowResetConfirm(false)}>
+          <div
+            className="card-neo relative p-6 max-w-md w-full space-y-4 bg-[var(--surface)] rounded-3xl border-3 border-[var(--line-strong)] shadow-[6px_6px_0px_var(--neo-shadow)] text-right"
+            onClick={(e) => e.stopPropagation()}
+            dir="rtl"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border-2 border-rose-500 text-rose-600 dark:text-rose-400 flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)]">
+              <Trash2 size={24} />
+            </div>
+
+            <h3 className="text-base font-black text-[var(--ink)]">
+              پاک‌سازی کامل بانک سؤالات
+            </h3>
+
+            <p className="text-xs text-[var(--ink)] leading-relaxed font-bold">
+              آیا مطمئن هستید که می‌خواهید <strong>تمامی سؤالات، گزینه‌ها، سشن‌ها و پاسخ‌ها</strong> را از حافظهٔ دستگاه و فضای ابری به طور کامل حذف کنید؟
+            </p>
+            <p className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-300 dark:border-amber-700 leading-relaxed font-bold">
+              پروفایل و دروس انتخابی شما حفظ خواهند شد و فقط بانک سؤالات صفر می‌شود تا بتوانید از ابتدا فایل‌های جدید را وارد کنید.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border)]">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setShowResetConfirm(false)}
+                className="px-4 py-2.5 rounded-xl border-2 border-[var(--border)] bg-[var(--surface)] text-xs font-bold text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={handleResetQuestionBank}
+                className="px-4 py-2.5 rounded-xl border-2 border-rose-600 bg-rose-600 hover:bg-rose-700 text-xs font-black text-white transition-colors cursor-pointer disabled:opacity-60 flex items-center gap-1.5 shadow-[2px_2px_0px_var(--neo-shadow)]"
+              >
+                {isResetting && <Loader2 size={14} className="animate-spin" />}
+                <span>{isResetting ? "در حال پاک‌سازی…" : "بله، همه را پاک کن"}</span>
               </button>
             </div>
           </div>

@@ -167,7 +167,7 @@ export function ProfileOnboarding() {
 
     // 1. Check local owner from SQLite
     db.getCurrentOwner()
-      .then((owner) => {
+      .then(async (owner) => {
         if (!active || !owner) return;
         if (owner.displayName) {
           setUserName((prev) => prev || owner.displayName);
@@ -176,6 +176,30 @@ export function ProfileOnboarding() {
         if (owner.kind === "account" && owner.authUserId) {
           setIsAuthenticated(true);
           setAuthEmail(owner.authUserId);
+          setAuthUserId(owner.authUserId);
+
+          // If profiles already exist locally, enter immediately
+          const localProfiles = await db.listProfiles().catch(() => []);
+          if (localProfiles.length > 0) {
+            localStorage.setItem("testino_onboarding_completed", "true");
+            await queryClient.invalidateQueries();
+            if (active) router.replace("/");
+            return;
+          }
+
+          // Otherwise attempt cloud sync to restore existing profile
+          try {
+            await syncNow();
+            const syncedProfiles = await db.listProfiles().catch(() => []);
+            if (syncedProfiles.length > 0) {
+              localStorage.setItem("testino_onboarding_completed", "true");
+              await queryClient.invalidateQueries();
+              if (active) router.replace("/");
+              return;
+            }
+          } catch {
+            // ignore
+          }
         }
       })
       .catch(() => {});
@@ -203,7 +227,7 @@ export function ProfileOnboarding() {
       active = false;
       window.removeEventListener("message", handleAuthMessage);
     };
-  }, [db, handleAuthenticatedUser]);
+  }, [db, handleAuthenticatedUser, queryClient, router, syncNow]);
 
   // Load community shared subjects from Supabase when entering Step 3
   useEffect(() => {
@@ -506,6 +530,34 @@ export function ProfileOnboarding() {
         return;
       }
 
+      // If user has an account connected, check if cloud profile exists and enter immediately
+      if (isAuthenticated || authUserId) {
+        setIsAuthLoading(true);
+        try {
+          if (authUserId) {
+            await db.linkAuthenticatedAccount(authUserId, finalName);
+          }
+          await syncNow();
+          const existingProfiles = await db.listProfiles();
+          if (existingProfiles.length > 0) {
+            localStorage.setItem("testino_onboarding_completed", "true");
+            await queryClient.invalidateQueries();
+            router.replace("/");
+            return;
+          }
+        } catch {
+          const existingProfiles = await db.listProfiles().catch(() => []);
+          if (existingProfiles.length > 0) {
+            localStorage.setItem("testino_onboarding_completed", "true");
+            await queryClient.invalidateQueries();
+            router.replace("/");
+            return;
+          }
+        } finally {
+          setIsAuthLoading(false);
+        }
+      }
+
       // Check if local owner already exists → show dialog
       try {
         const existingOwner = await db.getCurrentOwner();
@@ -530,6 +582,19 @@ export function ProfileOnboarding() {
         await queryClient.invalidateQueries({ queryKey: ["owner-shell"] });
       } catch {
         // Non-blocking local commit
+      }
+
+      // Final check before advancing: if profile exists, enter
+      try {
+        const existingProfiles = await db.listProfiles();
+        if (existingProfiles.length > 0) {
+          localStorage.setItem("testino_onboarding_completed", "true");
+          await queryClient.invalidateQueries();
+          router.replace("/");
+          return;
+        }
+      } catch {
+        // ignore
       }
     }
     if (step === 2) {
@@ -1666,11 +1731,41 @@ export function ProfileOnboarding() {
                 </button>
               )}
 
-              {step < 3 ? (
+              {step === 1 && isAuthenticated ? (
+                <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleNextStep}
+                    disabled={isAuthLoading}
+                    className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px]"
+                  >
+                    {isAuthLoading ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        <span>در حال بررسی و ورود…</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>ورود به برنامه</span>
+                        <ArrowLeft size={16} />
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep(2)}
+                    disabled={isAuthLoading}
+                    className="py-3 px-4 text-xs font-bold text-[var(--muted)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)] rounded-xl border border-[var(--line-strong)] transition-all cursor-pointer text-center"
+                  >
+                    تنظیم دستی دروس (ادامه)
+                  </button>
+                </div>
+              ) : step < 3 ? (
                 <button
                   type="button"
                   onClick={handleNextStep}
-                  className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm font-black flex items-center justify-center gap-2"
+                  disabled={isAuthLoading}
+                  className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm font-black flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <span>ادامه</span>
                   <ArrowLeft size={16} />

@@ -26,8 +26,22 @@ export function QuestionBank() {
   const [selectedChapter, setSelectedChapter] = useState<string>("all");
   const [selectedTopic, setSelectedTopic] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
-  const [selectedSource, setSelectedSource] = useState<string>("all");
+  const [selectedSources, setSelectedSources] = useState<Array<"EXAM" | "PERSONAL" | "AI">>([
+    "EXAM",
+    "PERSONAL",
+    "AI",
+  ]);
   const [selectedReviewFilter, setSelectedReviewFilter] = useState<string>("all");
+
+  function toggleSource(s: "EXAM" | "PERSONAL" | "AI") {
+    setSelectedSources((prev) => {
+      if (prev.includes(s)) {
+        if (prev.length === 1) return prev; // keep at least one
+        return prev.filter((item) => item !== s);
+      }
+      return [...prev, s];
+    });
+  }
 
   // Question Editor Modal State (Supports both New Question & Edit Existing with multi-images & JSON)
   const [editorOpen, setEditorOpen] = useState(false);
@@ -172,16 +186,15 @@ export function QuestionBank() {
 
   const displayedQuestions = useMemo(() => {
     return (query.data || []).filter((q) => {
-      if (selectedSource !== "all") {
-        if (selectedSource === "EXAM" && q.source?.kind !== "EXAM") return false;
-        if (selectedSource === "AI" && q.source?.kind !== "AI") return false;
-        if (selectedSource === "PERSONAL" && q.source?.kind !== "PERSONAL") return false;
+      if (selectedSources.length < 3) {
+        const kind = q.source?.kind || "PERSONAL";
+        if (!selectedSources.includes(kind)) return false;
       }
       if (selectedReviewFilter === "due" && !dueQuestionIds.has(q.id)) return false;
       if (selectedReviewFilter === "not_due" && dueQuestionIds.has(q.id)) return false;
       return true;
     });
-  }, [query.data, selectedSource, selectedReviewFilter, dueQuestionIds]);
+  }, [query.data, selectedSources, selectedReviewFilter, dueQuestionIds]);
 
   const totalBankQuestions = catalogQuery.data?.length ?? 0;
   const solvedCount = analyticsQuery.data?.totals?.total ?? 0;
@@ -372,16 +385,42 @@ export function QuestionBank() {
                 <option value="draft">پیش‌نویس</option>
               </select>
 
-              <select
-                value={selectedSource}
-                onChange={(e) => setSelectedSource(e.target.value)}
-                className="text-xs font-black p-2 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] focus:outline-none"
-              >
-                <option value="all">همهٔ منابع</option>
-                <option value="EXAM">کنکور سراسری</option>
-                <option value="AI">هوش مصنوعی</option>
-                <option value="PERSONAL">تألیفی / شخصی</option>
-              </select>
+              {/* Multi-select source filter checkboxes */}
+              <div className="flex items-center gap-1.5 bg-[var(--surface-2)] p-1 rounded-xl border-2 border-[var(--line-strong)]">
+                <span className="text-[10px] font-black text-[var(--muted)] px-1">منبع:</span>
+                {[
+                  { id: "EXAM" as const, label: "کنکور سراسری" },
+                  { id: "PERSONAL" as const, label: "تألیفی" },
+                  { id: "AI" as const, label: "شبیه‌ساز" },
+                ].map((s) => {
+                  const isChecked = selectedSources.includes(s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => toggleSource(s.id)}
+                      className={cn(
+                        "px-2 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 cursor-pointer",
+                        isChecked
+                          ? "bg-[var(--brand-orange)] text-white shadow-[1px_1px_0px_var(--neo-shadow)]"
+                          : "bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--ink)]"
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "w-3.5 h-3.5 rounded border flex items-center justify-center text-[9px]",
+                          isChecked
+                            ? "border-white bg-white/20 text-white"
+                            : "border-[var(--line-strong)] bg-transparent text-transparent"
+                        )}
+                      >
+                        ✓
+                      </div>
+                      <span>{s.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
 
               <select
                 value={selectedReviewFilter}
@@ -425,7 +464,7 @@ export function QuestionBank() {
                   icon={BookOpen}
                   tone="purple"
                   title="سؤالی پیدا نشد"
-                  description={searchTerm || selectedSubject !== "all" || selectedSource !== "all" || selectedReviewFilter !== "all" ? "عبارت یا فیلتر را تغییر بده؛ سؤال‌ها حذف نشده‌اند." : "با فایل JSON یا فرم دستی، اولین سؤال بانک شخصی‌ات را اضافه کن."}
+                  description={searchTerm || selectedSubject !== "all" || selectedSources.length < 3 || selectedReviewFilter !== "all" ? "عبارت یا فیلتر را تغییر بده؛ سؤال‌ها حذف نشده‌اند." : "با فایل JSON یا فرم دستی، اولین سؤال بانک شخصی‌ات را اضافه کن."}
                   action={!searchTerm && selectedSubject === "all" ? <Link className="btn-neo-orange py-2.5 px-4 text-xs font-black" href="/import/"><FileUp size={16} /> ورود سؤال</Link> : undefined}
                 />
               </div>

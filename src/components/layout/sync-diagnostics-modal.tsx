@@ -79,22 +79,28 @@ export function SyncDiagnosticsModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/65 backdrop-blur-sm overflow-y-auto"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
-        className="card-neo w-full max-w-lg bg-[var(--surface)] text-[var(--ink)] p-6 rounded-3xl border-3 border-[var(--line-strong)] shadow-[6px_6px_0px_var(--neo-shadow)] space-y-5"
+        className="card-neo w-full max-w-lg max-h-[min(88dvh,600px)] flex flex-col bg-[var(--surface)] text-[var(--ink)] rounded-3xl border-3 border-[var(--line-strong)] shadow-[6px_6px_0px_var(--neo-shadow)] my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         role="dialog"
         aria-modal="true"
+        data-modal="true"
         dir="rtl"
       >
-        {/* Header */}
-        <div className="flex items-start justify-between gap-3 border-b-2 border-[var(--border)] pb-4">
+        {/* Header - Fixed at top */}
+        <div className="shrink-0 flex items-start justify-between gap-3 border-b-2 border-[var(--border)] p-4 sm:p-5 bg-[var(--surface)]">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border-2 border-rose-500 text-rose-600 dark:text-rose-400 flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
               <AlertCircle size={22} />
             </div>
             <div>
-              <h2 className="text-base font-black">وضعیت همگام‌سازی ابری</h2>
-              <p className="text-xs text-[var(--ink-muted)] mt-0.5">
+              <h2 className="text-sm sm:text-base font-black">وضعیت همگام‌سازی ابری</h2>
+              <p className="text-[11px] sm:text-xs text-[var(--ink-muted)] mt-0.5">
                 گزارش شفاف خطا و وضعیت داده‌های شما
               </p>
             </div>
@@ -102,73 +108,76 @@ export function SyncDiagnosticsModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl border-2 border-[var(--border)] hover:bg-[var(--surface-2)] text-[var(--ink-muted)] hover:text-[var(--ink)] transition-all shadow-[1px_1px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px]"
+            className="p-1.5 rounded-xl border-2 border-[var(--border)] hover:bg-[var(--surface-2)] text-[var(--ink-muted)] hover:text-[var(--ink)] transition-all shadow-[1px_1px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px] cursor-pointer"
             title="بستن"
           >
             <X size={18} />
           </button>
         </div>
 
-        {/* Local Storage Guarantee Alert */}
-        <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border-2 border-emerald-500/50 text-emerald-900 dark:text-emerald-200 text-xs font-bold leading-relaxed shadow-[2px_2px_0px_var(--neo-shadow)]">
-          <ShieldCheck size={20} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-          <div>
-            <span className="block font-black text-emerald-800 dark:text-emerald-300 mb-0.5">
-              داده‌های شما ۱۰۰٪ امن و محلی هستند
-            </span>
-            تمامی آزمون‌ها، پاسخ‌ها و تنظیمات شما در دیتابیس داخلی دستگاه ذخیره شده‌اند و هیچ داده‌ای از بین نرفته است.
-          </div>
-        </div>
-
-        {/* User Explanation based on error diagnosis */}
-        <div className="space-y-1.5 text-xs text-[var(--ink)]">
-          <div className="font-bold text-[var(--ink-muted)]">علت عدم اتصال:</div>
-          <div className="p-3 rounded-xl bg-[var(--surface-2)] border-2 border-[var(--border)] leading-relaxed">
-            {isOwnerError ? (
-              <p>
-                ارتباط حساب ابری با دستگاه نیاز به فعال‌سازی خودکار داشت. با فشردن دکمهٔ «تلاش مجدد هم‌اکنون»، سیستم به طور خودکار اتصال مالک ابری را برقرار می‌کند.
-              </p>
-            ) : isAuthError ? (
-              <p>
-                نشست کاربری شما در سرور ابری معتبر نیست یا منقضی شده است. لطفاً از طریق بخش تنظیمات، یک بار وارد حساب کاربری خود شوید.
-              </p>
-            ) : (
-              <p>
-                اشکال در اتصال به سرور ابری. لطفاً وضعیت اینترنت خود را بررسی کرده و مجدداً تلاش کنید.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Technical Log Box */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-[var(--ink-muted)]">
-            <span className="font-bold">جزئیات فنی لاگ خطا:</span>
-            {pendingCount > 0 && (
-              <span className="font-mono text-[11px] bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-md border border-amber-400/50">
-                {pendingCount} تغییر در صف ارسال
+        {/* Scrollable Body Content */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+          {/* Local Storage Guarantee Alert */}
+          <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border-2 border-emerald-500/50 text-emerald-900 dark:text-emerald-200 text-xs font-bold leading-relaxed shadow-[2px_2px_0px_var(--neo-shadow)]">
+            <ShieldCheck size={20} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div>
+              <span className="block font-black text-emerald-800 dark:text-emerald-300 mb-0.5">
+                داده‌های شما ۱۰۰٪ امن و محلی هستند
               </span>
-            )}
+              تمامی آزمون‌ها، پاسخ‌ها و تنظیمات شما در دیتابیس داخلی دستگاه ذخیره شده‌اند و هیچ داده‌ای از بین نرفته است.
+            </div>
           </div>
-          <div className="relative font-mono text-[11px] p-3 rounded-xl bg-slate-900 text-rose-300 border-2 border-slate-800 max-h-36 overflow-y-auto leading-relaxed select-all" dir="ltr">
-            {rawErrors.length > 0 ? (
-              rawErrors.map((err, i) => (
-                <div key={i} className="mb-1">
-                  [{i + 1}] {err}
-                </div>
-              ))
-            ) : (
-              <div>No critical errors reported in last sync cycle.</div>
-            )}
+
+          {/* User Explanation based on error diagnosis */}
+          <div className="space-y-1.5 text-xs text-[var(--ink)]">
+            <div className="font-bold text-[var(--ink-muted)]">علت عدم اتصال:</div>
+            <div className="p-3 rounded-xl bg-[var(--surface-2)] border-2 border-[var(--border)] leading-relaxed">
+              {isOwnerError ? (
+                <p>
+                  ارتباط حساب ابری با دستگاه نیاز به فعال‌سازی خودکار داشت. با فشردن دکمهٔ «تلاش مجدد هم‌اکنون»، سیستم به طور خودکار اتصال مالک ابری را برقرار می‌کند.
+                </p>
+              ) : isAuthError ? (
+                <p>
+                  نشست کاربری شما در سرور ابری معتبر نیست یا منقضی شده است. لطفاً از طریق بخش تنظیمات، یک بار وارد حساب کاربری خود شوید.
+                </p>
+              ) : (
+                <p>
+                  اشکال در اتصال به سرور ابری. لطفاً وضعیت اینترنت خود را بررسی کرده و مجدداً تلاش کنید.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Technical Log Box */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-[var(--ink-muted)]">
+              <span className="font-bold">جزئیات فنی لاگ خطا:</span>
+              {pendingCount > 0 && (
+                <span className="font-mono text-[11px] bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-md border border-amber-400/50">
+                  {pendingCount} تغییر در صف ارسال
+                </span>
+              )}
+            </div>
+            <div className="relative font-mono text-[11px] p-3 rounded-xl bg-slate-900 text-rose-300 border-2 border-slate-800 max-h-32 overflow-y-auto leading-relaxed select-all" dir="ltr">
+              {rawErrors.length > 0 ? (
+                rawErrors.map((err, i) => (
+                  <div key={i} className="mb-1">
+                    [{i + 1}] {err}
+                  </div>
+                ))
+              ) : (
+                <div>No critical errors reported in last sync cycle.</div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center justify-between gap-3 pt-2">
+        {/* Actions - Fixed at bottom */}
+        <div className="shrink-0 flex items-center justify-between gap-3 p-4 sm:p-5 border-t-2 border-[var(--border)] bg-[var(--surface)]">
           <button
             type="button"
             onClick={handleCopyLog}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[var(--surface-2)] border-2 border-[var(--border)] text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-[var(--surface)] transition-all active:translate-x-[1px] active:translate-y-[1px]"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[var(--surface-2)] border-2 border-[var(--border)] text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-[var(--surface)] transition-all active:translate-x-[1px] active:translate-y-[1px] cursor-pointer"
           >
             {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
             <span>{copied ? "کپی شد ✓" : "کپی لاگ خطا"}</span>
@@ -178,7 +187,7 @@ export function SyncDiagnosticsModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-bold border-2 border-[var(--border)] text-[var(--ink-muted)] hover:text-[var(--ink)] transition-all"
+              className="px-4 py-2 rounded-xl text-xs font-bold border-2 border-[var(--border)] text-[var(--ink-muted)] hover:text-[var(--ink)] transition-all cursor-pointer"
             >
               بستن
             </button>
@@ -186,7 +195,7 @@ export function SyncDiagnosticsModal({
               type="button"
               onClick={handleManualRetry}
               disabled={isSyncing}
-              className="btn-neo-orange inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] transition-all active:translate-x-[1px] active:translate-y-[1px] disabled:opacity-60"
+              className="btn-neo-orange inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] transition-all active:translate-x-[1px] active:translate-y-[1px] disabled:opacity-60 cursor-pointer"
             >
               <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} />
               <span>
