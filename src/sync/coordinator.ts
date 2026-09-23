@@ -246,17 +246,34 @@ export class SyncCoordinator {
     }
 
     let isAuthed = false;
+    let authError: unknown = null;
     try {
       isAuthed = await withTimeout(
         this.transport.isAuthenticated(),
         AUTH_TIMEOUT_MS,
         "بررسی وضعیت ورود"
       );
-    } catch {
+    } catch (err) {
       isAuthed = false;
+      authError = err;
     }
 
     if (!isAuthed) {
+      if (authError || (typeof navigator !== "undefined" && !navigator.onLine)) {
+        this.setStatus("offline");
+        const offlineReport: SyncReport = {
+          pushedCount: 0,
+          pulledCount: 0,
+          errors: ["اتصال به اینترنت یا سرور ابری برقرار نشد (حالت آفلاین)."],
+          hasConflicts: false,
+          reconciledCount: 0,
+          completedAt: Date.now(),
+        };
+        this.lastReport = offlineReport;
+        this.notifyListeners();
+        return offlineReport;
+      }
+
       this.setStatus("unconfigured");
       const unauthReport: SyncReport = {
         pushedCount: 0,

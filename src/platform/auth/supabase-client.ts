@@ -281,18 +281,29 @@ export async function signOut(): Promise<{ error: Error | null }> {
   return { error: error ? new Error(error.message) : null };
 }
 
-/**
- * Retrieves the current authenticated user from cloud session.
- */
 export async function getCurrentAuthUser(): Promise<User | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
   try {
+    const { data: sessionData } = await client.auth.getSession().catch(() => ({ data: { session: null } }));
+    if (!sessionData?.session) {
+      return null;
+    }
+
     const { data, error } = await withTimeout(client.auth.getUser(), AUTH_TIMEOUT_MS, "بررسی نشست کاربر");
-    if (error || !data.user) return null;
-    return data.user;
-  } catch {
+    if (error) {
+      if (error.status === 401 || error.status === 403) {
+        return null;
+      }
+      throw error;
+    }
+    return data?.user || sessionData.session.user;
+  } catch (err) {
+    const hasSession = await client.auth.getSession().then((res) => Boolean(res.data.session)).catch(() => false);
+    if (hasSession) {
+      throw err;
+    }
     return null;
   }
 }

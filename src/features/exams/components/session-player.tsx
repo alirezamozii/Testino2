@@ -2094,57 +2094,10 @@ export function SessionPlayer() {
             </div>
           </div>
 
-          {/* Quick Evaluation Banner */}
-          {current.selectedOptionId === current.snapshot.correctOptionId ? (
-            <div className="p-3 rounded-2xl bg-[var(--pastel-green-soft)] border-2 border-emerald-400 text-emerald-900 dark:text-emerald-200 text-xs font-black flex items-center gap-2.5 shadow-sm">
-              <div className="w-7 h-7 rounded-lg bg-emerald-500 text-white flex items-center justify-center shrink-0">
-                <Check size={16} className="stroke-[3]" />
-              </div>
-              <div>
-                <span className="block font-black text-xs sm:text-sm">پاسخ شما کاملاً درست بود!</span>
-                <span className="text-[10px] sm:text-[11px] opacity-85 font-medium">تسلط خوبی روی این تست دارید. تحلیل و نکته تستی زیر را هم مرور کنید.</span>
-              </div>
-            </div>
-          ) : (
-            <div className="p-3 rounded-2xl bg-[var(--pastel-red-soft)] border-2 border-rose-400 text-rose-900 dark:text-rose-200 text-xs font-black flex items-center gap-2.5 shadow-sm">
-              <div className="w-7 h-7 rounded-lg bg-rose-500 text-white flex items-center justify-center shrink-0">
-                <AlertCircle size={16} />
-              </div>
-              <div>
-                <span className="block font-black text-xs sm:text-sm">پاسخ نادرست است!</span>
-                <span className="text-[10px] sm:text-[11px] opacity-85 font-medium">ایده، دام تستی و تحلیل ۳ گامی زیر را با دقت بخوانید.</span>
-              </div>
-            </div>
-          )}
-
           {/* Explanation Content */}
           {current.snapshot.explanation && current.snapshot.explanation.length > 0 ? (
-            <div className="space-y-3 pt-1 text-right">
-              {/* Correct Option Highlight Banner (Sync with current shuffle order) */}
-              {(() => {
-                const optIndex = options.findIndex((o) => o?.id === current.snapshot.correctOptionId);
-                if (optIndex === -1) return null;
-                const letters = ["الف", "ب", "ج", "د"];
-                const displayLetter = optIndex >= 0 && optIndex < 4 ? letters[optIndex] : String(optIndex + 1);
-                return (
-                  <div className="p-3 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500/30 text-emerald-950 dark:text-emerald-200 text-xs sm:text-sm font-black flex items-center justify-between gap-2 shadow-sm">
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-7 h-7 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-xs font-black shadow-sm shrink-0">
-                        {displayLetter}
-                      </span>
-                      <span>
-                        گزینه صحیح در این آزمون: <strong>گزینه {displayLetter}</strong>
-                      </span>
-                    </div>
-                    <span className="text-[10px] sm:text-xs px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-bold">
-                      پاسخ قطعی
-                    </span>
-                  </div>
-                );
-              })()}
-              <div className="text-xs sm:text-sm font-bold leading-relaxed text-[var(--ink)] space-y-2">
-                <ContentRenderer blocks={displayExplanation} />
-              </div>
+            <div className="pt-1 text-right text-xs sm:text-sm font-bold leading-relaxed text-[var(--ink)] space-y-2">
+              <ContentRenderer blocks={displayExplanation} />
             </div>
           ) : (
             <div className="p-3 rounded-xl bg-[var(--surface-2)] text-xs text-[var(--muted)] font-bold text-right">

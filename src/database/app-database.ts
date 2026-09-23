@@ -1711,10 +1711,13 @@ export class AppDatabase {
     if (subjects && subjects.length > 0) {
       questions = questions.filter((q) => subjects.some((s) => isSameSubject(s, q.subject)));
     }
-    if (chapterFilters && chapterFilters.length > 0) {
+    if (chapterFilters && chapterFilters.length > 0 && topicFilters && topicFilters.length > 0) {
+      questions = questions.filter(
+        (q) => matchesChapterFilters(q, chapterFilters) || matchesTopicFilters(q, topicFilters)
+      );
+    } else if (chapterFilters && chapterFilters.length > 0) {
       questions = questions.filter((q) => matchesChapterFilters(q, chapterFilters));
-    }
-    if (topicFilters && topicFilters.length > 0) {
+    } else if (topicFilters && topicFilters.length > 0) {
       questions = questions.filter((q) => matchesTopicFilters(q, topicFilters));
     }
 
@@ -2069,11 +2072,13 @@ export class AppDatabase {
       questions = questions.filter((q) => subjects.some((s) => isSameSubject(s, q.subject)));
     }
 
-    if (filters?.chapters && filters.chapters.length > 0) {
+    if (filters?.chapters && filters.chapters.length > 0 && filters?.topics && filters.topics.length > 0) {
+      questions = questions.filter(
+        (q) => matchesChapterFilters(q, filters.chapters!) || matchesTopicFilters(q, filters.topics!)
+      );
+    } else if (filters?.chapters && filters.chapters.length > 0) {
       questions = questions.filter((q) => matchesChapterFilters(q, filters.chapters!));
-    }
-
-    if (filters?.topics && filters.topics.length > 0) {
+    } else if (filters?.topics && filters.topics.length > 0) {
       questions = questions.filter((q) => matchesTopicFilters(q, filters.topics!));
     }
 
@@ -2083,6 +2088,16 @@ export class AppDatabase {
 
     const modes = filters?.modes;
     if (modes && modes.length > 0 && !(modes as string[]).includes("all")) {
+      const now = Date.now();
+      let dueQuestionIds = new Set<string>();
+      if (modes.includes("due")) {
+        const dueRows = await this.client.query<{ question_id: string }>(
+          "SELECT question_id FROM review_items WHERE due_at <= ?",
+          [now]
+        );
+        dueQuestionIds = new Set(dueRows.map((r) => r.question_id));
+      }
+
       questions = questions.filter((q) => {
         const stats = attemptsByQuestion.get(q.id);
         return modes.some((mode) => {
@@ -2090,6 +2105,7 @@ export class AppDatabase {
           if (mode === "doubtful") return stats ? stats.lastAttempt?.confidence === "doubtful" || stats.doubtfulCount > 0 : false;
           if (mode === "guess") return stats ? stats.lastAttempt?.confidence === "guess" || stats.guessCount > 0 : false;
           if (mode === "skipped") return stats ? stats.lastAttempt?.result === "unanswered" : false;
+          if (mode === "due") return dueQuestionIds.has(q.id);
           if (mode === "mastered") return stats ? stats.lastAttempt?.result === "correct" : false;
           return false;
         });
@@ -2106,7 +2122,7 @@ export class AppDatabase {
       });
     }
 
-    return questions.map((q) => {
+    const mapped = questions.map((q) => {
       const stats = attemptsByQuestion.get(q.id);
       return {
         question: q,
@@ -2117,6 +2133,46 @@ export class AppDatabase {
         totalAttempts: stats?.totalAttempts ?? 0,
       };
     });
+
+    mapped.sort((a, b) => {
+      if (b.wrongCount !== a.wrongCount) return b.wrongCount - a.wrongCount;
+      if (b.doubtfulCount !== a.doubtfulCount) return b.doubtfulCount - a.doubtfulCount;
+      if (b.guessCount !== a.guessCount) return b.guessCount - a.guessCount;
+      return 0;
+    });
+
+    return mapped;
+  }
+
+  async markQuestionUnderstood(questionId: string): Promise<void> {
+    const now = Date.now();
+    const existing = await this.client.query<{
+      stable_streak: number;
+      interval_days: number;
+      last_attempt_id: string;
+    }>("SELECT stable_streak, interval_days, last_attempt_id FROM review_items WHERE question_id=?", [questionId]);
+
+    const streak = (existing[0]?.stable_streak ?? 0) + 1;
+    const intervalDays = streak === 1 ? 2 : streak === 2 ? 4 : streak === 3 ? 7 : 14;
+    const dueAt = now + intervalDays * 86_400_000;
+
+    if (existing.length > 0) {
+      await this.client.execute(
+        "UPDATE review_items SET due_at=?, priority=?, stable_streak=?, interval_days=? WHERE question_id=?",
+        [dueAt, 3, streak, intervalDays, questionId]
+      );
+    } else {
+      const lastAttempts = await this.client.query<{ id: string }>(
+        "SELECT id FROM attempts WHERE question_id=? ORDER BY finalized_at DESC LIMIT 1",
+        [questionId]
+      );
+      if (lastAttempts.length > 0) {
+        await this.client.execute(
+          "INSERT INTO review_items(question_id, due_at, priority, stable_streak, interval_days, last_attempt_id) VALUES(?,?,?,?,?,?)",
+          [questionId, dueAt, 3, streak, intervalDays, lastAttempts[0].id]
+        );
+      }
+    }
   }
 
   async appendNextUnit(sessionId: string): Promise<SessionQuestion[] | null> {

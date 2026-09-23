@@ -81,6 +81,13 @@ export function AnalyticsPage() {
     ? Math.round(confidenceSimulation.totals.overallActualPercentage)
     : percentage;
 
+  const hasAnyDoubtOrGuess = Boolean(
+    confidenceSimulation &&
+      (confidenceSimulation.totals.totalDoubtfulNetGain !== 0 ||
+        confidenceSimulation.totals.totalGuessNetGain !== 0 ||
+        confidenceSimulation.subjects.some((s) => s.doubtful.count > 0 || s.guess.count > 0))
+  );
+
   function exportAnalysis() {
     if (!data) return;
     const blob = new Blob(
@@ -325,31 +332,22 @@ export function AnalyticsPage() {
 
                         {/* 3 Metric Badges: Correct, Wrong, Unanswered */}
                         <div className="grid grid-cols-3 gap-2 text-center">
-                          <div className="py-1 px-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300">
+                          <div className="py-2 px-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300">
                             <span className="block text-[10px] font-bold">صحیح</span>
-                            <strong className="text-xs sm:text-sm font-black">{item.correct}</strong>
-                            <span className="text-[9px] block text-emerald-600 dark:text-emerald-400 font-bold">
-                              {correctPct}٪
-                            </span>
+                            <strong className="text-sm sm:text-base font-black">{item.correct}</strong>
                           </div>
-                          <div className="py-1 px-1.5 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-300">
+                          <div className="py-2 px-1.5 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-300">
                             <span className="block text-[10px] font-bold">غلط</span>
-                            <strong className="text-xs sm:text-sm font-black">{item.wrong}</strong>
-                            <span className="text-[9px] block text-red-600 dark:text-red-400 font-bold">
-                              {wrongPct}٪
-                            </span>
+                            <strong className="text-sm sm:text-base font-black">{item.wrong}</strong>
                           </div>
-                          <div className="py-1 px-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                          <div className="py-2 px-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300">
                             <span className="block text-[10px] font-bold">نزده</span>
-                            <strong className="text-xs sm:text-sm font-black">{unanswered}</strong>
-                            <span className="text-[9px] block text-slate-500 font-bold">
-                              {unansweredPct}٪
-                            </span>
+                            <strong className="text-sm sm:text-base font-black">{unanswered}</strong>
                           </div>
                         </div>
 
                         {/* Segmented Progress Bar: Green (Correct) + Rose (Wrong) + Muted (Unanswered) */}
-                        <div className="space-y-1 pt-0.5">
+                        <div className="space-y-1.5 pt-0.5">
                           <div className="w-full h-3 bg-slate-100 dark:bg-slate-800 rounded-full border border-[var(--border)] overflow-hidden flex shadow-inner">
                             {item.correct > 0 && (
                               <div
@@ -375,8 +373,7 @@ export function AnalyticsPage() {
                           </div>
 
                           <div className="flex justify-between items-center text-[10px] text-[var(--muted-foreground)] font-bold px-0.5">
-                            <span>کل سؤالات: {item.total}</span>
-                            <span>درصد خام: {rawPct}٪</span>
+                            <span>کل سؤالات این درس: {item.total}</span>
                             <span
                               className={
                                 item.targetGap !== null && item.targetGap >= 0
@@ -386,8 +383,8 @@ export function AnalyticsPage() {
                             >
                               {item.targetGap !== null
                                 ? item.targetGap >= 0
-                                  ? `+${item.targetGap}٪ از هدف`
-                                  : `${item.targetGap}٪ تا هدف`
+                                  ? `+${item.targetGap}٪ بالاتر از هدف`
+                                  : `${Math.abs(item.targetGap)}٪ تا رسیدن به هدف`
                                 : ""}
                             </span>
                           </div>
@@ -412,135 +409,146 @@ export function AnalyticsPage() {
                         اثر نزده‌ها و شک‌ها روی نمره
                       </h3>
                       <p className="text-[11px] text-[var(--muted-foreground)] font-bold">
-                        اگر شک‌ها و حدس‌ها را نمی‌زدی، درصدها چقدر می‌شد؟ (فرمول نمره‌دهی سنجش)
+                        محاسبه اثر پاسخ‌های با شک و حدسی بر اساس فرمول نمره‌دهی سنجش
                       </p>
                     </div>
                   </div>
                 </div>
 
-                {/* 3 Scenario Cards — the real overall percentage already lives in the hero ring above */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-center">
-                  <div className="p-3 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border-2 border-[var(--border)] space-y-1">
-                    <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 block">بدون شک‌ها</span>
-                    <strong className="text-xl font-black text-[var(--foreground)] font-mono">
-                      <SignedPercent value={confidenceSimulation.totals.overallWithoutDoubt} showPlus={false} />
-                    </strong>
-                    <span className={cn("text-[9px] font-black block font-mono", confidenceSimulation.totals.totalDoubtfulNetGain >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500")}>
-                      <SignedPercent value={confidenceSimulation.totals.totalDoubtfulNetGain} showPlus={true} /> {confidenceSimulation.totals.totalDoubtfulNetGain >= 0 ? "سود شک" : "زیان شک"}
-                    </span>
+                {!hasAnyDoubtOrGuess ? (
+                  <div className="p-4 sm:p-5 rounded-2xl bg-[var(--surface-2)] dark:bg-slate-800/40 border-2 border-dashed border-[var(--border)] text-right space-y-2">
+                    <p className="text-xs sm:text-sm font-black text-[var(--foreground)] leading-relaxed">
+                      هنوز سؤالی با برچسب «شک دارم» یا «حدس زدم» در آزمون‌ها ثبت نشده است.
+                    </p>
+                    <p className="text-[11px] sm:text-xs text-[var(--muted-foreground)] font-medium leading-relaxed">
+                      در آزمون‌های آینده اگر روی گزینه‌ای تردید داشتید، برچسب شک یا حدس را فعال کنید. تستینو به صورت خودکار سود یا زیان نمره منفی ناشی از این تصمیم‌ها را در این بخش شبیه‌سازی و تحلیل خواهد کرد.
+                    </p>
                   </div>
-
-                  <div className="p-3 rounded-2xl bg-red-50/70 dark:bg-red-950/30 border-2 border-[var(--border)] space-y-1">
-                    <span className="text-[10px] font-black text-red-700 dark:text-red-400 block">بدون حدس‌ها</span>
-                    <strong className="text-xl font-black text-[var(--foreground)] font-mono">
-                      <SignedPercent value={confidenceSimulation.totals.overallWithoutGuess} showPlus={false} />
-                    </strong>
-                    <span className={cn("text-[9px] font-black block font-mono", confidenceSimulation.totals.totalGuessNetGain >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500")}>
-                      <SignedPercent value={confidenceSimulation.totals.totalGuessNetGain} showPlus={true} /> {confidenceSimulation.totals.totalGuessNetGain >= 0 ? "سود حدس" : "زیان حدس"}
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border-2 border-[var(--border)] space-y-1">
-                    <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 block">فقط مطمئن‌ها</span>
-                    <strong className="text-xl font-black text-[var(--foreground)] font-mono">
-                      <SignedPercent value={confidenceSimulation.totals.overallOnlySure} showPlus={false} />
-                    </strong>
-                    <span className="text-[9px] font-bold text-[var(--muted-foreground)] block">بدون ریسک خطا</span>
-                  </div>
-                </div>
-
-                {/* Per-Subject Detailed Simulation Cards */}
-                <div className="space-y-3 pt-2">
-                  <h4 className="text-xs font-black text-[var(--foreground)]">
-                    تحلیل تفکیکی و استراتژی هر درس:
-                  </h4>
-
-                  {confidenceSimulation.subjects
-                    .filter((sub) => sub.totalAttempts > 0)
-                    .map((sub) => (
-                    <div
-                      key={sub.subject}
-                      className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border-2 border-[var(--border)] space-y-3 shadow-sm"
-                    >
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="flex items-center gap-2">
-                          <strong className="text-sm font-black text-[var(--foreground)]">{sub.subject}</strong>
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-[var(--border)]">
-                            ضریب {sub.coefficient}
-                          </span>
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-[var(--border)]">
-                            {sub.questionCount} سؤال در کنکور
-                          </span>
-                        </div>
-                        <div className="text-xs font-mono font-bold flex items-center gap-3">
-                          <span className="text-emerald-600 dark:text-emerald-400">
-                            ارزش تست: <SignedPercent value={sub.pointValuePerCorrect} showPlus={true} />
-                          </span>
-                          <span className="text-red-500">
-                            نمره منفی: <SignedPercent value={-sub.penaltyPerWrong} showPlus={false} />
-                          </span>
-                        </div>
+                ) : (
+                  <>
+                    {/* 3 Scenario Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-center">
+                      <div className="p-3 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border-2 border-[var(--border)] space-y-1">
+                        <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 block">بدون شک‌ها</span>
+                        <strong className="text-xl font-black text-[var(--foreground)] font-mono">
+                          <SignedPercent value={confidenceSimulation.totals.overallWithoutDoubt} showPlus={false} />
+                        </strong>
+                        <span className={cn("text-[9px] font-black block font-mono", confidenceSimulation.totals.totalDoubtfulNetGain >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500")}>
+                          <SignedPercent value={confidenceSimulation.totals.totalDoubtfulNetGain} showPlus={true} /> {confidenceSimulation.totals.totalDoubtfulNetGain >= 0 ? "سود شک" : "زیان شک"}
+                        </span>
                       </div>
 
-                      {/* 4 Percentages Comparison */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
-                        <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-[var(--border)]">
-                          <span className="text-[10px] text-[var(--muted-foreground)] font-bold block">درصد واقعی</span>
-                          <strong className="text-sm font-black font-mono text-[var(--foreground)]">
-                            <SignedPercent value={sub.actualPercentage} showPlus={false} />
-                          </strong>
-                        </div>
-                        <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-[var(--border)]">
-                          <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold block">بدون شک‌ها</span>
-                          <strong className="text-sm font-black font-mono text-[var(--foreground)]">
-                            <SignedPercent value={sub.percentageWithoutDoubt} showPlus={false} />
-                          </strong>
-                          <span className={cn("text-[9px] font-bold block font-mono", sub.doubtful.netPercentageImpact >= 0 ? "text-emerald-600" : "text-red-500")}>
-                            <SignedPercent value={sub.doubtful.netPercentageImpact} showPlus={true} /> اثر
-                          </span>
-                        </div>
-                        <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-[var(--border)]">
-                          <span className="text-[10px] text-rose-700 dark:text-rose-400 font-bold block">بدون حدس‌ها</span>
-                          <strong className="text-sm font-black font-mono text-[var(--foreground)]">
-                            <SignedPercent value={sub.percentageWithoutGuess} showPlus={false} />
-                          </strong>
-                          <span className={cn("text-[9px] font-bold block font-mono", sub.guess.netPercentageImpact >= 0 ? "text-emerald-600" : "text-red-500")}>
-                            <SignedPercent value={sub.guess.netPercentageImpact} showPlus={true} /> اثر
-                          </span>
-                        </div>
-                        <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-[var(--border)]">
-                          <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold block">فقط مطمئن‌ها</span>
-                          <strong className="text-sm font-black font-mono text-[var(--foreground)]">
-                            <SignedPercent value={sub.percentageOnlySure} showPlus={false} />
-                          </strong>
-                          <span className="text-[9px] text-[var(--muted-foreground)] font-bold block">{sub.sure.accuracy}٪ دقت</span>
-                        </div>
+                      <div className="p-3 rounded-2xl bg-red-50/70 dark:bg-red-950/30 border-2 border-[var(--border)] space-y-1">
+                        <span className="text-[10px] font-black text-red-700 dark:text-red-400 block">بدون حدس‌ها</span>
+                        <strong className="text-xl font-black text-[var(--foreground)] font-mono">
+                          <SignedPercent value={confidenceSimulation.totals.overallWithoutGuess} showPlus={false} />
+                        </strong>
+                        <span className={cn("text-[9px] font-black block font-mono", confidenceSimulation.totals.totalGuessNetGain >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500")}>
+                          <SignedPercent value={confidenceSimulation.totals.totalGuessNetGain} showPlus={true} /> {confidenceSimulation.totals.totalGuessNetGain >= 0 ? "سود حدس" : "زیان حدس"}
+                        </span>
                       </div>
 
-                      {/* Strategic Recommendation Banner */}
-                      <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className={cn(
-                            "px-2 py-0.5 rounded-md text-[10px] font-black border",
-                            sub.strategicAdvice.recommendationTag === "trust_doubt"
-                              ? "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300"
-                              : sub.strategicAdvice.recommendationTag === "avoid_doubt" || sub.strategicAdvice.recommendationTag === "avoid_guess"
-                              ? "bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300"
-                              : "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300"
-                          )}>
-                            {sub.strategicAdvice.recommendationLabel}
-                          </span>
-                          <strong className="text-xs font-black text-[var(--foreground)]">
-                            توصیه استراتژیک برای کنکور:
-                          </strong>
-                        </div>
-                        <p className="text-[11px] leading-relaxed text-[var(--muted-foreground)] font-medium">
-                          {sub.strategicAdvice.overallSubjectAdvice}
-                        </p>
+                      <div className="p-3 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border-2 border-[var(--border)] space-y-1">
+                        <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 block">فقط مطمئن‌ها</span>
+                        <strong className="text-xl font-black text-[var(--foreground)] font-mono">
+                          <SignedPercent value={confidenceSimulation.totals.overallOnlySure} showPlus={false} />
+                        </strong>
+                        <span className="text-[9px] font-bold text-[var(--muted-foreground)] block">بدون ریسک خطا</span>
                       </div>
                     </div>
-                  ))}
-                </div>
+
+                    {/* Per-Subject Detailed Simulation Cards (Only subjects with real doubt/guess data) */}
+                    <div className="space-y-3 pt-2">
+                      <h4 className="text-xs font-black text-[var(--foreground)]">
+                        تحلیل تفکیکی و استراتژی هر درس:
+                      </h4>
+
+                      {confidenceSimulation.subjects
+                        .filter((sub) => sub.totalAttempts > 0 && (sub.doubtful.count > 0 || sub.guess.count > 0))
+                        .map((sub) => (
+                          <div
+                            key={sub.subject}
+                            className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border-2 border-[var(--border)] space-y-3 shadow-sm"
+                          >
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <div className="flex items-center gap-2">
+                                <strong className="text-sm font-black text-[var(--foreground)]">{sub.subject}</strong>
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-[var(--border)]">
+                                  ضریب {sub.coefficient}
+                                </span>
+                              </div>
+                              <div className="text-xs font-mono font-bold flex items-center gap-3">
+                                <span className="text-emerald-600 dark:text-emerald-400">
+                                  ارزش تست: <SignedPercent value={sub.pointValuePerCorrect} showPlus={true} />
+                                </span>
+                                <span className="text-red-500">
+                                  نمره منفی: <SignedPercent value={-sub.penaltyPerWrong} showPlus={false} />
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 3 Clear Metric Badges */}
+                            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                              <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-[var(--border)]">
+                                <span className="text-[10px] text-[var(--muted-foreground)] font-bold block">درصد با نمره منفی</span>
+                                <strong className="text-sm font-black font-mono text-[var(--foreground)]">
+                                  <SignedPercent value={sub.actualPercentage} showPlus={false} />
+                                </strong>
+                              </div>
+                              <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-[var(--border)]">
+                                <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold block">بدون شک‌ها</span>
+                                <strong className="text-sm font-black font-mono text-[var(--foreground)]">
+                                  <SignedPercent value={sub.percentageWithoutDoubt} showPlus={false} />
+                                </strong>
+                                <span className={cn("text-[9px] font-bold block font-mono", sub.doubtful.netPercentageImpact >= 0 ? "text-emerald-600" : "text-red-500")}>
+                                  <SignedPercent value={sub.doubtful.netPercentageImpact} showPlus={true} /> اثر
+                                </span>
+                              </div>
+                              <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-[var(--border)]">
+                                <span className="text-[10px] text-rose-700 dark:text-rose-400 font-bold block">بدون حدس‌ها</span>
+                                <strong className="text-sm font-black font-mono text-[var(--foreground)]">
+                                  <SignedPercent value={sub.percentageWithoutGuess} showPlus={false} />
+                                </strong>
+                                <span className={cn("text-[9px] font-bold block font-mono", sub.guess.netPercentageImpact >= 0 ? "text-emerald-600" : "text-red-500")}>
+                                  <SignedPercent value={sub.guess.netPercentageImpact} showPlus={true} /> اثر
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Strategic Recommendation Banner */}
+                            <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-md text-[10px] font-black border",
+                                  sub.strategicAdvice.recommendationTag === "trust_doubt"
+                                    ? "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                    : sub.strategicAdvice.recommendationTag === "avoid_doubt" || sub.strategicAdvice.recommendationTag === "avoid_guess"
+                                    ? "bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300"
+                                    : "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300"
+                                )}>
+                                  {sub.strategicAdvice.recommendationLabel}
+                                </span>
+                                <strong className="text-xs font-black text-[var(--foreground)]">
+                                  توصیه استراتژیک برای کنکور:
+                                </strong>
+                              </div>
+                              <p className="text-[11px] leading-relaxed text-[var(--muted-foreground)] font-medium">
+                                {sub.strategicAdvice.overallSubjectAdvice}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+
+                      {confidenceSimulation.subjects.filter(
+                        (sub) => sub.totalAttempts > 0 && sub.doubtful.count === 0 && sub.guess.count === 0
+                      ).length > 0 && (
+                        <p className="text-[11px] text-[var(--muted-foreground)] font-bold text-center pt-1">
+                          در سایر درس‌ها سؤال مشکوک یا حدسی ثبت نشده است.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

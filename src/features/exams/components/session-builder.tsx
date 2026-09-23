@@ -63,6 +63,7 @@ export function SessionBuilder() {
   const [selectedChapters, setSelectedChapters] = useState<string[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
+  const [expandedChapters, setExpandedChapters] = useState<string[]>([]);
 
   // Step 4 Settings
   const [feedbackMode, setFeedbackMode] = useState<"deferred" | "instant">("deferred");
@@ -184,6 +185,20 @@ export function SessionBuilder() {
     );
   }
 
+  function toggleChapterDropdown(chKey: string) {
+    setExpandedChapters((prev) =>
+      prev.includes(chKey) ? prev.filter((k) => k !== chKey) : [...prev, chKey]
+    );
+  }
+
+  function selectAllTopicsInChapter(topics: string[]) {
+    setSelectedTopics((prev) => Array.from(new Set([...prev, ...topics])));
+  }
+
+  function deselectAllTopicsInChapter(topics: string[]) {
+    setSelectedTopics((prev) => prev.filter((t) => !topics.includes(t)));
+  }
+
   const poolStatsQuery = useQuery({
     queryKey: ["question-pool-stats", profile?.id],
     queryFn: () => database.db.getQuestionPoolStats(profile!.id),
@@ -194,11 +209,18 @@ export function SessionBuilder() {
   const filteredQuestions = useMemo(() => {
     let list = allPublished.filter((q) => selectedSubjects.some((s) => isSameSubject(s, q.subject)));
     if (scopeMode === "custom") {
-      if (selectedChapters.length > 0) {
+      if (selectedChapters.length > 0 && selectedTopics.length > 0) {
+        const chSet = new Set(selectedChapters);
+        const topSet = new Set(selectedTopics);
+        list = list.filter(
+          (q) =>
+            (q.chapter ? chSet.has(q.chapter) : chSet.has("عمومی / بدون فصل")) ||
+            (q.topic && topSet.has(q.topic))
+        );
+      } else if (selectedChapters.length > 0) {
         const chSet = new Set(selectedChapters);
         list = list.filter((q) => (q.chapter ? chSet.has(q.chapter) : chSet.has("عمومی / بدون فصل")));
-      }
-      if (selectedTopics.length > 0) {
+      } else if (selectedTopics.length > 0) {
         const topSet = new Set(selectedTopics);
         list = list.filter((q) => q.topic && topSet.has(q.topic));
       }
@@ -739,55 +761,153 @@ export function SessionBuilder() {
                       {isExpanded && (
                         <div className="p-3.5 space-y-2.5">
                           {Array.from(sTax.chapters.entries()).map(([chName, chData]) => {
+                            const chKey = `${subjName}::${chName}`;
                             const isChSelected = selectedChapters.includes(chName);
+                            const isChDropdownOpen = expandedChapters.includes(chKey);
+                            const topicList = Array.from(chData.topics.entries());
+                            const hasTopics = topicList.length > 0;
+                            const selectedTopicsInThisChapter = topicList.filter(([topName]) =>
+                              selectedTopics.includes(topName)
+                            );
+
                             return (
                               <div
                                 key={chName}
-                                className="p-3 rounded-xl bg-[var(--surface-2)] border-2 border-[var(--line)] space-y-2"
+                                className={cn(
+                                  "p-3 rounded-2xl border-2 transition-all space-y-2.5",
+                                  isChSelected
+                                    ? "bg-[var(--surface)] border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
+                                    : "bg-[var(--surface-2)] border-[var(--line)]"
+                                )}
                               >
-                                <div className="flex items-center justify-between">
+                                {/* Main Chapter Row */}
+                                <div className="flex items-center justify-between gap-3">
+                                  {/* Checkbox & Chapter Name */}
                                   <button
                                     type="button"
                                     onClick={() => toggleChapter(chName)}
-                                    className="flex items-center gap-2.5 text-right flex-1"
+                                    className="flex items-center gap-2.5 text-right flex-1 min-w-0 cursor-pointer"
                                   >
                                     <div
                                       className={cn(
-                                        "w-5 h-5 rounded-md border-2 border-[var(--line-strong)] flex items-center justify-center transition-all",
-                                        isChSelected ? "bg-[var(--brand-orange)] text-white" : "bg-[var(--surface)]"
+                                        "w-5 h-5 rounded-lg border-2 border-[var(--line-strong)] flex items-center justify-center transition-all shrink-0",
+                                        isChSelected ? "bg-[var(--brand-orange)] text-white shadow-[1px_1px_0px_var(--neo-shadow)]" : "bg-[var(--surface)]"
                                       )}
                                     >
-                                      {isChSelected && <Check size={12} className="stroke-[3]" />}
+                                      {isChSelected && <Check size={13} className="stroke-[3]" />}
                                     </div>
-                                    <span className="text-xs font-black text-[var(--ink)]">{chName}</span>
+                                    <div className="min-w-0">
+                                      <span className="text-xs sm:text-sm font-black text-[var(--ink)] block truncate">
+                                        {chName}
+                                      </span>
+                                      <span className="text-[10px] text-[var(--muted)] font-bold">
+                                        {isChSelected ? (
+                                          <strong className="text-[var(--brand-orange)] font-black">کل فصل انتخاب شد</strong>
+                                        ) : (
+                                          `${chData.total} سؤال`
+                                        )}
+                                        {hasTopics && ` • ${topicList.length} مبحث`}
+                                      </span>
+                                    </div>
                                   </button>
-                                  <span className="text-[10px] font-bold text-[var(--muted)]">
-                                    {chData.total} سؤال
-                                  </span>
+
+                                  {/* Right side controls: question count + dropdown button */}
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)]">
+                                      {chData.total} سؤال
+                                    </span>
+
+                                    {hasTopics && (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleChapterDropdown(chKey)}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl border-2 text-[10px] sm:text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer shadow-[1px_1px_0px_var(--neo-shadow)]",
+                                          isChDropdownOpen
+                                            ? "bg-[var(--surface-3)] border-[var(--line-strong)] text-[var(--ink)]"
+                                            : selectedTopicsInThisChapter.length > 0
+                                            ? "bg-[var(--pastel-yellow)] border-[var(--line-strong)] text-[var(--ink-on-color)]"
+                                            : "bg-[var(--surface)] border-[var(--line)] text-[var(--muted)] hover:border-[var(--line-strong)] hover:text-[var(--ink)]"
+                                        )}
+                                        title="مشاهده و انتخاب مباحث این فصل"
+                                      >
+                                        <span>
+                                          {selectedTopicsInThisChapter.length > 0
+                                            ? `${selectedTopicsInThisChapter.length} از ${topicList.length} مبحث`
+                                            : `مباحث (${topicList.length})`}
+                                        </span>
+                                        {isChDropdownOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
 
-                                {/* Subtopics if available */}
-                                {chData.topics.size > 0 && (
-                                  <div className="flex flex-wrap gap-1.5 pt-1 pr-6">
-                                    {Array.from(chData.topics.entries()).map(([topName, topCount]) => {
-                                      const isTopSelected = selectedTopics.includes(topName);
-                                      return (
+                                {/* Collapsible Topics Dropdown Panel */}
+                                {hasTopics && isChDropdownOpen && (
+                                  <div className="pt-2.5 border-t-2 border-dashed border-[var(--line)] space-y-2">
+                                    <div className="flex items-center justify-between text-[11px] font-bold px-1">
+                                      <span className="text-[var(--muted)] text-[10px] sm:text-[11px]">
+                                        {isChSelected ? (
+                                          <span className="text-[var(--brand-orange)] font-black">
+                                            کل فصل تیک خورده است. برای تمرین فقط یک مبحث، تیک فصل بالا را بردارید.
+                                          </span>
+                                        ) : (
+                                          <span>مباحث مورد نظر را برای آزمون علامت بزنید:</span>
+                                        )}
+                                      </span>
+                                      <div className="flex items-center gap-1.5 shrink-0">
                                         <button
-                                          key={topName}
                                           type="button"
-                                          onClick={() => toggleTopic(topName)}
-                                          className={cn(
-                                            "px-2.5 py-1 rounded-lg border text-[10px] font-black transition-all flex items-center gap-1",
-                                            isTopSelected
-                                              ? "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-[var(--line-strong)] shadow-[1px_1px_0px_var(--neo-shadow)]"
-                                              : "bg-[var(--surface)] text-[var(--muted)] border-[var(--line)] hover:border-[var(--line-strong)]"
-                                          )}
+                                          onClick={() => selectAllTopicsInChapter(topicList.map(([t]) => t))}
+                                          className="text-[10px] font-black text-[var(--brand-blue)] hover:underline"
                                         >
-                                          <span>{topName}</span>
-                                          <span className="opacity-70">({topCount})</span>
+                                          انتخاب همه
                                         </button>
-                                      );
-                                    })}
+                                        <span className="text-[var(--muted)]">•</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => deselectAllTopicsInChapter(topicList.map(([t]) => t))}
+                                          className="text-[10px] font-black text-[var(--muted)] hover:text-[var(--danger)]"
+                                        >
+                                          لغو
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Topics Sub-grid */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      {topicList.map(([topName, topCount]) => {
+                                        const isTopSelected = selectedTopics.includes(topName);
+                                        return (
+                                          <button
+                                            key={topName}
+                                            type="button"
+                                            onClick={() => toggleTopic(topName)}
+                                            className={cn(
+                                              "p-2 sm:p-2.5 rounded-xl border-2 text-right transition-all flex items-center justify-between gap-2 text-xs cursor-pointer",
+                                              isTopSelected
+                                                ? "bg-[var(--pastel-yellow)] border-[var(--line-strong)] text-[var(--ink-on-color)] font-black shadow-[1px_1px_0px_var(--neo-shadow)]"
+                                                : "bg-[var(--surface)] border-[var(--line)] text-[var(--ink)] font-bold hover:border-[var(--line-strong)]"
+                                            )}
+                                          >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                              <div
+                                                className={cn(
+                                                  "w-4 h-4 rounded-md border-2 border-[var(--line-strong)] flex items-center justify-center transition-all shrink-0",
+                                                  isTopSelected ? "bg-[var(--brand-orange)] text-white" : "bg-[var(--surface)]"
+                                                )}
+                                              >
+                                                {isTopSelected && <Check size={10} className="stroke-[3]" />}
+                                              </div>
+                                              <span className="truncate">{topName}</span>
+                                            </div>
+                                            <span className="text-[10px] text-[var(--muted)] font-black shrink-0">
+                                              {topCount} سؤال
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
                                   </div>
                                 )}
                               </div>
@@ -1360,7 +1480,12 @@ export function SessionBuilder() {
                   <strong className="font-black text-[var(--ink)]">
                     {scopeMode === "all"
                       ? "کل مباحث تمام درس‌های انتخابی"
-                      : `${selectedChapters.length > 0 ? selectedChapters.length : "همه"} فصل انتخاب‌شده`}
+                      : [
+                          selectedChapters.length > 0 ? `${selectedChapters.length} فصل` : "",
+                          selectedTopics.length > 0 ? `${selectedTopics.length} مبحث` : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" و ") || "تمام سرفصل‌ها"}
                   </strong>
                 </div>
                 <div className="flex justify-between items-center">

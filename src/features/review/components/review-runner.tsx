@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CircleHelp,
   Eye,
   EyeOff,
   HelpCircle,
@@ -25,7 +26,7 @@ import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { LoadingState } from "@/components/ui/testino-ui";
 import { SignedPercent } from "@/components/ui/signed-number";
 import { useDatabase } from "@/providers/database-provider";
-import type { QuestionPoolMode } from "@/database/app-database";
+import type { QuestionPoolMode, ReviewStudyItem } from "@/database/app-database";
 import { cn } from "@/lib/utils";
 import { QuestionTrustActions } from "@/features/questions/components/question-trust-actions";
 import { remapExplanationForShuffle } from "@/features/exams/domain/explanation-remapper";
@@ -42,6 +43,429 @@ const PRIORITY_REASONS: Record<number, { text: string; bg: string; textCol: stri
 
 export function ReviewRunner() {
   const searchParams = useSearchParams();
+  const typeParam = searchParams.get("type");
+
+  if (typeParam === "study") {
+    return <StudyReviewRunner searchParams={searchParams} />;
+  }
+
+  return <TestReviewRunner searchParams={searchParams} />;
+}
+
+// =========================================================================
+// MODE 1: STUDY REVIEW RUNNER (مرور تشریحی، گام‌به‌گام و بدون فشار آزمون)
+// =========================================================================
+function StudyReviewRunner({ searchParams }: { searchParams: ReturnType<typeof useSearchParams> }) {
+  const { db, status } = useDatabase();
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [understoodIds, setUnderstoodIds] = useState<Set<string>>(new Set());
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [isMarking, setIsMarking] = useState(false);
+
+  const profilesQuery = useQuery({
+    queryKey: ["profiles"],
+    queryFn: () => db.listProfiles(),
+    enabled: status === "ready",
+  });
+  const profileId = profilesQuery.data?.[0]?.id;
+
+  const modesParam = searchParams.get("modes");
+  const subjectsParam = searchParams.get("subjects");
+  const chaptersParam = searchParams.get("chapters");
+  const topicsParam = searchParams.get("topics");
+  const sessionIdsParam = searchParams.get("sessionIds");
+  const dateRangeParam = searchParams.get("dateRange") as "all" | "7d" | "30d" | "90d" | null;
+  const searchParam = searchParams.get("search");
+  const parsedCount = Number.parseInt(searchParams.get("count") || "15", 10);
+  const countParam = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 15;
+
+  const modesList = useMemo(() => {
+    return modesParam
+      ? (modesParam.split(",").filter(Boolean) as QuestionPoolMode[])
+      : (["wrong", "doubtful"] as QuestionPoolMode[]);
+  }, [modesParam]);
+
+  const subjectsList = useMemo(() => {
+    return subjectsParam ? subjectsParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+  }, [subjectsParam]);
+
+  const chaptersList = useMemo(() => {
+    return chaptersParam ? chaptersParam.split(",").map((c) => c.trim()).filter(Boolean) : undefined;
+  }, [chaptersParam]);
+
+  const topicsList = useMemo(() => {
+    return topicsParam ? topicsParam.split(",").map((t) => t.trim()).filter(Boolean) : undefined;
+  }, [topicsParam]);
+
+  const sessionIdsList = useMemo(() => {
+    return sessionIdsParam ? sessionIdsParam.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+  }, [sessionIdsParam]);
+
+  const studyQuery = useQuery({
+    queryKey: [
+      "review-study-runner-items",
+      profileId,
+      modesList,
+      subjectsList,
+      chaptersList,
+      topicsList,
+      sessionIdsList,
+      dateRangeParam,
+      searchParam,
+    ],
+    queryFn: () => {
+      if (!profileId) return [];
+      return db.getReviewStudyQuestions(profileId, {
+        modes: modesList,
+        subjects: subjectsList,
+        chapters: chaptersList,
+        topics: topicsList,
+        sessionIds: sessionIdsList,
+        dateRange: dateRangeParam || undefined,
+        search: searchParam || undefined,
+      });
+    },
+    enabled: Boolean(profileId) && status === "ready",
+  });
+
+  const questions: ReviewStudyItem[] = useMemo(() => {
+    const raw = studyQuery.data ?? [];
+    if (searchParams.get("count") === "all") return raw;
+    return raw.slice(0, countParam);
+  }, [countParam, searchParams, studyQuery.data]);
+
+  const totalCount = questions.length;
+  const currentItem = questions[selectedIndex];
+
+  async function handleMarkUnderstood(questionId: string) {
+    if (isMarking) return;
+    setIsMarking(true);
+    try {
+      await db.markQuestionUnderstood(questionId);
+      setUnderstoodIds((prev) => new Set([...prev, questionId]));
+      if (selectedIndex < totalCount - 1) {
+        setSelectedIndex((prev) => prev + 1);
+      } else {
+        setIsCompleted(true);
+      }
+    } catch (err) {
+      console.error("Failed to mark question understood:", err);
+    } finally {
+      setIsMarking(false);
+    }
+  }
+
+  if (studyQuery.isLoading || profilesQuery.isLoading) {
+    return <LoadingState label="در حال فراخوانی سؤالات برای مرور تشریحی…" />;
+  }
+
+  if (!questions.length) {
+    return (
+      <div className="max-w-md mx-auto py-16 px-4 text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)] mx-auto shadow-[4px_4px_0px_var(--neo-shadow)]">
+          <Sparkles size={32} />
+        </div>
+        <div>
+          <h2 className="text-xl font-black text-[var(--ink)]">
+            سؤالی با این شرایط برای مطالعه تشریحی یافت نشد!
+          </h2>
+          <p className="text-xs text-[var(--muted)] font-bold mt-1.5 leading-relaxed">
+            هیچ تستی با فیلترهای انتخابی در انتظار مرور نیست. می‌توانید فیلترها را تغییر داده یا دسته‌های دیگر مانند مسلط یا با شک را انتخاب کنید.
+          </p>
+        </div>
+        <div className="pt-2">
+          <Link href="/review/" className="btn-neo-orange px-5 py-3 text-xs font-black inline-flex">
+            بازگشت به مرکز مرور
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (isCompleted) {
+    return (
+      <div className="max-w-md mx-auto py-12 px-4 space-y-6 text-center">
+        <div className="w-20 h-20 rounded-3xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)] mx-auto shadow-[4px_4px_0px_var(--neo-shadow)]">
+          <Trophy size={40} />
+        </div>
+
+        <div>
+          <h2 className="text-2xl font-black text-[var(--ink)]">مرور تشریحی این بخش کامل شد!</h2>
+          <p className="text-xs text-[var(--muted)] font-medium mt-1">
+            نکات و پاسخ‌های تمام تست‌های انتخابی مطالعه شدند و وضعیت تسلط شما ثبت شد.
+          </p>
+        </div>
+
+        <div className="card-neo p-5 bg-[var(--surface)] border-2 border-[var(--line-strong)] space-y-3 shadow-[3px_3px_0px_var(--neo-shadow)]">
+          <div className="flex items-center justify-between text-xs font-black border-b border-[var(--line)] pb-2.5">
+            <span className="text-[var(--muted)]">سؤالات مطالعه‌شده:</span>
+            <strong className="text-[var(--ink)]">{totalCount} سؤال</strong>
+          </div>
+          <div className="flex items-center justify-between text-xs font-black">
+            <span className="text-[var(--muted)]">سؤالات با ثبت «یاد گرفتم»:</span>
+            <strong className="text-emerald-600 text-sm">{understoodIds.size} سؤال</strong>
+          </div>
+        </div>
+
+        <div className="space-y-2 pt-2">
+          <Link href="/review/" className="btn-neo-orange w-full py-3.5 text-xs font-black block">
+            بازگشت به مرکز مرور
+          </Link>
+          <Link
+            href="/"
+            className="py-3 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black block shadow-[2px_2px_0px_var(--neo-shadow)]"
+          >
+            صفحه اصلی
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const q = currentItem.question;
+  const attempt = currentItem.lastAttempt;
+  const isCurrentUnderstood = understoodIds.has(q.id);
+
+  // Derive Reason Label
+  let reasonText = "مرور و بازیابی مفاهیم";
+  let reasonBg = "bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border-blue-300";
+  if (currentItem.wrongCount > 0 || attempt?.result === "wrong") {
+    reasonText = `پاسخ نادرست قبلی (${currentItem.wrongCount} بار غلط)`;
+    reasonBg = "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-300";
+  } else if (attempt?.confidence === "doubtful") {
+    reasonText = "پاسخ با شک در آزمون قبلی";
+    reasonBg = "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300";
+  } else if (attempt?.confidence === "guess") {
+    reasonText = "حدسی در آزمون قبلی";
+    reasonBg = "bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border-purple-300";
+  } else if (attempt?.result === "unanswered") {
+    reasonText = "بدون پاسخ (نزده) در آزمون قبلی";
+    reasonBg = "bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-300 border-slate-300";
+  } else if (attempt?.result === "correct") {
+    reasonText = "تثبیت تسلط";
+    reasonBg = "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300";
+  }
+
+  return (
+    <div className="review-study-runner max-w-4xl mx-auto space-y-4 pb-12">
+      {/* Top Header */}
+      <div className="flex items-center justify-between gap-2 px-1">
+        <Link
+          href="/review/"
+          className="w-10 h-10 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
+        >
+          <ArrowRight size={18} />
+        </Link>
+
+        {/* Counter Badge */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-black text-[var(--ink)] bg-[var(--pastel-yellow)] px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
+            سؤال {selectedIndex + 1} از {totalCount}
+          </span>
+          <span className="rounded-xl border border-[var(--line-strong)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-black text-[var(--ink)]">
+            مرور تشریحی
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setIsCompleted(true)}
+          className="py-2 px-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all cursor-pointer"
+        >
+          پایان مطالعه
+        </button>
+      </div>
+
+      {/* Slim Progress Bar */}
+      <div className="w-full bg-[var(--surface-3)] h-2.5 rounded-full overflow-hidden border-2 border-[var(--line-strong)]">
+        <div
+          className="bg-[var(--brand-orange)] h-full transition-all duration-300"
+          style={{ width: `${((selectedIndex + 1) / totalCount) * 100}%` }}
+        />
+      </div>
+
+      {/* Reason Header Chip */}
+      <div className="flex items-center justify-between gap-2 px-1 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className={cn("px-3 py-1 rounded-xl text-xs font-black border-2 shadow-[1px_1px_0px_var(--neo-shadow)] flex items-center gap-1.5", reasonBg)}>
+            <Sparkles size={13} />
+            <span>{reasonText}</span>
+          </span>
+        </div>
+        <span className="text-[11px] font-black text-[var(--muted)]">
+          {q.subject} {q.chapter ? `• ${q.chapter}` : ""}
+        </span>
+        <QuestionTrustActions question={q} compact />
+      </div>
+
+      {/* Attached Passage if any */}
+      {q.groupContent && q.groupContent.length > 0 && (
+        <div className="card-neo p-4 sm:p-5 space-y-3 bg-[var(--surface-2)]/70 border-2 border-[var(--line)]">
+          <div className="flex items-center gap-2 text-xs font-black text-[var(--brand-orange)]">
+            <BookOpen size={14} />
+            <span>متن پیوست (Reading / Cloze Passage)</span>
+          </div>
+          <div dir="ltr" className="max-h-56 overflow-y-auto pr-2 text-xs sm:text-sm leading-relaxed text-[var(--ink)] font-medium neo-scrollbar select-text">
+            <ContentRenderer
+              blocks={(() => {
+                const targetInfo = extractQuestionPassageTarget(q.content);
+                return highlightPassageTargets(
+                  q.groupContent,
+                  targetInfo.targets,
+                  targetInfo.paragraphNumber
+                );
+              })()}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Question Statement Card */}
+      <div className="card-neo p-5 sm:p-6 space-y-4 bg-[var(--surface)]">
+        <div className="text-sm sm:text-base font-bold leading-relaxed text-[var(--ink)]">
+          <ContentRenderer blocks={q.content} />
+        </div>
+      </div>
+
+      {/* 4 Options with Correct & Previous Selection Highlights */}
+      <div className="space-y-2.5">
+        {q.options.map((opt, optIdx) => {
+          const isCorrect = opt.id === q.correctOptionId;
+          const isUserSelected = attempt?.selectedOptionId === opt.id;
+          const letter = PERSIAN_LETTERS[optIdx] ?? String(optIdx + 1);
+
+          let cardStyle = "border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]";
+          let badge = null;
+
+          if (isCorrect) {
+            cardStyle = "border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-100 ring-2 ring-emerald-500/20 shadow-[2px_2px_0px_#10b981]";
+            badge = (
+              <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white text-[10px] sm:text-xs font-black shrink-0 flex items-center gap-1 shadow-sm">
+                <Check size={13} className="stroke-[3]" />
+                <span>گزینه صحیح</span>
+              </span>
+            );
+          }
+
+          if (isUserSelected && !isCorrect) {
+            cardStyle = "border-red-500 bg-red-50/80 dark:bg-red-950/40 text-red-950 dark:text-red-100 ring-2 ring-red-500/20 shadow-[2px_2px_0px_#ef4444]";
+            badge = (
+              <span className="px-2.5 py-1 rounded-xl bg-red-600 text-white text-[10px] sm:text-xs font-black shrink-0 flex items-center gap-1 shadow-sm">
+                <X size={13} className="stroke-[3]" />
+                <span>انتخاب قبلی شما</span>
+              </span>
+            );
+          } else if (isUserSelected && isCorrect) {
+            badge = (
+              <span className="px-2.5 py-1 rounded-xl bg-emerald-700 text-white text-[10px] sm:text-xs font-black shrink-0 flex items-center gap-1 shadow-sm">
+                <Check size={13} className="stroke-[3]" />
+                <span>انتخاب درست قبلی شما</span>
+              </span>
+            );
+          }
+
+          return (
+            <div
+              key={opt.id}
+              className={cn("w-full p-4 rounded-2xl border-2 text-right flex items-center gap-3.5 transition", cardStyle)}
+            >
+              <div
+                className={cn(
+                  "w-8 h-8 rounded-xl border-2 flex items-center justify-center font-black text-xs shrink-0",
+                  isCorrect
+                    ? "bg-emerald-600 text-white border-emerald-700"
+                    : isUserSelected
+                    ? "bg-red-600 text-white border-red-700"
+                    : "bg-[var(--surface-cream)] text-[var(--ink-on-color)] border-[var(--line-strong)]"
+                )}
+              >
+                {letter}
+              </div>
+
+              <div className="flex-1 text-right font-bold text-xs sm:text-sm leading-relaxed">
+                <ContentRenderer blocks={opt.content} />
+              </div>
+
+              {badge && <div className="shrink-0">{badge}</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Explanation Card (Always Open in Study Mode) */}
+      {q.explanation && q.explanation.length > 0 && (
+        <div className="card-neo p-5 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] space-y-3 shadow-[3px_3px_0px_var(--neo-shadow)]">
+          <div className="flex items-center gap-2 border-b border-[var(--line)] pb-2 text-[var(--brand-orange)] font-black text-xs">
+            <Lightbulb size={16} />
+            <span>پاسخ تشریحی و نکته کلیدی:</span>
+          </div>
+          <div className="text-xs sm:text-sm font-medium leading-relaxed text-[var(--ink)]">
+            <ContentRenderer blocks={q.explanation} />
+          </div>
+        </div>
+      )}
+
+      {/* Sticky Bottom Action Controls */}
+      <footer className="sticky bottom-3 z-30 flex items-center justify-between gap-2.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-3 shadow-[4px_4px_0px_var(--neo-shadow)]">
+        {/* Prev Question */}
+        <button
+          type="button"
+          disabled={selectedIndex === 0}
+          onClick={() => setSelectedIndex((prev) => Math.max(0, prev - 1))}
+          className={cn(
+            "py-3 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5 transition",
+            selectedIndex === 0 ? "opacity-40 cursor-not-allowed" : "hover:translate-x-[1px] hover:translate-y-[1px] cursor-pointer"
+          )}
+        >
+          <ChevronRight size={17} />
+          <span className="hidden sm:inline">سؤال قبلی</span>
+        </button>
+
+        {/* Core «یاد گرفتم» Button */}
+        <button
+          type="button"
+          disabled={isMarking}
+          onClick={() => handleMarkUnderstood(q.id)}
+          className={cn(
+            "btn-neo flex-1 min-h-12 py-3 px-5 rounded-2xl border-2 border-[var(--line-strong)] text-xs sm:text-sm font-black flex items-center justify-center gap-2 shadow-[3px_3px_0px_var(--neo-shadow)] transition cursor-pointer",
+            isCurrentUnderstood
+              ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-900 dark:text-emerald-100 border-emerald-600"
+              : "bg-[var(--pastel-green)] text-[var(--ink-on-color)] hover:translate-x-[-1px] hover:translate-y-[-1px]"
+          )}
+        >
+          <Check size={18} className="stroke-[3]" />
+          <span>{isCurrentUnderstood ? "تسلط ثبت شد (ادامه)" : "یاد گرفتم (ثبت تسلط و بعدی)"}</span>
+        </button>
+
+        {/* Next Question */}
+        {selectedIndex < totalCount - 1 ? (
+          <button
+            type="button"
+            onClick={() => setSelectedIndex((prev) => prev + 1)}
+            className="py-3 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5 hover:translate-x-[1px] hover:translate-y-[1px] transition cursor-pointer"
+          >
+            <span className="hidden sm:inline">سؤال بعدی</span>
+            <ChevronLeft size={17} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsCompleted(true)}
+            className="py-3 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--pastel-yellow)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5 hover:translate-x-[1px] hover:translate-y-[1px] transition cursor-pointer"
+          >
+            <span>پایان مطالعه</span>
+            <CheckCircle2 size={17} />
+          </button>
+        )}
+      </footer>
+    </div>
+  );
+}
+
+// =========================================================================
+// MODE 2: TEST REVIEW RUNNER (آزمون تستی و تمرینی با یادآوری فعال و کارنامه)
+// =========================================================================
+function TestReviewRunner({ searchParams }: { searchParams: ReturnType<typeof useSearchParams> }) {
   const idParam = searchParams.get("id");
   const subjectParam = searchParams.get("subject");
   const parsedCount = Number.parseInt(searchParams.get("count") || "20", 10);
@@ -70,7 +494,6 @@ export function ReviewRunner() {
     }
   }, []);
 
-  // Profiles
   const profilesQuery = useQuery({
     queryKey: ["profiles"],
     queryFn: () => db.listProfiles(),
@@ -78,7 +501,6 @@ export function ReviewRunner() {
   });
   const profileId = profilesQuery.data?.[0]?.id;
 
-  // Due reviews list for reason mapping
   const dueQuery = useQuery({
     queryKey: ["due-reviews-map"],
     queryFn: () => db.listDueReviews(),
@@ -93,7 +515,7 @@ export function ReviewRunner() {
     return map;
   }, [dueQuery.data]);
 
-  // Create session if not provided (Strictly one-shot, no infinite loop!)
+  // Create session if not provided
   useEffect(() => {
     if (!profileId || activeSessionId || sessionAttempted.current || status !== "ready") return;
 
@@ -142,7 +564,7 @@ export function ReviewRunner() {
           sessionId: sessionIdParam || undefined,
           sessionIds: sessionIdsList,
           dateRange: dateRangeParam || undefined,
-          shuffleQuestions: false, // Maintain adaptive mastery order (urgent first!)
+          shuffleQuestions: false,
         });
 
         await db.startOrResumeSession(createdId);
@@ -164,7 +586,6 @@ export function ReviewRunner() {
     };
   }, [activeSessionId, countParam, db, modesParam, profileId, searchParams, status, subjectParam]);
 
-  // Query the session
   const sessionQuery = useQuery({
     queryKey: ["session", activeSessionId],
     queryFn: () => (activeSessionId ? db.getSession(activeSessionId) : null),
@@ -176,7 +597,6 @@ export function ReviewRunner() {
   const totalQuestions = questions.length;
   const current = questions[selectedIndex];
 
-  // Mark already-answered questions as revealed
   useEffect(() => {
     if (!questions.length) return;
     Promise.resolve().then(() => {
@@ -192,7 +612,6 @@ export function ReviewRunner() {
     });
   }, [questions]);
 
-  // Save answer and reveal immediately
   const handleSelectOption = useCallback(
     async (optionId: string, confidence: "sure" | "doubtful" | "guess" = "sure") => {
       if (!activeSessionId || !current) return;
@@ -213,7 +632,6 @@ export function ReviewRunner() {
     [activeSessionId, cache, current, db, selectedIndex]
   );
 
-  // Clear answer to retry
   const handleRetry = useCallback(async () => {
     if (!activeSessionId || !current) return;
     setPending(true);
@@ -228,7 +646,6 @@ export function ReviewRunner() {
     }
   }, [activeSessionId, cache, current, db, selectedIndex]);
 
-  // Complete review
   const handleFinish = useCallback(async () => {
     if (!activeSessionId) return;
     setPending(true);
@@ -271,7 +688,6 @@ export function ReviewRunner() {
     return <LoadingState label="در حال فراخوانی و آماده‌سازی سؤالات اولویت‌دار مرور…" />;
   }
 
-  // Graceful Empty / Error State (Prevents Infinite Loop)
   if (sessionError || !questions.length) {
     return (
       <div className="max-w-md mx-auto py-16 px-4 text-center space-y-5">
@@ -280,28 +696,21 @@ export function ReviewRunner() {
         </div>
         <div>
           <h2 className="text-xl font-black text-[var(--ink)]">
-            {sessionError || "سؤالی با شرایط انتخابی برای مرور یافت نشد!"}
+            {sessionError || "سؤالی با شرایط انتخابی برای آزمون مرور یافت نشد!"}
           </h2>
           <p className="text-xs text-[var(--muted)] font-bold mt-1.5 leading-relaxed">
-            سؤالی در دسته‌های انتخابی شما در انتظار مرور نیست یا هنوز آزمونی با این مشخصات ثبت نشده است. می‌توانید دسته‌های دیگر مانند غلط‌ها، شک‌ها یا سؤالات مسلط را انتخاب کنید.
+            سؤالی در دسته‌های انتخابی شما در انتظار مرور نیست یا هنوز آزمونی با این مشخصات ثبت نشده است. می‌توانید دسته‌های دیگر را تیک بزنید.
           </p>
         </div>
         <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2.5">
           <Link href="/review/" className="btn-neo-orange px-5 py-3 text-xs font-black w-full sm:w-auto">
             بازگشت و تنظیم فیلترهای مرور
           </Link>
-          <Link
-            href="/review/run/?modes=wrong,doubtful,guess,due,skipped,mastered&count=15"
-            className="py-3 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-[var(--surface-2)] transition-all w-full sm:w-auto"
-          >
-            مرور تمام تست‌های موجود
-          </Link>
         </div>
       </div>
     );
   }
 
-  // Finished Celebration
   if (isFinished || sessionData?.state === "FINISHED") {
     const correctCount = questions.filter(
       (q) => q.selectedOptionId && q.selectedOptionId === q.snapshot.correctOptionId
@@ -347,7 +756,7 @@ export function ReviewRunner() {
             href="/history/"
             className="py-3 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--pastel-blue-soft)] text-[var(--ink)] text-xs font-black block shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-[var(--pastel-blue)] transition-all"
           >
-            مشاهده این جلسه در تاریخچه آزمون‌ها
+            مشاهده این جلسه در تاریخچه جلسات
           </Link>
           <Link
             href="/"
@@ -364,8 +773,6 @@ export function ReviewRunner() {
   const isCorrect = current.selectedOptionId === current.snapshot.correctOptionId;
   const rawPriority = dueItemsMap.get(current.snapshot.id) ?? 3;
   const reasonInfo = PRIORITY_REASONS[rawPriority] || PRIORITY_REASONS[3];
-
-  // Active Recall Spoiler State: true if revealed manually or already answered
   const isOptionRevealed = Boolean(spoilerRevealed[current.id] || isCurrentRevealed);
 
   return (
@@ -383,6 +790,9 @@ export function ReviewRunner() {
         <div className="flex items-center gap-2">
           <span className="text-xs font-black text-[var(--ink-on-color)] bg-[var(--pastel-yellow)] px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
             سؤال {selectedIndex + 1} از {totalQuestions}
+          </span>
+          <span className="rounded-xl border border-[var(--line-strong)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-black text-[var(--ink)]">
+            آزمون مرور
           </span>
         </div>
 
@@ -424,10 +834,10 @@ export function ReviewRunner() {
         <QuestionTrustActions question={current.snapshot} compact />
       </div>
 
-      {/* Attached Passage / Reading / Cloze Content */}
+      {/* Attached Passage if any */}
       {current.snapshot.groupContent && current.snapshot.groupContent.length > 0 && (
         <div className="card-neo p-4 sm:p-5 space-y-3 bg-[var(--surface-2)]/70 border-2 border-[var(--line)]">
-          <div className="flex items-center gap-2 text-xs font-black text-[var(--testino-orange)]">
+          <div className="flex items-center gap-2 text-xs font-black text-[var(--brand-orange)]">
             <BookOpen size={14} />
             <span>متن پیوست (Reading / Cloze Passage)</span>
           </div>
@@ -479,7 +889,6 @@ export function ReviewRunner() {
 
       {/* Telegram-Style Spoiler Masked Options Container */}
       <div className="telegram-spoiler relative">
-        {/* The 4 Options (Blurred when masked) */}
         <div className={cn("space-y-2.5 transition-all duration-300", !isOptionRevealed && "telegram-spoiler-masked")}>
           {options.map((option, optIdx) => {
             if (!option) return null;
@@ -488,7 +897,6 @@ export function ReviewRunner() {
             const isOptionCorrect = option.id === current.snapshot.correctOptionId;
             const isUserWrong = isSelected && !isOptionCorrect;
 
-            // Card styling matching session-player.tsx
             const cardStyle = cn(
               "w-full p-4 rounded-2xl border-2 text-right transition-all flex items-center gap-3.5",
               isCurrentRevealed
@@ -502,7 +910,6 @@ export function ReviewRunner() {
                 : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-cream)] cursor-pointer"
             );
 
-            // Badge styling matching session-player.tsx
             const badgeStyle = cn(
               "w-8 h-8 rounded-xl border-2 flex items-center justify-center font-black text-xs shrink-0 transition-colors",
               isCurrentRevealed
@@ -530,12 +937,8 @@ export function ReviewRunner() {
                 }}
                 className={cardStyle}
               >
-                {/* Persian Letter Badge */}
-                <div className={badgeStyle}>
-                  {letter}
-                </div>
+                <div className={badgeStyle}>{letter}</div>
 
-                {/* Option Content */}
                 <div
                   className={cn(
                     "flex-1 text-right font-bold text-xs sm:text-sm leading-relaxed",
@@ -551,7 +954,6 @@ export function ReviewRunner() {
                   <ContentRenderer blocks={option.content} />
                 </div>
 
-                {/* Trailing Status Badge or Radio Indicator (matching session-player.tsx) */}
                 {isCurrentRevealed ? (
                   isOptionCorrect ? (
                     <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white text-[10px] sm:text-xs font-black shrink-0 flex items-center gap-1 shadow-sm">
@@ -579,7 +981,6 @@ export function ReviewRunner() {
           })}
         </div>
 
-        {/* Telegram-Style Shimmer Overlay when Spoiler is Active */}
         {!isOptionRevealed && (
           <div
             onClick={() => setSpoilerRevealed((prev) => ({ ...prev, [current.id]: true }))}
@@ -589,9 +990,7 @@ export function ReviewRunner() {
             <div className="w-12 h-12 rounded-2xl bg-[var(--brand-orange)] border-2 border-[var(--line-strong)] text-white flex items-center justify-center shadow-[3px_3px_0px_var(--neo-shadow)] mx-auto mb-2">
               <Eye size={22} />
             </div>
-            <div className="font-black text-sm text-[var(--ink)]">
-              گزینه‌ها پوشانده شده‌اند
-            </div>
+            <div className="font-black text-sm text-[var(--ink)]">گزینه‌ها پوشانده شده‌اند</div>
             <p className="text-[11px] font-bold text-[var(--muted)] max-w-sm mx-auto mt-1 leading-relaxed">
               اول پاسخ را در ذهنت بساز، بعد برای دیدن گزینه‌ها کلیک کن.
             </p>
@@ -599,7 +998,7 @@ export function ReviewRunner() {
         )}
       </div>
 
-      {/* Answer Explanation & Immediate Feedback (Shown after selection) */}
+      {/* Answer Explanation & Immediate Feedback */}
       {isCurrentRevealed && (
         <div className="space-y-3 pt-2">
           {/* Result Alert */}
@@ -631,9 +1030,8 @@ export function ReviewRunner() {
             </div>
           </div>
 
-          {/* Confidence Action Pills matching session-player.tsx */}
+          {/* Confidence Action Pills */}
           <div className="flex items-center gap-2.5 pt-1">
-            {/* 1. شک دارم */}
             <button
               type="button"
               onClick={() => {
@@ -647,13 +1045,11 @@ export function ReviewRunner() {
                   ? "bg-amber-100 dark:bg-amber-950/70 text-amber-950 dark:text-amber-200 border-amber-500 shadow-[2px_2px_0px_#f59e0b]"
                   : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
               )}
-              title="اگر بین دو یا سه گزینه تردید داشتید"
             >
               <HelpCircle size={15} />
               <span>{current.confidence === "doubtful" ? "با شک پاسخ دادم" : "شک داشتم"}</span>
             </button>
 
-            {/* 2. حدس زدم */}
             <button
               type="button"
               onClick={() => {
@@ -667,7 +1063,6 @@ export function ReviewRunner() {
                   ? "bg-purple-100 dark:bg-purple-950/70 text-purple-950 dark:text-purple-200 border-purple-500 shadow-[2px_2px_0px_#8b5cf6]"
                   : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
               )}
-              title="اگر بدون اطمینان و حدسی پاسخ دادید"
             >
               <Zap size={15} />
               <span>{current.confidence === "guess" ? "حدسی پاسخ دادم" : "حدس زدم"}</span>
@@ -683,12 +1078,9 @@ export function ReviewRunner() {
                   <span>پاسخ تشریحی و نکته کلیدی:</span>
                 </div>
                 {(() => {
-                  const optIndex = options.findIndex(
-                    (o) => o?.id === current.snapshot.correctOptionId
-                  );
+                  const optIndex = options.findIndex((o) => o?.id === current.snapshot.correctOptionId);
                   if (optIndex === -1) return null;
-                  const letters = ["الف", "ب", "ج", "د"];
-                  const displayLetter = optIndex >= 0 && optIndex < 4 ? letters[optIndex] : String(optIndex + 1);
+                  const displayLetter = optIndex >= 0 && optIndex < 4 ? PERSIAN_LETTERS[optIndex] : String(optIndex + 1);
                   return (
                     <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-400 font-black text-[11px] flex items-center gap-1.5">
                       <span className="w-4 h-4 rounded-md bg-emerald-600 text-white flex items-center justify-center text-[10px]">
@@ -712,7 +1104,6 @@ export function ReviewRunner() {
               onClick={handleRetry}
               disabled={pending}
               className="py-3 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-1.5 cursor-pointer"
-              title="پاک کردن و پاسخ مجدد"
             >
               <RotateCcw size={15} />
               <span>پاسخ مجدد</span>
@@ -721,9 +1112,7 @@ export function ReviewRunner() {
             {selectedIndex < totalQuestions - 1 ? (
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedIndex((prev) => prev + 1);
-                }}
+                onClick={() => setSelectedIndex((prev) => prev + 1)}
                 className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer"
               >
                 <span>سؤال بعدی</span>
@@ -751,74 +1140,78 @@ export function ReviewRunner() {
             type="button"
             disabled={selectedIndex === 0}
             onClick={() => setSelectedIndex((prev) => Math.max(0, prev - 1))}
-            className="py-3 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] disabled:opacity-30 disabled:pointer-events-none transition-all flex items-center gap-1.5 cursor-pointer"
+            className={cn(
+              "py-3 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5 transition",
+              selectedIndex === 0 ? "opacity-40 cursor-not-allowed" : "hover:translate-x-[1px] hover:translate-y-[1px] cursor-pointer"
+            )}
           >
-            <ChevronRight size={16} />
+            <ChevronRight size={17} />
             <span>سؤال قبلی</span>
           </button>
 
-          <button
-            type="button"
-            disabled={selectedIndex === totalQuestions - 1}
-            onClick={() => setSelectedIndex((prev) => Math.min(totalQuestions - 1, prev + 1))}
-            className="py-3 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] disabled:opacity-30 disabled:pointer-events-none transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <span>سؤال بعدی</span>
-            <ChevronLeft size={16} />
-          </button>
+          {selectedIndex < totalQuestions - 1 ? (
+            <button
+              type="button"
+              onClick={() => setSelectedIndex((prev) => prev + 1)}
+              className="py-3 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5 hover:translate-x-[1px] hover:translate-y-[1px] transition cursor-pointer"
+            >
+              <span>سؤال بعدی</span>
+              <ChevronLeft size={17} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowFinishConfirm(true)}
+              className="btn-neo-orange py-3 px-5 text-xs font-black flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>اتمام آزمون</span>
+              <CheckCircle2 size={17} />
+            </button>
+          )}
         </div>
       )}
 
-      {/* Finish Confirmation — mirrors the exam flow's confirm dialog so review
-          can never be closed by a single accidental tap */}
+      {/* Confirmation Modal */}
       {showFinishConfirm && (
-        <div className="dialog-backdrop" role="presentation" onMouseDown={() => setShowFinishConfirm(false)}>
-          <section
-            className="card-neo max-w-md mx-auto p-6 bg-[var(--surface)] space-y-4 text-center"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="review-finish-title"
-            onMouseDown={(event) => event.stopPropagation()}
+        <div
+          className="dialog-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          onClick={() => !pending && setShowFinishConfirm(false)}
+        >
+          <div
+            className="card-neo w-full max-w-sm p-5 space-y-4 bg-[var(--surface)] text-center border-2 border-[var(--line-strong)] shadow-[4px_4px_0px_var(--neo-shadow)] animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)]">
-              <Trophy size={26} />
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)]">
+              <CircleHelp size={24} />
             </div>
-            <h2 id="review-finish-title" className="text-lg font-black text-[var(--ink)]">
-              مرور تمام شد؟
-            </h2>
-            <p className="text-xs text-[var(--muted)] font-bold leading-relaxed">
-              {questions.filter((q) => !q.selectedOptionId).length > 0
-                ? `${questions.filter((q) => !q.selectedOptionId).length} سؤال بدون پاسخ مانده و نزده ثبت می‌شود.`
-                : "همهٔ سؤالات این مرور پاسخ داده شده‌اند."}
-            </p>
-
-            <div className="space-y-2.5 pt-1 text-right">
+            <div className="space-y-1">
+              <h3 className="text-sm font-black text-[var(--ink)]">پایان آزمون مرور؟</h3>
+              <p className="text-xs text-[var(--muted)] font-medium">
+                آیا مایل به پایان آزمون مرور و ثبت وضعیت موعدهای لایتنر هستید؟
+              </p>
+            </div>
+            <div className="flex items-center gap-2 pt-2">
               <button
                 type="button"
-                className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-orange)] text-white shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
                 disabled={pending}
-                onClick={() => void handleFinish()}
+                onClick={() => {
+                  setShowFinishConfirm(false);
+                  void handleFinish();
+                }}
+                className="btn-neo-orange flex-1 py-2.5 px-4 text-xs font-black cursor-pointer"
               >
-                <div className="w-8 h-8 rounded-xl bg-white/20 border-2 border-white/30 flex items-center justify-center shrink-0">
-                  {pending ? <RotateCcw size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                </div>
-                <div>
-                  <strong className="block text-xs font-black">پایان مرور و مشاهده کارنامه</strong>
-                  <span className="text-[11px] opacity-90 font-medium">موعد تکرار سؤالات در لایتنر ثبت می‌شود.</span>
-                </div>
+                {pending ? "در حال ثبت…" : "بله، پایان آزمون"}
               </button>
-            </div>
-
-            <div className="pt-2">
               <button
                 type="button"
-                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+                disabled={pending}
                 onClick={() => setShowFinishConfirm(false)}
+                className="py-2.5 px-4 rounded-xl border border-[var(--line)] text-xs font-bold text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer"
               >
-                انصراف و ادامهٔ مرور
+                ادامه مرور
               </button>
             </div>
-          </section>
+          </div>
         </div>
       )}
     </div>

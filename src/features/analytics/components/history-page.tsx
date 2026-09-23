@@ -10,18 +10,32 @@ import {
   FileText,
   History,
   PauseCircle,
+  RotateCcw,
   Trash2,
   Loader2,
 } from "lucide-react";
 import { ErrorState, LoadingState } from "@/components/ui/testino-ui";
 import { useDatabase } from "@/providers/database-provider";
+import type { SessionConfig } from "@/database/app-database";
 import { cn } from "@/lib/utils";
+
+type HistoryFilterTab = "all" | "exams" | "reviews";
+
+function isReviewSession(config: SessionConfig | null | undefined): boolean {
+  if (!config) return false;
+  return (
+    config.mode === "due" ||
+    config.mode === "wrong" ||
+    (Array.isArray(config.modes) && config.modes.length > 0)
+  );
+}
 
 export function HistoryPage() {
   const { db, status } = useDatabase();
   const cache = useQueryClient();
   const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [filterTab, setFilterTab] = useState<HistoryFilterTab>("all");
 
   const profiles = useQuery({
     queryKey: ["profiles"],
@@ -49,7 +63,7 @@ export function HistoryPage() {
       await cache.invalidateQueries({ queryKey: ["question-pool-stats"] });
     } catch (err) {
       console.error("Failed to delete session:", err);
-      alert("خطا در حذف آزمون: " + (err instanceof Error ? err.message : String(err)));
+      alert("خطا در حذف جلسه: " + (err instanceof Error ? err.message : String(err)));
       setDeleteSessionId(null);
     } finally {
       setIsDeleting(false);
@@ -75,14 +89,36 @@ export function HistoryPage() {
     return { today, jYear, jMonth, jDay, dayCount, firstDayOfMonthDate, offset };
   }, []);
 
+  const sessionList = useMemo(() => sessions.data ?? [], [sessions.data]);
+
   const activityMap = useMemo(() => {
     const map = new Map<string, number>();
-    for (const item of sessions.data ?? []) {
+    for (const item of sessionList) {
       const d = new Date(item.createdAt).toDateString();
       map.set(d, (map.get(d) ?? 0) + 1);
     }
     return map;
-  }, [sessions.data]);
+  }, [sessionList]);
+
+  // Separate exam sessions from review sessions
+  const { examSessions, reviewSessions } = useMemo(() => {
+    const exams: typeof sessionList = [];
+    const reviews: typeof sessionList = [];
+    for (const s of sessionList) {
+      if (isReviewSession(s.config)) {
+        reviews.push(s);
+      } else {
+        exams.push(s);
+      }
+    }
+    return { examSessions: exams, reviewSessions: reviews };
+  }, [sessionList]);
+
+  const displayedSessions = useMemo(() => {
+    if (filterTab === "exams") return examSessions;
+    if (filterTab === "reviews") return reviewSessions;
+    return sessionList;
+  }, [examSessions, filterTab, reviewSessions, sessionList]);
 
   if (profiles.isLoading || sessions.isLoading) {
     return <LoadingState label="در حال آماده‌سازی تاریخچه و تقویم فعالیت…" />;
@@ -91,7 +127,7 @@ export function HistoryPage() {
   if (profiles.isError || sessions.isError) {
     return (
       <ErrorState
-        message="تاریخچهٔ آزمون‌ها خوانده نشد."
+        message="تاریخچهٔ جلسات خوانده نشد."
         retry={() => {
           void profiles.refetch();
           void sessions.refetch();
@@ -108,7 +144,6 @@ export function HistoryPage() {
     minute: "2-digit",
   });
 
-  const sessionList = sessions.data ?? [];
   const finishedCount = sessionList.filter((item) => item.state === "FINISHED").length;
 
   return (
@@ -120,10 +155,10 @@ export function HistoryPage() {
           ثبت پیوسته جلسات
         </span>
         <h1 className="text-2xl sm:text-3xl font-black text-[var(--ink)] tracking-tight">
-          تاریخچهٔ آزمون‌ها
+          تاریخچهٔ جلسات و مرورها
         </h1>
         <p className="text-xs sm:text-sm text-[var(--muted)] font-medium mt-1">
-          تمام جلسات آزمون ذخیره‌شده بر روی دستگاه همراه با وضعیت اتمام و تعداد پاسخ‌ها.
+          تفکیک جلسات آزمون‌های استاندارد و مرورهای یادگیری، همراه با وضعیت اتمام و تعداد پاسخ‌ها.
         </p>
       </div>
 
@@ -137,12 +172,17 @@ export function HistoryPage() {
               هنوز سابقه‌ای ثبت نشده است
             </h3>
             <p className="text-xs sm:text-sm text-[var(--muted)] font-medium">
-              با ایجاد و شروع اولین آزمون، جلسه و تاریخچه آن با جزئیات کامل در اینجا آرشیو می‌شود.
+              با ایجاد و شروع اولین آزمون یا مرور، جلسه و تاریخچه آن با جزئیات کامل در اینجا آرشیو می‌شود.
             </p>
           </div>
-          <Link href="/sessions/new/" className="btn-neo-orange text-xs font-black px-5 py-2.5 shadow-[3px_3px_0px_var(--neo-shadow)]">
-            ساخت اولین آزمون
-          </Link>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Link href="/sessions/new/" className="btn-neo-orange text-xs font-black px-5 py-2.5 shadow-[3px_3px_0px_var(--neo-shadow)]">
+              ساخت اولین آزمون
+            </Link>
+            <Link href="/review/" className="rounded-xl border-2 border-[var(--line-strong)] bg-[var(--pastel-yellow)] px-5 py-2.5 text-xs font-black text-[var(--ink)] shadow-[3px_3px_0px_var(--neo-shadow)]">
+              ورود به مرور
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -155,9 +195,11 @@ export function HistoryPage() {
                   {sessionList.length}
                 </span>
                 <span className="text-xs font-bold text-[var(--ink)]">جلسهٔ ثبت‌شده</span>
-                <span className="text-[11px] font-bold text-[var(--ink)] opacity-80 block mt-0.5">
-                  ({finishedCount} آزمون تا انتها حل شده)
-                </span>
+                <div className="text-[11px] font-bold text-[var(--ink)] opacity-85 mt-1 space-y-0.5">
+                  <div>• {examSessions.length} آزمون استاندارد</div>
+                  <div>• {reviewSessions.length} جلسه مرور و بازیابی</div>
+                  <div>• {finishedCount} جلسه تکمیل‌شده</div>
+                </div>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--testino-orange)] shadow-[2px_2px_0px_var(--neo-shadow)]">
                 <FileText size={24} />
@@ -203,7 +245,7 @@ export function HistoryPage() {
                   return (
                     <span
                       key={dayNumber}
-                      title={`${new Intl.DateTimeFormat("fa-IR", { month: "long", day: "numeric" }).format(date)}: ${count} جلسه آزمون`}
+                      title={`${new Intl.DateTimeFormat("fa-IR", { month: "long", day: "numeric" }).format(date)}: ${count} جلسه`}
                       className={cn(
                         "h-7 flex items-center justify-center rounded-lg relative text-[11px] transition-all cursor-default",
                         active && count >= 3
@@ -225,89 +267,165 @@ export function HistoryPage() {
 
           {/* Main Sessions List (8 cols on desktop) */}
           <div className="lg:col-span-8 space-y-3">
-            <div className="flex items-center justify-between text-xs font-black text-[var(--muted)] px-1">
-              <span>جلسات آزمون (جدیدترین به قدیمی‌ترین)</span>
-              <span>{sessionList.length} جلسه</span>
+            {/* Filter Tabs Header: All vs Exams vs Reviews */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-2.5">
+              <div className="flex items-center gap-1.5 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] p-1 shadow-[2px_2px_0px_var(--neo-shadow)]">
+                <button
+                  type="button"
+                  onClick={() => setFilterTab("all")}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-black transition cursor-pointer",
+                    filterTab === "all"
+                      ? "border border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] shadow-[1px_1px_0px_var(--neo-shadow)]"
+                      : "text-[var(--muted)] hover:text-[var(--ink)]"
+                  )}
+                >
+                  همه جلسات ({sessionList.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterTab("exams")}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-black transition cursor-pointer",
+                    filterTab === "exams"
+                      ? "border border-[var(--line-strong)] bg-[var(--pastel-blue)] text-[var(--ink)] shadow-[1px_1px_0px_var(--neo-shadow)]"
+                      : "text-[var(--muted)] hover:text-[var(--ink)]"
+                  )}
+                >
+                  <FileText size={13} />
+                  آزمون‌ها ({examSessions.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterTab("reviews")}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-black transition cursor-pointer",
+                    filterTab === "reviews"
+                      ? "border border-[var(--line-strong)] bg-[var(--pastel-yellow)] text-[var(--ink)] shadow-[1px_1px_0px_var(--neo-shadow)]"
+                      : "text-[var(--muted)] hover:text-[var(--ink)]"
+                  )}
+                >
+                  <RotateCcw size={13} />
+                  مرورها ({reviewSessions.length})
+                </button>
+              </div>
+
+              <span className="text-xs font-black text-[var(--muted)]">
+                {displayedSessions.length} مورد نمایش داده شده
+              </span>
             </div>
 
+            {/* List of Sessions */}
             <div className="space-y-3">
-              {sessionList.map((session) => {
-                const isFinished = session.state === "FINISHED";
-                const isPaused = session.state === "PAUSED";
-                const modeTitle =
-                  session.config?.mode === "due"
-                    ? "مرور هوشمند"
-                    : session.config?.mode === "wrong"
-                    ? "تمرین اشتباهات"
-                    : session.config?.mode === "new"
-                    ? "سؤال‌های جدید"
-                    : session.config?.isOpenEnded
-                    ? "حل بی‌پایان"
-                    : "آزمون شبیه‌ساز";
+              {displayedSessions.length === 0 ? (
+                <div className="card-neo p-8 text-center rounded-2xl bg-[var(--surface)] text-xs font-bold text-[var(--muted)]">
+                  هیچ موردی در این دسته یافت نشد.
+                </div>
+              ) : (
+                displayedSessions.map((session) => {
+                  const isFinished = session.state === "FINISHED";
+                  const isPaused = session.state === "PAUSED";
+                  const isReview = isReviewSession(session.config);
 
-                return (
-                  <div
-                    key={session.id}
-                    className="card-neo p-4 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line-strong)] flex items-center justify-between gap-3 transition-all hover:translate-x-[-2px] shadow-[3px_3px_0px_var(--neo-shadow)]"
-                  >
-                    <Link
-                      href={`/sessions/run/?id=${session.id}`}
-                      className="flex items-center gap-3 min-w-0 flex-1"
+                  let modeTitle = "آزمون شبیه‌ساز";
+                  if (isReview) {
+                    if (session.config?.mode === "due") modeTitle = "مرور لایتنر";
+                    else if (session.config?.mode === "wrong") modeTitle = "مرور اشتباهات";
+                    else if (session.config?.modes && session.config.modes.length > 0) {
+                      modeTitle = `مرور انتخابی (${session.config.modes.length} دسته)`;
+                    } else {
+                      modeTitle = "مرور و بازیابی";
+                    }
+                  } else {
+                    if (session.config?.mode === "new") modeTitle = "سؤال‌های جدید";
+                    else if (session.config?.isOpenEnded) modeTitle = "حل بی‌پایان";
+                    else modeTitle = "آزمون شبیه‌ساز";
+                  }
+
+                  const targetUrl = isReview
+                    ? `/review/run/?id=${session.id}`
+                    : `/sessions/run/?id=${session.id}`;
+
+                  return (
+                    <div
+                      key={session.id}
+                      className={cn(
+                        "card-neo p-4 rounded-2xl border-2 border-[var(--line-strong)] flex items-center justify-between gap-3 transition-all hover:translate-x-[-2px] shadow-[3px_3px_0px_var(--neo-shadow)]",
+                        isReview ? "bg-[var(--surface-cream)]" : "bg-[var(--surface)]"
+                      )}
                     >
-                      <div
-                        className={cn(
-                          "w-11 h-11 rounded-xl border-2 border-[var(--line-strong)] flex items-center justify-center flex-shrink-0 shadow-[2px_2px_0px_var(--neo-shadow)]",
-                          isFinished
-                            ? "bg-[var(--pastel-green)] text-emerald-900"
-                            : isPaused
-                            ? "bg-[var(--pastel-yellow)] text-amber-900"
-                            : "bg-[var(--pastel-blue)] text-blue-900"
-                        )}
+                      <Link
+                        href={targetUrl}
+                        className="flex items-center gap-3 min-w-0 flex-1"
                       >
-                        {isFinished ? (
-                          <CheckCircle2 size={20} />
-                        ) : isPaused ? (
-                          <PauseCircle size={20} />
-                        ) : (
-                          <CirclePlay size={20} />
-                        )}
-                      </div>
-
-                      <div className="min-w-0 space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <strong className="text-xs sm:text-sm font-black text-[var(--ink)] truncate">
-                            {isFinished ? "آزمون تمام‌شده" : isPaused ? "آزمون متوقف‌شده" : "آزمون در جریان"}
-                          </strong>
-                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-[var(--surface-2)] border border-[var(--line-strong)]/30 text-[var(--muted)]">
-                            {modeTitle}
-                          </span>
+                        <div
+                          className={cn(
+                            "w-11 h-11 rounded-xl border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0 shadow-[2px_2px_0px_var(--neo-shadow)]",
+                            isReview
+                              ? "bg-[var(--pastel-yellow)] text-amber-950"
+                              : isFinished
+                              ? "bg-[var(--pastel-green)] text-emerald-900"
+                              : isPaused
+                              ? "bg-[var(--pastel-yellow)] text-amber-900"
+                              : "bg-[var(--pastel-blue)] text-blue-900"
+                          )}
+                        >
+                          {isReview ? (
+                            <RotateCcw size={20} />
+                          ) : isFinished ? (
+                            <CheckCircle2 size={20} />
+                          ) : isPaused ? (
+                            <PauseCircle size={20} />
+                          ) : (
+                            <CirclePlay size={20} />
+                          )}
                         </div>
 
-                        <span className="text-[11px] text-[var(--muted)] font-medium block">
-                          {formatter.format(new Date(session.createdAt))} • {session.answered} پاسخ از {session.total} سؤال
-                        </span>
-                      </div>
-                    </Link>
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <strong className="text-xs sm:text-sm font-black text-[var(--ink)] truncate">
+                              {isReview
+                                ? (isFinished ? "مرور تمام‌شده" : isPaused ? "مرور متوقف‌شده" : "مرور در جریان")
+                                : (isFinished ? "آزمون تمام‌شده" : isPaused ? "آزمون متوقف‌شده" : "آزمون در جریان")}
+                            </strong>
+                            <span
+                              className={cn(
+                                "px-2 py-0.5 rounded-lg text-[10px] font-black border",
+                                isReview
+                                  ? "border-amber-400 bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                                  : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)]"
+                              )}
+                            >
+                              {isReview ? `مرور: ${modeTitle}` : modeTitle}
+                            </span>
+                          </div>
 
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setDeleteSessionId(session.id)}
-                        className="w-8 h-8 rounded-xl border border-transparent hover:border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center text-[var(--muted)] hover:text-rose-600 transition-all cursor-pointer"
-                        title="حذف این آزمون از تاریخچه"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                      <Link
-                        href={`/sessions/run/?id=${session.id}`}
-                        className="w-8 h-8 rounded-xl bg-[var(--surface-2)] border border-[var(--line-strong)] flex items-center justify-center text-[var(--ink)]"
-                      >
-                        <ChevronLeft size={16} />
+                          <span className="text-[11px] text-[var(--muted)] font-medium block">
+                            {formatter.format(new Date(session.createdAt))} • {session.answered} پاسخ از {session.total} سؤال
+                          </span>
+                        </div>
                       </Link>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteSessionId(session.id)}
+                          className="w-8 h-8 rounded-xl border border-transparent hover:border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center text-[var(--muted)] hover:text-rose-600 transition-all cursor-pointer"
+                          title="حذف از تاریخچه"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                        <Link
+                          href={targetUrl}
+                          className="w-8 h-8 rounded-xl bg-[var(--surface-2)] border border-[var(--line-strong)] flex items-center justify-center text-[var(--ink)]"
+                        >
+                          <ChevronLeft size={16} />
+                        </Link>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
@@ -327,9 +445,9 @@ export function HistoryPage() {
               <Trash2 size={24} />
             </div>
             <div className="space-y-1">
-              <h3 className="text-sm font-black text-[var(--ink)]">حذف آزمون از تاریخچه</h3>
+              <h3 className="text-sm font-black text-[var(--ink)]">حذف جلسه از تاریخچه</h3>
               <p className="text-xs text-[var(--muted)] font-medium">
-                آیا از حذف این جلسه آزمون مطمئن هستید؟ داده‌ها و کارنامه مربوط به این آزمون کاملاً حذف می‌شوند.
+                آیا از حذف این جلسه مطمئن هستید؟ داده‌ها و کارنامه مربوط به آن کاملاً حذف می‌شوند.
               </p>
             </div>
             <div className="flex items-center gap-2 pt-2">
