@@ -555,6 +555,7 @@ function TestReviewRunner({ searchParams }: { searchParams: ReturnType<typeof us
           : undefined;
 
         const createdId = await db.createSession(profileId, {
+          sessionType: "review",
           mode: "due",
           modes: modesList,
           count: countParam,

@@ -57,6 +57,7 @@ test.describe("settings & destructive actions", () => {
 
     // The reset must actually happen: redirected to onboarding within 25s…
     await page.waitForURL(/onboarding/, { timeout: 25_000 });
+    await expect(page.getByRole("heading", { name: "نام خود را وارد کنید" })).toBeVisible({ timeout: 15_000 });
 
     // …and the app must remain fully responsive afterwards (no zombie lock).
     await expectPageResponsive(page);

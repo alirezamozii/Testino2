@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileUp, Plus, Search, BookOpen, ChevronLeft, Layers, Edit3, Trash2, AlertTriangle, Sparkles } from "lucide-react";
+import { FileUp, Plus, Search, BookOpen, ChevronLeft, Layers, Edit3, Trash2, AlertTriangle } from "lucide-react";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/testino-ui";
 import { useDatabase } from "@/providers/database-provider";
@@ -11,8 +11,6 @@ import { cn } from "@/lib/utils";
 import { BankNavTabs } from "@/components/navigation/bank-nav-tabs";
 import { QuestionEditorModal } from "./question-editor-modal";
 import { QuestionTrustActions } from "./question-trust-actions";
-import { syncCommunityQuestionsForSubjects } from "@/platform/community-questions";
-import { checkIsOwner } from "@/lib/permissions";
 import { getSupabaseClient } from "@/platform/auth/supabase-client";
 import type { StoredQuestion } from "@/features/questions/domain/question-schema";
 
@@ -51,27 +49,18 @@ export function QuestionBank() {
   const [deletingQuestion, setDeletingQuestion] = useState<StoredQuestion | null>(null);
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isOwner, setIsOwner] = useState(false);
-
-  useEffect(() => {
-    void checkIsOwner().then(setIsOwner);
-  }, []);
 
   async function handleDeleteSingle(questionId: string) {
     setIsDeleting(true);
     try {
-      if (isOwner) {
-        await database.db.deleteQuestion(questionId);
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          try {
-            await supabase.from("questions").delete().eq("id", questionId);
-          } catch {
-            // cloud delete failure shouldn't block local
-          }
+      await database.db.deleteQuestion(questionId);
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        try {
+          await supabase.from("questions").delete().eq("id", questionId);
+        } catch {
+          // cloud delete failure shouldn't block local
         }
-      } else {
-        await database.db.hideQuestion(questionId);
       }
       await cache.invalidateQueries({ queryKey: ["questions"] });
       await cache.invalidateQueries({ queryKey: ["questions-all-subjects"] });
@@ -87,25 +76,15 @@ export function QuestionBank() {
   async function handleBulkDelete(onlyCurrentFilter: boolean) {
     setIsDeleting(true);
     try {
-      if (isOwner) {
-        if (onlyCurrentFilter && selectedSubject !== "all") {
-          await database.db.deleteAllQuestions({ subject: selectedSubject });
-        } else {
-          await database.db.deleteAllQuestions();
-        }
+      if (onlyCurrentFilter && selectedSubject !== "all") {
+        await database.db.deleteAllQuestions({ subject: selectedSubject });
       } else {
-        // Non-owner bulk hide: hide all questions for the filter
-        const qs = await database.db.listQuestions({
-          subject: onlyCurrentFilter && selectedSubject !== "all" ? selectedSubject : undefined,
-          limit: 1000,
-        });
-        for (const q of qs) {
-          await database.db.hideQuestion(q.id);
-        }
+        await database.db.resetQuestionBank();
       }
       await cache.invalidateQueries({ queryKey: ["questions"] });
       await cache.invalidateQueries({ queryKey: ["questions-all-subjects"] });
       await cache.invalidateQueries({ queryKey: ["analytics"] });
+      await cache.invalidateQueries({ queryKey: ["sessions"] });
       setBulkDeleteModalOpen(false);
     } catch (e) {
       console.error(e);
@@ -120,29 +99,6 @@ export function QuestionBank() {
     enabled: database.status === "ready",
   });
   const profileId = profilesQuery.data?.[0]?.id;
-
-  // Community Sync States
-  const [communitySyncMessage, setCommunitySyncMessage] = useState<string | null>(null);
-
-  const activeSubjects = useMemo(() => {
-    return profilesQuery.data?.[0]?.subjects?.map((s) => s.name) || [];
-  }, [profilesQuery.data]);
-
-  const activeSubjectsKey = activeSubjects.join(",");
-
-  // Auto-sync community questions on mount when ready
-  useEffect(() => {
-    if (database.status === "ready" && activeSubjects.length > 0) {
-      void syncCommunityQuestionsForSubjects(activeSubjects, database.db).then((res) => {
-        if (res.addedCount > 0) {
-          cache.invalidateQueries({ queryKey: ["questions"] });
-          cache.invalidateQueries({ queryKey: ["questions-all-subjects"] });
-          setCommunitySyncMessage(`${res.addedCount} سؤال جدید از جامعه داوطلبان افزوده شد`);
-          setTimeout(() => setCommunitySyncMessage(null), 5000);
-        }
-      });
-    }
-  }, [database.status, activeSubjects, activeSubjectsKey, database.db, cache]);
 
   const analyticsQuery = useQuery({
     queryKey: ["analytics", profileId],
@@ -212,6 +168,17 @@ export function QuestionBank() {
           <p className="text-xs sm:text-sm text-[var(--muted)] font-bold mt-0.5">مدیریت، جست‌وجو و دسته‌بندی سؤال‌های چهارگزینه‌ای</p>
         </div>
         <div className="flex items-center gap-2">
+          {totalBankQuestions > 0 && (
+            <button
+              type="button"
+              className="h-10 sm:h-11 px-3.5 rounded-2xl border-2 border-red-500 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 text-xs font-black shadow-[2px_2px_0px_#EF4444] hover:bg-red-100 dark:hover:bg-red-900/50 hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              onClick={() => setBulkDeleteModalOpen(true)}
+              title="پاک‌سازی گروهی سؤالات"
+            >
+              <Trash2 size={16} className="shrink-0" />
+              <span>پاک‌سازی سؤالات ({totalBankQuestions})</span>
+            </button>
+          )}
           <button
             type="button"
             className="h-10 sm:h-11 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--testino-orange)] text-white text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -225,14 +192,6 @@ export function QuestionBank() {
           </button>
         </div>
       </div>
-
-      {/* Community Sync Status Banner */}
-      {communitySyncMessage && (
-        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-500 text-emerald-800 dark:text-emerald-200 text-xs font-black flex items-center gap-2 animate-in fade-in shadow-[2px_2px_0px_#10B981]">
-          <Sparkles size={16} className="text-emerald-600 shrink-0" />
-          <span>{communitySyncMessage}</span>
-        </div>
-      )}
 
       {/* Top 3 Stat Cards (Matching Wireframe 05 Phone 1) */}
       <div className="grid grid-cols-3 gap-3">

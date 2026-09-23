@@ -117,10 +117,19 @@ export function ProfileOnboarding() {
       setAuthEmail(user.email);
       setAuthUserId(user.id);
       const metaName = (user.user_metadata?.display_name || user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
-      const finalName = metaName || user.email.split("@")[0] || "دانش‌آموز";
+      const existingOwner = await db.getCurrentOwner().catch(() => null);
+      const existingName = existingOwner?.displayName?.trim();
+      const hasCustomExisting = Boolean(existingName && existingName !== "دانش‌آموز" && existingName !== "کاربر جدید");
+      const currentInput = userName.trim();
+      const finalName = (hasCustomExisting ? existingName : currentInput) || currentInput || existingName || metaName || user.email.split("@")[0] || "دانش‌آموز";
       setUserName(finalName);
-      const avatar = user.user_metadata?.avatar_url as string | undefined;
-      if (avatar) setAvatarUrl(avatar);
+      const avatar = (user.user_metadata?.avatar_url || user.user_metadata?.picture) as string | undefined;
+      if (avatar) {
+        setAvatarUrl(avatar);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("testino_avatar_url", avatar);
+        }
+      }
 
       setIsAuthLoading(true);
       setError("");
@@ -158,7 +167,7 @@ export function ProfileOnboarding() {
         setIsAuthLoading(false);
       }
     },
-    [db, queryClient, router, syncNow]
+    [db, queryClient, router, syncNow, userName]
   );
 
   // Load existing owner or active auth session on mount

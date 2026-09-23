@@ -23,11 +23,16 @@ type HistoryFilterTab = "all" | "exams" | "reviews";
 
 function isReviewSession(config: SessionConfig | null | undefined): boolean {
   if (!config) return false;
-  return (
-    config.mode === "due" ||
-    config.mode === "wrong" ||
-    (Array.isArray(config.modes) && config.modes.length > 0)
-  );
+  if (config.sessionType === "review") return true;
+  if (config.sessionType === "exam") return false;
+  if (config.mode === "due" || config.mode === "wrong") return true;
+  if (Array.isArray(config.modes) && config.modes.length > 0) {
+    if (config.modes.some((m) => ["random", "new", "continuous", "ordered"].includes(m))) {
+      return false;
+    }
+    return config.modes.every((m) => ["due", "wrong", "doubtful", "skipped", "mastered", "guess"].includes(m));
+  }
+  return false;
 }
 
 export function HistoryPage() {

@@ -379,43 +379,54 @@ RETURNS UUID AS $$
 $$ LANGUAGE SQL STABLE SECURITY DEFINER;
 
 -- Owner-Scoped Policies (Only the authenticated owner can access)
+DROP POLICY IF EXISTS owners_self_policy ON public.owners;
 CREATE POLICY owners_self_policy ON public.owners
     FOR ALL USING (auth_user_id = auth.uid());
 
+DROP POLICY IF EXISTS profiles_owner_policy ON public.exam_profiles;
 CREATE POLICY profiles_owner_policy ON public.exam_profiles
     FOR ALL USING (owner_id = public.current_owner_id());
 
+DROP POLICY IF EXISTS sessions_owner_policy ON public.sessions;
 CREATE POLICY sessions_owner_policy ON public.sessions
     FOR ALL USING (owner_id = public.current_owner_id());
 
+DROP POLICY IF EXISTS session_questions_owner_policy ON public.session_questions;
 CREATE POLICY session_questions_owner_policy ON public.session_questions
     FOR ALL USING (session_id IN (SELECT id FROM public.sessions WHERE owner_id = public.current_owner_id()));
 
+DROP POLICY IF EXISTS attempts_owner_policy ON public.question_attempts;
 CREATE POLICY attempts_owner_policy ON public.question_attempts
     FOR ALL USING (owner_id = public.current_owner_id());
 
+DROP POLICY IF EXISTS attempt_events_owner_policy ON public.attempt_events;
 CREATE POLICY attempt_events_owner_policy ON public.attempt_events
     FOR ALL USING (owner_id = public.current_owner_id());
 
+DROP POLICY IF EXISTS prompts_owner_policy ON public.prompts;
 CREATE POLICY prompts_owner_policy ON public.prompts
     FOR ALL USING (owner_id = public.current_owner_id());
 
+DROP POLICY IF EXISTS receipts_owner_policy ON public.mutation_receipts;
 CREATE POLICY receipts_owner_policy ON public.mutation_receipts
     FOR ALL USING (actor_id = auth.uid());
 
 -- Bank and Content Policies (Owner & Member based)
+DROP POLICY IF EXISTS banks_policy ON public.banks;
 CREATE POLICY banks_policy ON public.banks
     FOR ALL USING (
         owner_id = public.current_owner_id() OR
         id IN (SELECT bank_id FROM public.bank_members WHERE account_user_id = auth.uid())
     );
 
+DROP POLICY IF EXISTS bank_members_policy ON public.bank_members;
 CREATE POLICY bank_members_policy ON public.bank_members
     FOR ALL USING (
         account_user_id = auth.uid() OR
         bank_id IN (SELECT id FROM public.banks WHERE owner_id = public.current_owner_id())
     );
 
+DROP POLICY IF EXISTS subjects_policy ON public.subjects;
 CREATE POLICY subjects_policy ON public.subjects
     FOR ALL USING (
         bank_id IN (
@@ -425,6 +436,7 @@ CREATE POLICY subjects_policy ON public.subjects
         )
     );
 
+DROP POLICY IF EXISTS chapters_policy ON public.chapters;
 CREATE POLICY chapters_policy ON public.chapters
     FOR ALL USING (
         subject_id IN (SELECT id FROM public.subjects WHERE bank_id IN (
@@ -434,6 +446,7 @@ CREATE POLICY chapters_policy ON public.chapters
         ))
     );
 
+DROP POLICY IF EXISTS topics_policy ON public.topics;
 CREATE POLICY topics_policy ON public.topics
     FOR ALL USING (
         chapter_id IN (SELECT id FROM public.chapters WHERE subject_id IN (
@@ -445,9 +458,11 @@ CREATE POLICY topics_policy ON public.topics
         ))
     );
 
+DROP POLICY IF EXISTS profile_subjects_policy ON public.profile_subjects;
 CREATE POLICY profile_subjects_policy ON public.profile_subjects
     FOR ALL USING (profile_id IN (SELECT id FROM public.exam_profiles WHERE owner_id = public.current_owner_id()));
 
+DROP POLICY IF EXISTS questions_policy ON public.questions;
 CREATE POLICY questions_policy ON public.questions
     FOR ALL USING (
         bank_id IN (
@@ -457,6 +472,7 @@ CREATE POLICY questions_policy ON public.questions
         )
     );
 
+DROP POLICY IF EXISTS question_options_policy ON public.question_options;
 CREATE POLICY question_options_policy ON public.question_options
     FOR ALL USING (
         question_id IN (
@@ -468,6 +484,7 @@ CREATE POLICY question_options_policy ON public.question_options
         )
     );
 
+DROP POLICY IF EXISTS question_revisions_policy ON public.question_revisions;
 CREATE POLICY question_revisions_policy ON public.question_revisions
     FOR ALL USING (
         question_id IN (
@@ -479,6 +496,7 @@ CREATE POLICY question_revisions_policy ON public.question_revisions
         )
     );
 
+DROP POLICY IF EXISTS change_log_policy ON public.change_log;
 CREATE POLICY change_log_policy ON public.change_log
     FOR SELECT USING (
         owner_id = public.current_owner_id() OR

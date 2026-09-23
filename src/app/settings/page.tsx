@@ -42,6 +42,7 @@ import { registerSubject } from "@/platform/shared-subjects";
 import { SubjectAutocomplete } from "@/components/ui/subject-autocomplete";
 import { syncCommunityQuestionsForSubjects } from "@/platform/community-questions";
 import { MediaService } from "@/features/media/domain/media-service";
+import { useAuthAvatar } from "@/platform/auth/use-avatar";
 import { APP_VERSION, APP_BUILD } from "@/config/version";
 import { checkAppUpdate, type UpdateCheckResult } from "@/features/update/domain/update-service";
 import { UpdateDialog } from "@/features/update/components/update-dialog";
@@ -71,6 +72,7 @@ export default function SettingsPage() {
   });
 
   const activeProfile = profilesQuery.data?.[0];
+  const avatarUrl = useAuthAvatar();
 
   // Profile Edit State
   const [editingName, setEditingName] = useState(false);
@@ -408,8 +410,12 @@ export default function SettingsPage() {
           {/* 1. Profile Header Card */}
           <div className="card-neo p-5 rounded-3xl bg-[var(--surface)] flex items-center justify-between gap-3">
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-14 h-14 rounded-2xl bg-[var(--pastel-orange)] border-2 border-[var(--line-strong)] text-white flex items-center justify-center font-black text-2xl shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
-                {username.slice(0, 1)}
+              <div className="w-14 h-14 rounded-2xl bg-[var(--pastel-orange)] border-2 border-[var(--line-strong)] text-white flex items-center justify-center font-black text-2xl shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0 overflow-hidden">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={username} className="w-full h-full object-cover" />
+                ) : (
+                  username.slice(0, 1)
+                )}
               </div>
               <div className="min-w-0">
                 <strong className="block text-base sm:text-lg font-black text-[var(--ink)] truncate">

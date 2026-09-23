@@ -376,6 +376,7 @@ export function SessionBuilder() {
     setError("");
     try {
       const id = await database.db.createSession(profile.id, {
+        sessionType: "exam",
         count: isContinuous ? null : count,
         mode: isContinuous ? "continuous" : (selectedModes[0] || "random"),
         modes: isContinuous ? undefined : selectedModes,

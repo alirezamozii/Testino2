@@ -23,10 +23,12 @@ import { useDatabase } from "@/providers/database-provider";
 import { cn } from "@/lib/utils";
 import { canonicalizeSubject } from "@/features/questions/domain/subject-registry";
 import { normalizeScoreGroup, getSanjeshMetrics } from "@/features/profiles/domain/score-groups";
+import { useAuthAvatar } from "@/platform/auth/use-avatar";
 
 export function Dashboard() {
   const router = useRouter();
   const database = useDatabase();
+  const avatarUrl = useAuthAvatar();
   const owner = useQuery({
     queryKey: ["owner"],
     queryFn: () => database.db.getCurrentOwner(),
@@ -106,14 +108,23 @@ export function Dashboard() {
     <div className="space-y-6 max-w-6xl mx-auto pb-10">
       {/* 1. Greeting Header */}
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-[var(--ink)]">
-            سلام {owner.data?.displayName || "کاربر گرامی"}!
-          </h1>
-          <p className="text-xs sm:text-sm font-bold text-[var(--muted)] flex items-center gap-1.5 mt-1">
-            <span>امروز یک قدم به هدفت نزدیک‌تر شو</span>
-            <Sprout size={16} className="text-[var(--brand-green)]" />
-          </p>
+        <div className="flex items-center gap-3">
+          {avatarUrl && (
+            <img
+              src={avatarUrl}
+              alt="Avatar"
+              className="w-12 h-12 rounded-2xl border-2 border-[var(--line-strong)] object-cover shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0"
+            />
+          )}
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-black text-[var(--ink)]">
+              سلام {owner.data?.displayName || "کاربر گرامی"}!
+            </h1>
+            <p className="text-xs sm:text-sm font-bold text-[var(--muted)] flex items-center gap-1.5 mt-1">
+              <span>امروز یک قدم به هدفت نزدیک‌تر شو</span>
+              <Sprout size={16} className="text-[var(--brand-green)]" />
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {owner.data?.kind === "account" && (

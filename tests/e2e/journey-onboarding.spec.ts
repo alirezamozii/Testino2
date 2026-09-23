@@ -20,6 +20,9 @@ test.describe("onboarding journey", () => {
 
     await expect(page.getByRole("heading", { name: "نام خود را وارد کنید" })).toBeVisible();
 
+    // Switch to Email tab to verify password input and auth form elements
+    await page.getByRole("button", { name: "ایمیل و رمز عبور" }).click();
+
     // Auth form: short button label + neutral password placeholder + hint below
     await expect(page.getByRole("button", { name: "ادامه", exact: true })).toHaveCount(2); // submit + wizard
     const passwordInput = page.locator('input[type="password"]');

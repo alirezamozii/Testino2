@@ -22,6 +22,7 @@ import { BrandLogo } from "@/components/ui/brand-logo";
 import { useDatabase } from "@/providers/database-provider";
 import { useSync } from "@/providers/sync-provider";
 import { useTheme } from "@/providers/theme-provider";
+import { useAuthAvatar } from "@/platform/auth/use-avatar";
 import { SplashScreen } from "./splash-screen";
 import { SyncDiagnosticsModal } from "./sync-diagnostics-modal";
 
@@ -325,6 +326,8 @@ function ShellInner({ children }: { children: React.ReactNode }) {
     enabled: database.status === "ready",
   });
 
+  const avatarUrl = useAuthAvatar();
+
   const profiles = useQuery({
     queryKey: ["profiles-shell"],
     queryFn: () => database.db.listProfiles(),
@@ -438,8 +441,16 @@ function ShellInner({ children }: { children: React.ReactNode }) {
             className={cn("rail-profile", isCurrent(pathname, "/settings/") && "active")}
             title="تنظیمات حساب کاربری"
           >
-            <span className="avatar">
-              <UserRound size={19} />
+            <span className="avatar overflow-hidden flex items-center justify-center">
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={owner.data?.displayName || "آواتار"}
+                  className="w-full h-full object-cover rounded-full"
+                />
+              ) : (
+                <UserRound size={19} />
+              )}
             </span>
             <span className="rail-profile-info">
               <strong>{owner.data?.displayName || "دانش‌آموز"}</strong>

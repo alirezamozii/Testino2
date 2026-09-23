@@ -37,6 +37,7 @@ export type QuestionPoolMode = "new" | "wrong" | "doubtful" | "guess" | "bookmar
 
 export interface SessionConfig {
   profileId: string;
+  sessionType?: "exam" | "review";
   mode?: QuestionPoolMode | "continuous" | "ordered";
   modes?: QuestionPoolMode[];
   subjectFilter?: string | null;
@@ -58,6 +59,7 @@ export interface SessionConfig {
 
 export interface CreateSessionOptions {
   profileId?: string;
+  sessionType?: "exam" | "review";
   count?: number | null;
   mode?: QuestionPoolMode | "continuous" | "ordered";
   modes?: QuestionPoolMode[];
@@ -541,7 +543,12 @@ export class AppDatabase {
       throw new Error("شناسه حساب ابری معتبر نیست.");
     }
     const existing = await this.getCurrentOwner();
-    const name = displayName?.trim() || existing?.displayName || "دانش‌آموز";
+    const hasCustomExisting = Boolean(
+      existing?.displayName &&
+      existing.displayName !== "دانش‌آموز" &&
+      existing.displayName !== "کاربر جدید"
+    );
+    const name = (hasCustomExisting ? existing!.displayName : displayName?.trim()) || existing?.displayName || "دانش‌آموز";
     const now = Date.now();
     if (existing) {
       await this.client.execute(
@@ -1964,6 +1971,7 @@ export class AppDatabase {
 
     const sessionConfig: SessionConfig = {
       profileId,
+      sessionType: opts.sessionType || (isReviewMode ? "review" : "exam"),
       mode,
       modes: selectedModes,
       subjectFilter,
