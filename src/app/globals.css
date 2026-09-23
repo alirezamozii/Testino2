@@ -210,7 +210,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   outline: 3px solid rgb(59 130 246 / .3); outline-offset: 2px;
 }
 
-.app-shell { min-height: 100vh; display: flex; }
+.app-shell { min-height: 100vh; min-height: 100dvh; display: flex; }
 .app-column { min-width: 0; width: 100%; }
 .app-topbar {
   position: sticky; top: 0; z-index: 30; height: 68px; padding: 10px clamp(16px, 3vw, 34px);
@@ -218,7 +218,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(18px);
   border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
 }
-.app-content { width: min(100%, 1200px); margin-inline: auto; padding: 28px clamp(16px, 3vw, 34px) calc(108px + env(safe-area-inset-bottom, 0px)); }
+.app-content { width: min(100%, 1200px); margin-inline: auto; padding: 28px clamp(16px, 3vw, 34px) calc(108px + env(safe-area-inset-bottom, 24px)); }
 .desktop-rail { display: none; }
 .brand-lockup { display: inline-flex; align-items: center; gap: 10px; transition: transform .15s ease; }
 .brand-lockup:hover { transform: scale(1.02); }
@@ -233,7 +233,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .storage-pill { display: none; align-items: center; gap: 7px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; font-size: 11px; font-weight: 800; }
 .storage-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--brand-green); box-shadow: 0 0 0 4px rgb(34 197 94 / .12); }
 .storage-pill i.loading { background: var(--warning); box-shadow: 0 0 0 4px rgb(245 158 11 / .12); }
-.focus-shell { min-height: 100vh; width: min(100%, 1180px); margin-inline: auto; padding: 24px clamp(14px, 3vw, 32px) max(24px, env(safe-area-inset-bottom)); }
+.focus-shell { min-height: 100vh; min-height: 100dvh; width: min(100%, 1180px); margin-inline: auto; padding: 24px clamp(14px, 3vw, 32px) max(24px, env(safe-area-inset-bottom)); }
 
 .mobile-bottom-nav {
   position: fixed;
@@ -1220,10 +1220,31 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand-blue); out
 }
 
 @media (max-width: 767px) {
+  .app-topbar {
+    height: 56px;
+    padding: 6px 12px;
+  }
+  .icon-button {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+  }
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+  }
+  .brand-lockup strong {
+    font-size: 17px;
+  }
+  .app-content {
+    padding-top: 16px;
+    padding-inline: 12px;
+    padding-bottom: calc(112px + env(safe-area-inset-bottom, 24px));
+  }
   .grid.split { grid-template-columns: minmax(0, 1fr); }
   .page-heading { align-items: flex-start; flex-direction: column; }
   .card, .testino-card { border-radius: 18px; padding: 16px; }
-  .focus-shell { padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+  .focus-shell { padding: 14px clamp(10px, 3vw, 20px) calc(20px + env(safe-area-inset-bottom, 16px)); }
   .dashboard-greeting { min-height: 136px; padding: 20px; }
   .dashboard-actions { grid-template-columns: 1fr; }
   .action-card { min-height: 72px; }

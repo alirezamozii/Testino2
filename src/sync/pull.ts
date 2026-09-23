@@ -494,13 +494,26 @@ async function ensureSnapshotQuestion(trx: DatabasePort, sessionQuestion: Record
   } catch {
     // Keep a recoverable draft placeholder if an older snapshot is malformed.
   }
+  const targetKey = snapshot.externalKey ? String(snapshot.externalKey) : "";
+  if (targetKey) {
+    const existingByKey = await trx.query<{ id: string }>(
+      "SELECT id FROM questions WHERE external_key=? LIMIT 1",
+      [targetKey]
+    );
+    if (existingByKey.length) {
+      sessionQuestion.question_id = existingByKey[0].id;
+      return;
+    }
+  }
+
   const now = Date.now();
+  const safeExternalKey = targetKey || `recovered-${questionId}`;
   await trx.execute(
-    `INSERT INTO questions(id, external_key, subject, chapter, topic, content_json, explanation_json, correct_option_id, status, shuffle_safe, created_at)
+    `INSERT OR IGNORE INTO questions(id, external_key, subject, chapter, topic, content_json, explanation_json, correct_option_id, status, shuffle_safe, created_at)
      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       questionId,
-      String(snapshot.externalKey || `recovered-${questionId}`),
+      safeExternalKey,
       String(snapshot.subject || "بازیابی‌شده"),
       snapshot.chapter ?? null,
       snapshot.topic ?? null,

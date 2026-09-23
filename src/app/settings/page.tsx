@@ -46,6 +46,7 @@ import { APP_VERSION, APP_BUILD } from "@/config/version";
 import { checkAppUpdate, type UpdateCheckResult } from "@/features/update/domain/update-service";
 import { UpdateDialog } from "@/features/update/components/update-dialog";
 import { OfflineLibraryCard } from "@/features/offline/components/offline-library-card";
+import { getSupabaseClient } from "@/platform/auth/supabase-client";
 
 export default function SettingsPage() {
   const database = useDatabase();
@@ -211,11 +212,29 @@ export default function SettingsPage() {
   async function handleSaveIdentity() {
     if (!usernameInput.trim()) return;
     try {
-      await database.db.saveOwner(usernameInput.trim(), "local");
+      const cleanName = usernameInput.trim();
+      const isAccount = ownerQuery.data?.kind === "account";
+      await database.db.saveOwner(cleanName, isAccount ? "account" : "local", ownerQuery.data?.authUserId || undefined);
+      if (isAccount) {
+        try {
+          const client = getSupabaseClient();
+          if (client) {
+            await client.auth.updateUser({
+              data: {
+                display_name: cleanName,
+                full_name: cleanName,
+              },
+            });
+          }
+        } catch {
+          // ignore cloud metadata error
+        }
+      }
       if (activeProfile && profileTitleInput.trim() && profileTitleInput !== activeProfile.name) {
         await database.db.updateProfile(activeProfile.id, { name: profileTitleInput.trim() });
       }
       await queryClient.invalidateQueries({ queryKey: ["owner"] });
+      await queryClient.invalidateQueries({ queryKey: ["owner-shell"] });
       await queryClient.invalidateQueries({ queryKey: ["profiles"] });
       setEditingName(false);
       showStatus("اطلاعات کاربری به‌روزرسانی شد.");

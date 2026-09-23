@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { searchSubjects, registerSubject, getPopularSubjects } from "@/platform/shared-subjects";
 import {
@@ -22,6 +22,7 @@ import {
   Unlink,
 } from "lucide-react";
 import { useDatabase } from "@/providers/database-provider";
+import { useSync } from "@/providers/sync-provider";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { withTimeout } from "@/lib/with-timeout";
@@ -55,7 +56,7 @@ export function ProfileOnboarding() {
   const [authUserId, setAuthUserId] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
-  const [authTab, setAuthTab] = useState<"email" | "google">("email");
+  const [authTab, setAuthTab] = useState<"email" | "google">("google");
   const [manualOAuthCode, setManualOAuthCode] = useState("");
   const [showManualCodeInput, setShowManualCodeInput] = useState(false);
   const [isManualExchanging, setIsManualExchanging] = useState(false);
@@ -107,6 +108,59 @@ export function ProfileOnboarding() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const { syncNow } = useSync();
+
+  const handleAuthenticatedUser = useCallback(
+    async (user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null }) => {
+      if (!user?.email) return;
+      setIsAuthenticated(true);
+      setAuthEmail(user.email);
+      setAuthUserId(user.id);
+      const metaName = (user.user_metadata?.display_name || user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
+      const finalName = metaName || user.email.split("@")[0] || "دانش‌آموز";
+      setUserName(finalName);
+      const avatar = user.user_metadata?.avatar_url as string | undefined;
+      if (avatar) setAvatarUrl(avatar);
+
+      setIsAuthLoading(true);
+      setError("");
+
+      try {
+        await db.linkAuthenticatedAccount(user.id, finalName);
+        await queryClient.invalidateQueries({ queryKey: ["owner"] });
+        await queryClient.invalidateQueries({ queryKey: ["owner-shell"] });
+
+        // Immediate pull from cloud to sync existing profile & subjects
+        await syncNow();
+
+        // Check if user already has an active profile synced from cloud
+        const existingProfiles = await db.listProfiles();
+        if (existingProfiles.length > 0) {
+          localStorage.setItem("testino_onboarding_completed", "true");
+          await queryClient.invalidateQueries();
+          router.replace("/");
+          return;
+        }
+      } catch {
+        // offline fallback: check if local profiles already exist
+        try {
+          const existingProfiles = await db.listProfiles();
+          if (existingProfiles.length > 0) {
+            localStorage.setItem("testino_onboarding_completed", "true");
+            await queryClient.invalidateQueries();
+            router.replace("/");
+            return;
+          }
+        } catch {
+          // ignore
+        }
+      } finally {
+        setIsAuthLoading(false);
+      }
+    },
+    [db, queryClient, router, syncNow]
+  );
+
   // Load existing owner or active auth session on mount
   useEffect(() => {
     let active = true;
@@ -130,18 +184,7 @@ export function ProfileOnboarding() {
     getCurrentAuthUser()
       .then((user) => {
         if (!active || !user || !user.email) return;
-        setIsAuthenticated(true);
-        setAuthEmail(user.email);
-        const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
-        if (metaName) {
-          setUserName((prev) => prev || metaName);
-        } else {
-          setUserName((prev) => prev || user.email!.split("@")[0]);
-        }
-        const avatar = user.user_metadata?.avatar_url as string | undefined;
-        if (avatar) {
-          setAvatarUrl(avatar);
-        }
+        void handleAuthenticatedUser(user);
       })
       .catch(() => {});
 
@@ -150,14 +193,7 @@ export function ProfileOnboarding() {
       if (event.data?.type === "TESTINO_AUTH_SUCCESS") {
         getCurrentAuthUser().then((user) => {
           if (!active || !user?.email) return;
-          setIsAuthenticated(true);
-          setAuthEmail(user.email);
-          const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
-          setUserName((prev) => prev || metaName || user.email!.split("@")[0]);
-          const avatar = user.user_metadata?.avatar_url as string | undefined;
-          if (avatar) setAvatarUrl(avatar);
-          setIsAuthLoading(false);
-          setError("");
+          void handleAuthenticatedUser(user);
         }).catch(() => {});
       }
     };
@@ -167,7 +203,7 @@ export function ProfileOnboarding() {
       active = false;
       window.removeEventListener("message", handleAuthMessage);
     };
-  }, [db]);
+  }, [db, handleAuthenticatedUser]);
 
   // Load community shared subjects from Supabase when entering Step 3
   useEffect(() => {
@@ -283,6 +319,8 @@ export function ProfileOnboarding() {
         cloudSynced = true;
         authenticatedUserId = authResult.user.id;
         setAuthUserId(authResult.user.id);
+        await handleAuthenticatedUser(authResult.user);
+        return;
       } catch (authErr) {
         setError(authErr instanceof Error ? authErr.message : "خطا در برقراری ارتباط با سرور احراز هویت.");
         setIsAuthLoading(false);
@@ -403,15 +441,9 @@ export function ProfileOnboarding() {
       } else {
         if (googlePollRef.current) window.clearInterval(googlePollRef.current);
         googlePollRef.current = null;
-        setIsAuthenticated(true);
-        setAuthEmail(user.email || "");
-        setAuthUserId(user.id);
-        const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
-        setUserName((prev) => prev || metaName || (user.email ? user.email.split("@")[0] : ""));
-        const avatar = user.user_metadata?.avatar_url as string | undefined;
-        if (avatar) setAvatarUrl(avatar);
         setShowManualCodeInput(false);
         setError("");
+        await handleAuthenticatedUser(user);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "خطا در بررسی کد ورود");
@@ -442,14 +474,8 @@ export function ProfileOnboarding() {
         if (user?.email) {
           if (googlePollRef.current) window.clearInterval(googlePollRef.current);
           googlePollRef.current = null;
-          setIsAuthenticated(true);
-          setAuthEmail(user.email);
-          const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || "") as string;
-          setUserName((prev) => prev || metaName || user.email!.split("@")[0]);
-          const avatar = user.user_metadata?.avatar_url as string | undefined;
-          if (avatar) setAvatarUrl(avatar);
-          setIsAuthLoading(false);
           setError("");
+          void handleAuthenticatedUser(user);
         }
       } catch {
         // ignore polling errors
@@ -864,17 +890,17 @@ export function ProfileOnboarding() {
             </div>
           )}
 
-          <div className="card-neo p-6 sm:p-7 space-y-6 bg-[var(--surface)]">
+          <div className="card-neo p-4 sm:p-7 space-y-5 sm:space-y-6 bg-[var(--surface)]">
             {/* =================================================================== */}
             {/* STEP 1: هویت کاربر و احراز هویت تب‌دار */}
             {/* =================================================================== */}
             {step === 1 && (
-              <div className="space-y-6">
+              <div className="space-y-5 sm:space-y-6">
                 <div className="text-right space-y-1">
-                  <span className="inline-block text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-2 border-[var(--line)]">
+                  <span className="inline-block text-[10px] sm:text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-2 border-[var(--line)]">
                     گام ۱ از ۴ • هویت و حساب کاربری
                   </span>
-                  <h2 className="text-xl sm:text-2xl font-black text-[var(--ink)] pt-1">
+                  <h2 className="text-lg sm:text-2xl font-black text-[var(--ink)] pt-1">
                     نام خود را وارد کنید
                   </h2>
                   <p className="text-xs text-[var(--muted)] font-bold leading-relaxed">
@@ -883,35 +909,35 @@ export function ProfileOnboarding() {
                 </div>
 
                 {/* Identity & Avatar Card */}
-                <div className="p-5 rounded-2xl border-2 border-[var(--line)] bg-[var(--surface-2)] space-y-4">
-                  <div className="flex items-center gap-4">
+                <div className="p-3.5 sm:p-5 rounded-2xl border-2 border-[var(--line)] bg-[var(--surface-2)] space-y-3 sm:space-y-4">
+                  <div className="flex items-center gap-3 sm:gap-4">
                     {/* Avatar Preview */}
                     <div className="relative shrink-0">
                       {avatarUrl ? (
                         <img
                           src={avatarUrl}
                           alt="Avatar"
-                          className="w-16 h-16 rounded-2xl border-2 border-[var(--line)] object-cover shadow-[3px_3px_0px_var(--line)]"
+                          className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl border-2 border-[var(--line)] object-cover shadow-[2px_2px_0px_var(--line)]"
                         />
                       ) : (
-                        <div className="w-16 h-16 rounded-2xl bg-[var(--pastel-orange)]/30 border-2 border-[var(--line)] flex items-center justify-center font-black text-xl text-[var(--testino-orange)] shadow-[3px_3px_0px_var(--line)]">
-                          {userName.trim() ? userName.trim().slice(0, 2) : <User size={28} className="text-[var(--ink)]" />}
+                        <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl bg-[var(--pastel-orange)]/30 border-2 border-[var(--line)] flex items-center justify-center font-black text-lg sm:text-xl text-[var(--testino-orange)] shadow-[2px_2px_0px_var(--line)]">
+                          {userName.trim() ? userName.trim().slice(0, 2) : <User size={24} className="text-[var(--ink)]" />}
                         </div>
                       )}
                       {isAuthenticated && (
                         <div
-                          className="absolute -bottom-1.5 -left-1.5 w-6 h-6 rounded-full bg-[var(--brand-green)] border-2 border-[var(--line)] flex items-center justify-center text-white"
+                          className="absolute -bottom-1 -left-1 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-[var(--brand-green)] border-2 border-[var(--line)] flex items-center justify-center text-white"
                           title="حساب متصل است"
                         >
-                          <Check size={12} strokeWidth={3.5} />
+                          <Check size={11} strokeWidth={3.5} />
                         </div>
                       )}
                     </div>
 
-                    <div className="flex-1 space-y-1">
-                      <label className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5">
-                        <User size={14} className="text-[var(--testino-orange)]" />
-                        <span>نام یا لقب نمایشی شما در تستیونو:</span>
+                    <div className="flex-1 space-y-1 min-w-0">
+                      <label className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5 truncate">
+                        <User size={13} className="text-[var(--testino-orange)] shrink-0" />
+                        <span>نام یا نام مستعار شما:</span>
                       </label>
                       <input
                         type="text"
@@ -921,7 +947,7 @@ export function ProfileOnboarding() {
                           if (error) setError("");
                         }}
                         placeholder="نام یا نام خانوادگی خود را بنویسید..."
-                        className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-black text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--testino-orange)] shadow-[2px_2px_0px_var(--line)]"
+                        className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-3 py-2 text-xs sm:text-sm font-black text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--testino-orange)] shadow-[2px_2px_0px_var(--line)]"
                       />
                     </div>
                   </div>
@@ -975,34 +1001,34 @@ export function ProfileOnboarding() {
                       <div className="flex gap-2 p-1 rounded-xl bg-[var(--surface-2)] border border-[var(--line-strong)]">
                         <button
                           type="button"
-                          onClick={() => setAuthTab("email")}
-                          className={cn(
-                            "flex-1 py-2 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1.5",
-                            authTab === "email"
-                              ? "bg-[var(--surface)] text-[var(--ink)] shadow-xs border border-[var(--line)]"
-                              : "text-[var(--muted)]"
-                          )}
-                        >
-                          <Mail size={14} />
-                          <span>ایمیل و رمز عبور</span>
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => setAuthTab("google")}
                           className={cn(
-                            "flex-1 py-2 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1.5",
+                            "flex-1 py-2.5 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer",
                             authTab === "google"
                               ? "bg-[var(--surface)] text-[var(--ink)] shadow-xs border border-[var(--line)]"
-                              : "text-[var(--muted)]"
+                              : "text-[var(--muted)] hover:text-[var(--ink)]"
                           )}
                         >
-                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
                             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
                             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                           </svg>
                           <span>ورود با گوگل</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAuthTab("email")}
+                          className={cn(
+                            "flex-1 py-2.5 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                            authTab === "email"
+                              ? "bg-[var(--surface)] text-[var(--ink)] shadow-xs border border-[var(--line)]"
+                              : "text-[var(--muted)] hover:text-[var(--ink)]"
+                          )}
+                        >
+                          <Mail size={14} className="shrink-0" />
+                          <span>ایمیل و رمز عبور</span>
                         </button>
                       </div>
 

@@ -1424,72 +1424,65 @@ export function SessionPlayer() {
       </div>
 
       {/* Top Nav Bar (Timer, Pause, Counter, Exam Paper Toggle, Tools, Nav Grid) */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+      <div className="flex items-center justify-between gap-1.5 sm:gap-2 px-0.5">
         {/* Pause & Timer */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={sData.state === "RUNNING" ? pause : begin}
-            className="w-10 h-10 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
+            className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-[var(--surface)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px] transition-all shrink-0 cursor-pointer"
             title={sData.state === "RUNNING" ? "توقف موقت" : "ادامه"}
           >
-            {sData.state === "RUNNING" ? <Pause size={16} /> : <Play size={16} />}
+            {sData.state === "RUNNING" ? <Pause size={15} /> : <Play size={15} />}
           </button>
           <div
             className={cn(
-              "flex items-center gap-1.5 text-xs font-black bg-[var(--surface)] px-3 py-2 rounded-2xl border-2 shadow-[2px_2px_0px_var(--neo-shadow)] transition-colors",
+              "flex items-center gap-1 text-[11px] sm:text-xs font-black bg-[var(--surface)] px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl border-2 shadow-[2px_2px_0px_var(--neo-shadow)] transition-colors shrink-0",
               isTimeLow
                 ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-400"
                 : "text-[var(--ink)] bg-[var(--surface)] border-[var(--line-strong)]"
             )}
           >
-            <Clock size={14} className={isTimeLow ? "text-red-600" : "text-[var(--brand-orange)]"} />
+            <Clock size={13} className={isTimeLow ? "text-red-600" : "text-[var(--brand-orange)]"} />
             <span>
               {remainingSeconds !== null
-                ? `${formatTimer(remainingSeconds)} باقی‌مانده`
+                ? `${formatTimer(remainingSeconds)}`
                 : formatTimer(persistedSeconds + elapsedSeconds)}
             </span>
           </div>
         </div>
 
         {/* Counter & Action Drawers */}
-        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <span className="text-xs font-black text-[var(--ink-on-color)] bg-[var(--pastel-yellow)] px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] whitespace-nowrap">
+        <div className="flex items-center gap-1 sm:gap-2 min-w-0">
+          <span className="text-[11px] sm:text-xs font-black text-[var(--ink-on-color)] bg-[var(--pastel-yellow)] px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] whitespace-nowrap shrink-0">
             {isOpenEnded ? `سؤال ${index + 1}` : `${index + 1} از ${totalQuestions}`}
           </span>
           {/* Source Button (منبع سؤال) */}
           <button
             type="button"
             onClick={() => setShowSourceModal(true)}
-            className="px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black flex items-center gap-1.5 shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all cursor-pointer"
+            className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-[11px] sm:text-xs font-black flex items-center gap-1 shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px] transition-all cursor-pointer shrink-0"
             title="مشاهده منبع و مشخصات این سؤال"
           >
-            <BookOpen size={15} className="text-[var(--brand-orange)]" />
-            <span>منبع</span>
+            <BookOpen size={14} className="text-[var(--brand-orange)]" />
+            <span className="hidden xs:inline">منبع</span>
           </button>
-          {pending && (
-            <span className="text-[10px] font-black text-[var(--muted)] animate-pulse hidden sm:inline">
-              در حال ذخیره…
-            </span>
-          )}
           <button
             type="button"
-            onClick={() => {
-              setShowNavSheet(!showNavSheet);
-            }}
-            className="w-10 h-10 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
-            title="ناوبری سؤالات"
+            onClick={() => setShowNavSheet(!showNavSheet)}
+            className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-[var(--surface)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px] transition-all shrink-0 cursor-pointer"
+            title="پاسخ‌برگ و ناوبری سؤالات"
           >
-            <List size={18} />
+            <List size={16} />
           </button>
           <button
             type="button"
             onClick={() => setShowFinishConfirm(true)}
-            className="px-3 py-2 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black flex items-center gap-1.5 shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all cursor-pointer"
+            className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-[11px] sm:text-xs font-black flex items-center gap-1 shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px] transition-all cursor-pointer shrink-0"
             title="خروج یا پایان آزمون"
           >
-            <LogOut size={15} />
-            <span className="hidden sm:inline">خروج / پایان</span>
+            <LogOut size={14} />
+            <span className="hidden sm:inline">خروج</span>
           </button>
         </div>
       </div>
@@ -2013,9 +2006,9 @@ export function SessionPlayer() {
                 }
               }}
               className={cn(
-                "w-full p-4 rounded-2xl border-2 text-right transition-all flex items-center gap-3.5 cursor-pointer",
+                "w-full p-3.5 sm:p-4 rounded-2xl border-2 text-right transition-colors flex items-center gap-3 sm:gap-3.5 cursor-pointer active:scale-[0.99]",
                 isSelected
-                  ? "border-[var(--line-strong)] bg-[var(--pastel-blue-soft)] shadow-[4px_4px_0px_var(--neo-shadow)] -translate-y-0.5"
+                  ? "border-[var(--line-strong)] bg-[var(--pastel-blue-soft)] shadow-[3px_3px_0px_var(--neo-shadow)]"
                   : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-cream)]"
               )}
             >
@@ -2109,7 +2102,7 @@ export function SessionPlayer() {
 
       {/* Confidence Action Pills & Clear Selection (only when not yet revealed): شک دارم | حدس زدم | پاک کردن */}
       {!isCurrentRevealed && (
-        <div className="flex items-center gap-2.5 pt-1">
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-2.5 pt-1">
           {/* 1. شک دارم */}
           <button
             type="button"
@@ -2118,7 +2111,7 @@ export function SessionPlayer() {
               save(current?.selectedOptionId ?? null, nextConf, index);
             }}
             className={cn(
-              "py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-1.5 text-xs font-black transition-all cursor-pointer",
+              "py-2 sm:py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-1.5 text-xs font-black transition-colors cursor-pointer active:scale-[0.98]",
               current?.confidence === "doubtful"
                 ? "bg-amber-100 dark:bg-amber-950/70 text-amber-950 dark:text-amber-200 border-amber-500 shadow-[2px_2px_0px_#f59e0b]"
                 : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
@@ -2126,7 +2119,7 @@ export function SessionPlayer() {
             title="اگر بین دو یا سه گزینه تردید دارید"
           >
             <HelpCircle size={15} />
-            <span>{current?.confidence === "doubtful" ? "با شک پاسخ دادم" : "شک دارم"}</span>
+            <span>{current?.confidence === "doubtful" ? "با شک" : "شک دارم"}</span>
           </button>
 
           {/* 2. حدس زدم */}
@@ -2137,7 +2130,7 @@ export function SessionPlayer() {
               save(current?.selectedOptionId ?? null, nextConf, index);
             }}
             className={cn(
-              "py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-1.5 text-xs font-black transition-all cursor-pointer",
+              "py-2 sm:py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-1.5 text-xs font-black transition-colors cursor-pointer active:scale-[0.98]",
               current?.confidence === "guess"
                 ? "bg-purple-100 dark:bg-purple-950/70 text-purple-950 dark:text-purple-200 border-purple-500 shadow-[2px_2px_0px_#a855f7]"
                 : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
@@ -2145,7 +2138,7 @@ export function SessionPlayer() {
             title="اگر بدون اطمینان علمی و صرفاً بر پایه شانس گزینه زده‌اید"
           >
             <Zap size={15} />
-            <span>{current?.confidence === "guess" ? "حدسی پاسخ دادم" : "حدس زدم"}</span>
+            <span>{current?.confidence === "guess" ? "حدسی" : "حدس زدم"}</span>
           </button>
 
           {/* 3. پاک کردن انتخاب گزینه */}
@@ -2153,11 +2146,11 @@ export function SessionPlayer() {
             <button
               type="button"
               onClick={() => save(null, null, index)}
-              className="py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-rose-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex items-center justify-center gap-1 text-xs font-bold transition-all shrink-0 cursor-pointer"
+              className="col-span-2 sm:col-span-1 py-2 sm:py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-rose-600 shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-1 text-xs font-bold transition-colors shrink-0 cursor-pointer active:scale-[0.98]"
               title="پاک کردن انتخاب گزینه"
             >
               <RotateCcw size={14} />
-              <span className="hidden sm:inline">پاک کردن</span>
+              <span>پاک کردن انتخاب</span>
             </button>
           )}
         </div>
@@ -2177,14 +2170,14 @@ export function SessionPlayer() {
       )}
 
       {/* Bottom Navigation: Next / Prev / Finish / Reveal */}
-      <div className="flex items-center gap-3 pt-2">
+      <div className="flex items-center gap-2 sm:gap-3 pt-2">
         <button
           type="button"
           onClick={handlePrev}
           disabled={index === 0 || pending}
-          className="py-3.5 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[3px_3px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] disabled:opacity-30 disabled:pointer-events-none transition-all flex items-center gap-1.5 cursor-pointer"
+          className="py-3 sm:py-3.5 px-3.5 sm:px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs sm:text-sm font-black shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px] disabled:opacity-30 disabled:pointer-events-none transition-colors flex items-center gap-1 sm:gap-1.5 cursor-pointer shrink-0"
         >
-          <ChevronRight size={18} />
+          <ChevronRight size={17} />
           <span>سؤال قبلی</span>
         </button>
 
@@ -2194,9 +2187,9 @@ export function SessionPlayer() {
             type="button"
             onClick={handleRevealAnswer}
             disabled={pending}
-            className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm flex items-center justify-center gap-2 font-black shadow-[3px_3px_0px_var(--neo-shadow)]"
+            className="btn-neo-orange flex-1 py-3 sm:py-3.5 text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 font-black shadow-[3px_3px_0px_var(--neo-shadow)] cursor-pointer"
           >
-            <Sparkles size={18} />
+            <Sparkles size={17} />
             <span>ثبت و بررسی پاسخ</span>
           </button>
         ) : index < totalQuestions - 1 ? (
@@ -2204,10 +2197,10 @@ export function SessionPlayer() {
             type="button"
             onClick={handleNext}
             disabled={pending}
-            className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm flex items-center justify-center gap-2 font-black shadow-[3px_3px_0px_var(--neo-shadow)]"
+            className="btn-neo-orange flex-1 py-3 sm:py-3.5 text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 font-black shadow-[3px_3px_0px_var(--neo-shadow)] cursor-pointer"
           >
             <span>{isCurrentRevealed ? "ادامه و سؤال بعدی" : "سؤال بعدی"}</span>
-            <ChevronLeft size={18} />
+            <ChevronLeft size={17} />
           </button>
         ) : isOpenEnded && !poolExhausted ? (
           <div className="flex-1 flex gap-2">
@@ -2215,16 +2208,16 @@ export function SessionPlayer() {
               type="button"
               onClick={handleNext}
               disabled={pending}
-              className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm flex items-center justify-center gap-2 font-black"
+              className="btn-neo-orange flex-1 py-3 sm:py-3.5 text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 font-black cursor-pointer"
             >
-              <span>{pending ? "در حال دریافت سؤال بعدی…" : "سؤال بعدی"}</span>
-              <ChevronLeft size={18} />
+              <span>{pending ? "دریافت سؤال…" : "سؤال بعدی"}</span>
+              <ChevronLeft size={17} />
             </button>
             <button
               type="button"
               onClick={() => setShowFinishConfirm(true)}
               disabled={pending}
-              className="py-3.5 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-green)] text-[var(--ink-on-color)] text-xs font-black shadow-[3px_3px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all cursor-pointer"
+              className="py-3 sm:py-3.5 px-3 sm:px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-green)] text-[var(--ink-on-color)] text-xs sm:text-sm font-black shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px] transition-colors cursor-pointer shrink-0"
             >
               <span>تحویل آزمون</span>
             </button>
@@ -2234,9 +2227,9 @@ export function SessionPlayer() {
             type="button"
             onClick={() => setShowFinishConfirm(true)}
             disabled={pending}
-            className="py-3.5 px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-green)] text-[var(--ink-on-color)] text-xs sm:text-sm font-black shadow-[3px_3px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            className="py-3 sm:py-3.5 px-4 sm:px-5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-green)] text-[var(--ink-on-color)] text-xs sm:text-sm font-black shadow-[3px_3px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px] flex-1 flex items-center justify-center gap-1.5 sm:gap-2 transition-colors cursor-pointer"
           >
-            <CheckCircle2 size={18} />
+            <CheckCircle2 size={17} />
             <span>تحویل آزمون</span>
           </button>
         )}
