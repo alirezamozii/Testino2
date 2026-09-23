@@ -189,8 +189,18 @@ function normalizeRawQuestion(
   // 4. Auto-generate system key if omitted by AI
   if (!q.key || typeof q.key !== "string" || !q.key.trim()) {
     const subjSlug = slugify(String(q.subject || defaults.subject || "q"));
-    const yr = defaults.source?.year || "exam";
-    q.key = `${subjSlug}-${yr}-q${sNum}`;
+    const srcTitle =
+      (typeof defaults.source === "object" && defaults.source && defaults.source.title) ||
+      (typeof q.source === "object" && q.source && (q.source as Record<string, unknown>).title
+        ? String((q.source as Record<string, unknown>).title)
+        : "");
+    const srcSlug = srcTitle ? slugify(String(srcTitle)) : "";
+    const chapSlug = q.chapter ? slugify(String(q.chapter)) : "";
+    const yr = (defaults.source && defaults.source.year) || (typeof q.source === "object" && q.source && (q.source as Record<string, unknown>).year) || "";
+    const yrPart = yr && yr !== "exam" ? String(yr) : "";
+
+    const keyParts = [subjSlug, srcSlug, yrPart, chapSlug, `q${sNum}`].filter(Boolean);
+    q.key = keyParts.join("-");
   }
 
 function normalizeContentBlock(rawBlock: unknown): unknown {
@@ -522,7 +532,14 @@ function parseSingleEnvelope(
   if (Array.isArray(rawObj.groups)) {
     for (const [gIdx, rawGroup] of rawObj.groups.entries()) {
       const gObj = typeof rawGroup === "object" && rawGroup !== null ? (rawGroup as Record<string, unknown>) : {};
-      const groupKey = String(gObj.key || `group-${gIdx + 1}`);
+      const rawGroupKey = gObj.key ? String(gObj.key).trim() : "";
+      let groupKey = rawGroupKey;
+      if (!groupKey) {
+        const srcTitle = canonicalDefaults.source?.title ? slugify(canonicalDefaults.source.title) : "";
+        const subjSlug = canonicalDefaults.subject ? slugify(canonicalDefaults.subject) : "";
+        const prefix = srcTitle || subjSlug || "group";
+        groupKey = `${prefix}-group-${gIdx + 1}`;
+      }
 
       const rawGroupQuestionKeys = Array.isArray(gObj.questionKeys)
         ? (gObj.questionKeys as unknown[]).map((k) => String(k).trim()).filter(Boolean)

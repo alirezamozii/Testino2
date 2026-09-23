@@ -323,5 +323,68 @@ Hope this helps! Let me know if you need more questions.
     // Question 2 is independent -> defaults to true
     expect(parsed.valid[1].shuffleSafe).toBe(true);
   });
+
+  it("imports multiple booklets with identical question numbers (q1, q2) without false duplicate collisions", async () => {
+    const memoryDb = await createTestDatabase();
+    const appDb = new AppDatabase(memoryDb);
+    await appDb.open();
+
+    // Booklet 1: Vocabulary from Book A, questions 1 & 2
+    const booklet1 = {
+      schemaVersion: "1.0",
+      defaults: {
+        subject: "زبان عمومی و تخصصی",
+        source: { kind: "PERSONAL", title: "کتاب مرجع لغات وحید رضوان پور" },
+      },
+      questions: [
+        {
+          sourceNumber: "1",
+          content: "The rise in crime is mainly due to social and economic factors.",
+          options: ["educated", "previous", "comparable", "social"],
+          correctOptionKey: "4",
+        },
+        {
+          sourceNumber: "2",
+          content: "You cannot lose what you never had.",
+          options: ["lose", "allow", "heal", "hang"],
+          correctOptionKey: "1",
+        },
+      ],
+    };
+
+    // Booklet 2: Different questions from Book B, also numbered 1 & 2
+    const booklet2 = {
+      schemaVersion: "1.0",
+      defaults: {
+        subject: "زبان عمومی و تخصصی",
+        source: { kind: "PERSONAL", title: "کتاب بانک تست واژگان وحید رضوان پور" },
+      },
+      questions: [
+        {
+          sourceNumber: "1",
+          content: "Why do you want to know? No particular reason. I was just wondering.",
+          options: ["helping", "wondering", "trying", "touching"],
+          correctOptionKey: "2",
+        },
+        {
+          sourceNumber: "2",
+          content: "This dish has an unusual combination of tastes.",
+          options: ["tastes", "thoughts", "tasks", "sales"],
+          correctOptionKey: "1",
+        },
+      ],
+    };
+
+    const rep1 = await appDb.importQuestions(parseImportJson(JSON.stringify(booklet1)));
+    expect(rep1.added).toBe(2);
+    expect(rep1.duplicates).toBe(0);
+
+    const rep2 = await appDb.importQuestions(parseImportJson(JSON.stringify(booklet2)));
+    expect(rep2.added).toBe(2);
+    expect(rep2.duplicates).toBe(0);
+
+    const totalQuestions = await memoryDb.query<{ count: number }>("SELECT COUNT(*) as count FROM questions");
+    expect(totalQuestions[0].count).toBe(4);
+  });
 });
 

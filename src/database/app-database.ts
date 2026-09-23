@@ -546,7 +546,8 @@ export class AppDatabase {
     const hasCustomExisting = Boolean(
       existing?.displayName &&
       existing.displayName !== "دانش‌آموز" &&
-      existing.displayName !== "کاربر جدید"
+      existing.displayName !== "کاربر جدید" &&
+      existing.displayName !== "کاربر محلی"
     );
     const name = (hasCustomExisting ? existing!.displayName : displayName?.trim()) || existing?.displayName || "دانش‌آموز";
     const now = Date.now();
@@ -731,9 +732,10 @@ export class AppDatabase {
     for (const groupResult of parsed.groups) {
       const g = groupResult.group;
       try {
-        const existingGroup = await this.client.query<{ id: string }>(
-          "SELECT id FROM question_groups WHERE external_key=? LIMIT 1",
-          [g.key]
+        const groupKey = g.key;
+        const existingGroup = await this.client.query<{ id: string; content_json: string }>(
+          "SELECT id, content_json FROM question_groups WHERE external_key=? LIMIT 1",
+          [groupKey]
         );
 
         let groupId: string;
@@ -783,39 +785,43 @@ export class AppDatabase {
 
     // 2. Process and insert questions
     for (const [index, input] of parsed.valid.entries()) {
-      // Intra-batch deduplication
-      if (seenExternalKeys.has(input.key)) {
+      // 1. Content-based deduplication: A question is duplicate ONLY IF its exact content (subject, text, options) already exists.
+      const fp = parsed.fingerprints.get(input.key) || computeQuestionFingerprint(input, parsed.envelope.defaults.subject);
+
+      // Check intra-batch duplicate by content
+      if (seenFingerprints.has(fp)) {
         duplicates += 1;
         continue;
       }
-      seenExternalKeys.add(input.key);
 
-      const fp = parsed.fingerprints.get(input.key) || computeQuestionFingerprint(input, parsed.envelope.defaults.subject);
-      if (seenFingerprints.has(fp)) {
+      // Check database duplicate by content hash in question_revisions
+      const existingByHash = await this.client.query<{ question_id: string }>(
+        "SELECT question_id FROM question_revisions WHERE content_hash=? LIMIT 1",
+        [fp]
+      );
+      if (existingByHash.length > 0) {
         duplicates += 1;
         continue;
       }
       seenFingerprints.add(fp);
 
-      // Database deduplication check 1: external_key
-      const existingByKey = await this.client.query<{ id: string }>(
-        "SELECT id FROM questions WHERE external_key=? LIMIT 1",
-        [input.key]
-      );
-      if (existingByKey.length) {
-        duplicates += 1;
-        continue;
+      // 2. Resolve unique external_key to satisfy SQLite's UNIQUE constraint on questions.external_key
+      let targetKey = input.key;
+      let suffix = 2;
+      while (seenExternalKeys.has(targetKey)) {
+        targetKey = `${input.key}-${suffix++}`;
       }
-
-      // Database deduplication check 2: content_hash in question_revisions
-      const existingByHash = await this.client.query<{ question_id: string }>(
-        "SELECT question_id FROM question_revisions WHERE content_hash=? LIMIT 1",
-        [fp]
-      );
-      if (existingByHash.length) {
-        duplicates += 1;
-        continue;
+      while (true) {
+        const existingByKey = await this.client.query<{ id: string }>(
+          "SELECT id FROM questions WHERE external_key=? LIMIT 1",
+          [targetKey]
+        );
+        if (existingByKey.length === 0) {
+          break;
+        }
+        targetKey = `${input.key}-${suffix++}`;
       }
+      seenExternalKeys.add(targetKey);
 
       // Question source (if question has its own source override)
       let qSourceId = defaultSourceId;
@@ -885,7 +891,7 @@ export class AppDatabase {
       const now = Date.now();
       const revisionSnapshot = {
         id: questionId,
-        externalKey: input.key,
+        externalKey: targetKey,
         subject: canonicalizeSubject(input.subject || parsed.envelope.defaults.subject),
         chapter: input.chapter ?? parsed.envelope.defaults.chapter ?? null,
         topic: input.topic ?? parsed.envelope.defaults.topic ?? null,
@@ -909,7 +915,7 @@ export class AppDatabase {
             sql: "INSERT INTO questions(id,external_key,subject,chapter,topic,group_id,group_position,source_id,content_json,explanation_json,correct_option_id,status,shuffle_safe,created_at,batch_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             bind: [
               questionId,
-              input.key,
+              targetKey,
               canonicalizeSubject(input.subject || parsed.envelope.defaults.subject),
               input.chapter ?? parsed.envelope.defaults.chapter ?? null,
               input.topic ?? parsed.envelope.defaults.topic ?? null,
@@ -941,7 +947,7 @@ export class AppDatabase {
         const isQuota = msg.includes("quota") || msg.includes("QUOTA") || msg.includes("disk") || msg.includes("full");
         issues.push({
           rowIndex: index + 1,
-          externalKey: input.key,
+          externalKey: targetKey,
           path: "database",
           message: isQuota ? "حافظه مرورگر یا دیسک پر شده است (Quota Exceeded)." : msg,
         });
