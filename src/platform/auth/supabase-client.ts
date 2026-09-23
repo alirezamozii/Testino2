@@ -22,21 +22,65 @@ export const DEFAULT_SUPABASE_URL = "https://khuuqsmjrjtsmbigpnsx.supabase.co";
 export const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_mLagE8lfm8mnJa5AUSe9Ow_S1U_bxc4";
 
 /**
- * Reads Supabase config from environment variables or project defaults.
+ * Reads Supabase config from localStorage overrides, environment variables, or project defaults.
  */
 export function getSupabaseConfig(): SupabaseConfig {
   const isTest = typeof process !== "undefined" && (process.env.NODE_ENV === "test" || Boolean(process.env.VITEST));
   const fallbackUrl = isTest ? "" : DEFAULT_SUPABASE_URL;
   const fallbackKey = isTest ? "" : DEFAULT_SUPABASE_ANON_KEY;
 
-  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || fallbackUrl).trim();
+  let customUrl = "";
+  let customKey = "";
+  if (typeof window !== "undefined") {
+    try {
+      customUrl = window.localStorage.getItem("testino_custom_supabase_url") || "";
+      customKey = window.localStorage.getItem("testino_custom_supabase_anon_key") || "";
+    } catch {
+      // ignore
+    }
+  }
+
+  const url = (customUrl || process.env.NEXT_PUBLIC_SUPABASE_URL || fallbackUrl).trim();
   const anonKey = (
+    customKey ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     fallbackKey
   ).trim();
   const isConfigured = Boolean(url && anonKey && url.startsWith("http"));
   return { url, anonKey, isConfigured };
+}
+
+export function setCustomSupabaseConfig(url?: string, anonKey?: string) {
+  if (typeof window === "undefined") return;
+  try {
+    if (url && url.trim()) {
+      window.localStorage.setItem("testino_custom_supabase_url", url.trim());
+    } else {
+      window.localStorage.removeItem("testino_custom_supabase_url");
+    }
+    if (anonKey && anonKey.trim()) {
+      window.localStorage.setItem("testino_custom_supabase_anon_key", anonKey.trim());
+    } else {
+      window.localStorage.removeItem("testino_custom_supabase_anon_key");
+    }
+    clientInstance = null;
+    cachedConfigKey = "";
+  } catch {
+    // ignore
+  }
+}
+
+export function resetCustomSupabaseConfig() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem("testino_custom_supabase_url");
+    window.localStorage.removeItem("testino_custom_supabase_anon_key");
+    clientInstance = null;
+    cachedConfigKey = "";
+  } catch {
+    // ignore
+  }
 }
 
 export function getSupabaseClient(): SupabaseClient | null {

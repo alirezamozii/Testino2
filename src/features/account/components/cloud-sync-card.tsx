@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, useSyncExternalStore } from "react";
-import { Cloud, CloudOff, RefreshCw, LogOut, CheckCircle2, AlertCircle } from "lucide-react";
+import { Cloud, CloudOff, RefreshCw, LogOut, CheckCircle2, AlertCircle, Settings2, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import {
   getSupabaseConfig,
+  setCustomSupabaseConfig,
+  resetCustomSupabaseConfig,
   signInWithGoogle,
   signOut,
   getCurrentAuthUser,
@@ -42,7 +44,10 @@ function GoogleIcon({ size = 16 }: { size?: number }) {
 
 export function CloudSyncCard() {
   const { status: syncStatus, isOnline, isSyncing, lastReport, pendingCount, syncNow } = useSync();
-  const [config] = useState(() => getSupabaseConfig());
+  const [config, setConfig] = useState(() => getSupabaseConfig());
+  const [customUrl, setCustomUrl] = useState(() => config.url);
+  const [customKey, setCustomKey] = useState(() => config.anonKey);
+  const [showConfigEditor, setShowConfigEditor] = useState(false);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [signingIn, setSigningIn] = useState(false);
   const [manualCode, setManualCode] = useState("");
@@ -142,6 +147,28 @@ export function CloudSyncCard() {
     } else {
       setAuthUser(null);
     }
+  };
+
+  const handleSaveCustomConfig = () => {
+    setCustomSupabaseConfig(customUrl, customKey);
+    const updated = getSupabaseConfig();
+    setConfig(updated);
+    setActionFeedback({
+      type: "success",
+      text: "تنظیمات سرور ابری به‌روز شد.",
+    });
+  };
+
+  const handleResetConfig = () => {
+    resetCustomSupabaseConfig();
+    const updated = getSupabaseConfig();
+    setCustomUrl(updated.url);
+    setCustomKey(updated.anonKey);
+    setConfig(updated);
+    setActionFeedback({
+      type: "success",
+      text: "تنظیمات سرور ابری به پیش‌فرض پروژه بازنشانی شد.",
+    });
   };
 
   const statusText = !mounted
@@ -265,6 +292,69 @@ export function CloudSyncCard() {
           </div>
         </div>
       )}
+
+      {/* Advanced Server Configuration Toggle */}
+      <div className="pt-1 border-t border-[var(--line-strong)]/20">
+        <button
+          type="button"
+          onClick={() => setShowConfigEditor(!showConfigEditor)}
+          className="text-[11px] font-bold text-[var(--muted)] hover:text-[var(--ink)] flex items-center justify-between w-full py-1 cursor-pointer transition-colors"
+        >
+          <span className="flex items-center gap-1.5">
+            <Settings2 size={13} />
+            <span>تنظیمات پیشرفته اتصال به سرور ابری (URL و کلید اختصاصی)</span>
+          </span>
+          {showConfigEditor ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+
+        {showConfigEditor && (
+          <div className="p-3 mt-2 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-2.5 animate-in fade-in duration-150">
+            <div>
+              <label className="text-[10px] font-black text-[var(--ink)] block mb-1">
+                آدرس پروژه Supabase (URL):
+              </label>
+              <input
+                type="text"
+                value={customUrl}
+                onChange={(e) => setCustomUrl(e.target.value)}
+                placeholder="https://xyzcompany.supabase.co"
+                className="w-full px-3 py-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] text-xs font-mono text-[var(--ink)]"
+                dir="ltr"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-[var(--ink)] block mb-1">
+                کلید عمومی ناشر (Anon / Publishable Key):
+              </label>
+              <input
+                type="text"
+                value={customKey}
+                onChange={(e) => setCustomKey(e.target.value)}
+                placeholder="sb_publishable_..."
+                className="w-full px-3 py-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] text-xs font-mono text-[var(--ink)]"
+                dir="ltr"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleSaveCustomConfig}
+                className="btn-neo-orange px-3 py-1.5 text-xs font-black rounded-xl shadow-xs"
+              >
+                ذخیره تنظیمات
+              </button>
+              <button
+                type="button"
+                onClick={handleResetConfig}
+                className="text-xs font-bold text-[var(--muted)] hover:text-rose-600 flex items-center gap-1 transition-colors"
+              >
+                <RotateCcw size={12} />
+                <span>بازنشانی پیش‌فرض</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {lastReport && (
         <div className="text-[10px] font-bold text-[var(--muted)] flex items-center justify-between px-1">

@@ -223,19 +223,18 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
     );
   }
 
-  // Signed out (or cloud unconfigured): previously fell through to the green
-  // "آنلاین" chip below, so users believed sync was running while autosync
-  // no-opped every tick. Show an honest amber chip instead.
+  // Signed out (or cloud unconfigured): show an honest green "آنلاین (محلی)" chip
+  // so users clearly know their network is connected, while data is stored safely locally.
   if (status === "unconfigured") {
     return (
       <button
         type="button"
         onClick={handleClick}
-        title="وارد حساب ابری نشده‌اید — داده‌ها فقط روی همین دستگاه ذخیره می‌شوند. برای همگام‌سازی ابری از تنظیمات وارد شوید."
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-2 border-amber-400 dark:border-amber-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-all cursor-pointer select-none active:translate-x-[1px] active:translate-y-[1px]"
+        title="اینترنت متصل است — داده‌ها به صورت محلی روی همین دستگاه ذخیره می‌شوند. برای اتصال به سرور ابری از تنظیمات وارد شوید."
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-2 border-emerald-400 dark:border-emerald-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all cursor-pointer select-none active:translate-x-[1px] active:translate-y-[1px]"
       >
-        <span className="w-2 h-2 rounded-full bg-amber-500" />
-        <span>بدون حساب ابری</span>
+        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+        <span>آنلاین (محلی)</span>
       </button>
     );
   }
