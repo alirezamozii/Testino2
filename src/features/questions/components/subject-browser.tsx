@@ -375,7 +375,7 @@ export function SubjectBrowser() {
       {/* Mascot Banner */}
       <MascotBanner
         badge="نمای ساختار درس‌ها"
-        title="تسلط کامل بر دروس و فصول آزمون 📚"
+        title="تسلط کامل بر دروس و فصول آزمون"
         description="هر درس یک فرصت طلایی برای پیشرفت است. فصول و مباحث را بررسی کن و نقاط ضعف و قوتت را ارتقا بده."
         mood="celebrate"
         action={

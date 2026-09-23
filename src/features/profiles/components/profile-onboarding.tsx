@@ -1126,7 +1126,7 @@ export function ProfileOnboarding() {
                   )}
 
                   <p className="text-[10px] text-[var(--muted)] font-bold pt-2 border-t border-[var(--line-strong)]/20">
-                    💡 اتصال به حساب کاملاً اختیاری است. تستیونو به‌صورت ۱۰۰٪ آفلاین و مستقل روی دستگاه شما کار می‌کند.
+                    اتصال به حساب کاملاً اختیاری است. تستیونو به‌صورت ۱۰۰٪ آفلاین و مستقل روی دستگاه شما کار می‌کند.
                   </p>
                 </div>
               </div>

@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Sparkles,
   Sprout,
+  Target,
 } from "lucide-react";
 import { LoadingState } from "@/components/ui/testino-ui";
 import { SignedPercent } from "@/components/ui/signed-number";
@@ -126,8 +127,9 @@ export function Dashboard() {
               <span>حساب گوگل</span>
             </span>
           )}
-          <span className="px-3.5 py-1.5 rounded-full bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] text-xs font-black text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-            🎯 {profile.targetTrack || profile.name || "هدف تحصیلی"}
+          <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] text-xs font-black text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)]">
+            <Target size={13} className="text-[var(--brand-orange)]" />
+            <span>{profile.targetTrack || profile.name || "هدف تحصیلی"}</span>
           </span>
         </div>
       </header>

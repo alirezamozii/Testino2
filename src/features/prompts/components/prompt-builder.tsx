@@ -30,6 +30,9 @@ import {
   GraduationCap,
   ExternalLink,
   ShieldCheck,
+  Ban,
+  Lightbulb,
+  AlertTriangle,
 } from "lucide-react";
 import {
   SUBJECT_CONFIGS,
@@ -344,8 +347,9 @@ export function PromptBuilder() {
                       {activeProfileSubject ? activeProfileSubject.name : currentConfig.titleFa}
                     </span>
                     {activeProfileSubject && (
-                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800">
-                        🎯 درس هدف شما
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                        <Target size={11} />
+                        <span>درس هدف شما</span>
                       </span>
                     )}
                     <span className="text-[10px] font-mono font-black px-1.5 py-0.5 rounded-md bg-[var(--surface)] border border-[var(--line)] text-[var(--muted)]">
@@ -384,25 +388,27 @@ export function PromptBuilder() {
                     type="button"
                     onClick={() => setSubjectScope("profile")}
                     className={cn(
-                      "flex-1 py-1.5 px-2 text-xs font-black rounded-lg transition-all text-center cursor-pointer",
+                      "flex-1 py-1.5 px-2 text-xs font-black rounded-lg transition-all text-center cursor-pointer flex items-center justify-center gap-1",
                       subjectScope === "profile"
                         ? "bg-[var(--surface)] text-[var(--ink)] shadow-sm border border-[var(--line)]"
                         : "text-[var(--muted)] hover:text-[var(--ink)]"
                     )}
                   >
-                    🎯 دروس هدف من ({profileSubjects.length} درس)
+                    <Target size={12} className="text-[var(--brand-orange)]" />
+                    <span>دروس هدف من ({profileSubjects.length} درس)</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSubjectScope("all")}
                     className={cn(
-                      "flex-1 py-1.5 px-2 text-xs font-black rounded-lg transition-all text-center cursor-pointer",
+                      "flex-1 py-1.5 px-2 text-xs font-black rounded-lg transition-all text-center cursor-pointer flex items-center justify-center gap-1",
                       subjectScope === "all"
                         ? "bg-[var(--surface)] text-[var(--ink)] shadow-sm border border-[var(--line)]"
                         : "text-[var(--muted)] hover:text-[var(--ink)]"
                     )}
                   >
-                    📚 همه دروس کنکور ({Object.keys(SUBJECT_CONFIGS).length} درس)
+                    <BookOpen size={12} />
+                    <span>همه دروس کنکور ({Object.keys(SUBJECT_CONFIGS).length} درس)</span>
                   </button>
                 </div>
 
@@ -911,7 +917,7 @@ export function PromptBuilder() {
                 className="w-4 h-4 rounded text-[var(--testino-orange)] accent-[var(--testino-orange)] cursor-pointer"
               />
               <span className="text-xs font-black text-[var(--ink)]">
-                📌 تأکید مضاعف بر خلاصه کپسولی (جعبه لایتنر)
+                تأکید مضاعف بر خلاصه کپسولی (جعبه لایتنر)
               </span>
             </label>
           </div>
@@ -919,7 +925,8 @@ export function PromptBuilder() {
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
             <div className="p-2 sm:p-2.5 rounded-xl bg-[var(--surface)] border border-emerald-300 dark:border-emerald-800 space-y-1">
               <div className="text-[11px] font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                <span>✅ الزامی</span>
+                <CheckCircle2 size={13} />
+                <span>الزامی</span>
               </div>
               <div className="text-xs font-black text-[var(--ink)]">اثبات علمی گزینه</div>
               <div className="text-[10px] text-[var(--muted)] font-bold line-clamp-1">ذکر متن کامل گزینه (ShuffleSafe)</div>
@@ -927,7 +934,8 @@ export function PromptBuilder() {
 
             <div className="p-2 sm:p-2.5 rounded-xl bg-[var(--surface)] border border-rose-300 dark:border-rose-800 space-y-1">
               <div className="text-[11px] font-black text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                <span>❌ الزامی</span>
+                <CheckCircle2 size={13} />
+                <span>الزامی</span>
               </div>
               <div className="text-xs font-black text-[var(--ink)]">کالبدشکافی ۳ گزینه</div>
               <div className="text-[10px] text-[var(--muted)] font-bold line-clamp-1">ابطال مستند تک‌تک گزینه‌ها</div>
@@ -935,7 +943,8 @@ export function PromptBuilder() {
 
             <div className="p-2 sm:p-2.5 rounded-xl bg-[var(--surface)] border border-blue-300 dark:border-blue-800 space-y-1">
               <div className="text-[11px] font-black text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                <span>📌 الزامی</span>
+                <CheckCircle2 size={13} />
+                <span>الزامی</span>
               </div>
               <div className="text-xs font-black text-[var(--ink)]">نکته کپسولی لایتنر</div>
               <div className="text-[10px] text-[var(--muted)] font-bold line-clamp-1">مرور سریع و تیز ۱-۲ خطی</div>
@@ -943,7 +952,8 @@ export function PromptBuilder() {
 
             <div className="p-2 sm:p-2.5 rounded-xl bg-[var(--surface)] border border-amber-300 dark:border-amber-800 space-y-1">
               <div className="text-[11px] font-black text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                <span>💡 اقتضایی</span>
+                <Lightbulb size={13} />
+                <span>اقتضایی</span>
               </div>
               <div className="text-xs font-black text-[var(--ink)]">شهود و تمثیل ملموس</div>
               <div className="text-[10px] text-[var(--muted)] font-bold line-clamp-1">مفاهیم انتزاعی با مثال عینی</div>
@@ -951,7 +961,8 @@ export function PromptBuilder() {
 
             <div className="p-2 sm:p-2.5 rounded-xl bg-[var(--surface)] border border-purple-300 dark:border-purple-800 space-y-1">
               <div className="text-[11px] font-black text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                <span>⚠️ اقتضایی</span>
+                <AlertTriangle size={13} />
+                <span>اقتضایی</span>
               </div>
               <div className="text-xs font-black text-[var(--ink)]">دام تستی طراح</div>
               <div className="text-[10px] text-[var(--muted)] font-bold line-clamp-1">تله‌های واقعی و خطاهای شایع</div>
@@ -961,15 +972,15 @@ export function PromptBuilder() {
           {/* Quality & Cleanliness Indicators */}
           <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] font-bold">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)] shadow-sm">
-              <span>🚫</span>
+              <Ban size={13} className="text-rose-500" />
               <span>ممنوعیت اصطلاحات انگلیسی خودسرانه در پرانتز/گیومه</span>
             </span>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)] shadow-sm">
-              <span>✨</span>
+              <Sparkles size={13} className="text-amber-500" />
               <span>تایپوگرافی پاکیزه (بدون هشتگ و ستاره‌های مارک‌داون)</span>
             </span>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)] shadow-sm">
-              <span>🎯</span>
+              <Target size={13} className="text-[var(--brand-orange)]" />
               <span>پیوستگی عناوین (بدون پرش عددی یا گام ۱، ۲، ۵)</span>
             </span>
           </div>
