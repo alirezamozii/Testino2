@@ -1,0 +1,42 @@
+name: Supabase Keep-Alive
+
+on:
+  schedule:
+    # Runs every 3 days at 04:00 UTC to keep the Supabase Free tier active
+    - cron: '0 4 */3 * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST & Auth Endpoints
+        run: |
+          echo "Pinging Supabase endpoints to maintain activity and prevent automatic pausing..."
+          
+          SUPABASE_URL="${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}"
+          if [ -z "$SUPABASE_URL" ]; then
+            SUPABASE_URL="https://khuuqsmjrjtsmbigpnsx.supabase.co"
+          fi
+          
+          SUPABASE_KEY="${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}"
+          if [ -z "$SUPABASE_KEY" ]; then
+            SUPABASE_KEY="sb_publishable_mLagE8lfm8mnJa5AUSe9Ow_S1U_bxc4"
+          fi
+
+          echo "Target: $SUPABASE_URL"
+          
+          # 1. Ping PostgREST Table (executes a query against the Postgres database)
+          STATUS_DB=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: $SUPABASE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_KEY" \
+            "$SUPABASE_URL/rest/v1/owners?select=id&limit=1" || echo "failed")
+          echo "PostgREST ping response: $STATUS_DB"
+
+          # 2. Ping Auth health check
+          STATUS_AUTH=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: $SUPABASE_KEY" \
+            "$SUPABASE_URL/auth/v1/health" || echo "failed")
+          echo "Auth health ping response: $STATUS_AUTH"
+
+          echo "Keep-alive ping completed successfully."
