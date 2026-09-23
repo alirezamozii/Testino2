@@ -25,7 +25,15 @@ import { useDatabase } from "@/providers/database-provider";
 import type { StoredQuestion } from "@/features/questions/domain/question-schema";
 import { cn } from "@/lib/utils";
 
-export function TopicQuestions({ subject, topic }: { subject: string; topic: string }) {
+export function TopicQuestions({
+  subject,
+  chapter,
+  topic,
+}: {
+  subject: string;
+  chapter?: string;
+  topic?: string;
+}) {
   const { db, status } = useDatabase();
   const queryClient = useQueryClient();
 
@@ -45,10 +53,18 @@ export function TopicQuestions({ subject, topic }: { subject: string; topic: str
   const [hasRevealedAnswer, setHasRevealedAnswer] = useState(false);
 
   const query = useQuery({
-    queryKey: ["topic-questions", subject, topic],
+    queryKey: ["topic-questions", subject, chapter, topic],
     queryFn: async () => {
       const all = await db.listQuestions({ subject, limit: 10_000 });
-      return all.filter((item) => (item.topic || "بدون موضوع") === topic);
+      return all.filter((item) => {
+        if (topic) {
+          if ((item.topic || "بدون موضوع") !== topic) return false;
+        }
+        if (chapter) {
+          if ((item.chapter || "بدون فصل") !== chapter) return false;
+        }
+        return true;
+      });
     },
     enabled: status === "ready" && Boolean(subject),
   });
@@ -78,7 +94,7 @@ export function TopicQuestions({ subject, topic }: { subject: string; topic: str
     setIsDeleting(true);
     try {
       await db.deleteQuestion(deletingQuestion.id);
-      await queryClient.invalidateQueries({ queryKey: ["topic-questions", subject, topic] });
+      await queryClient.invalidateQueries({ queryKey: ["topic-questions", subject, chapter, topic] });
       await queryClient.invalidateQueries({ queryKey: ["subject-browser-questions"] });
       await queryClient.invalidateQueries({ queryKey: ["subject-stats"] });
       setDeletingQuestion(null);
@@ -91,7 +107,7 @@ export function TopicQuestions({ subject, topic }: { subject: string; topic: str
   };
 
   if (query.isLoading) {
-    return <LoadingState label="در حال بارگذاری سؤال‌های این موضوع…" />;
+    return <LoadingState label={topic ? "در حال بارگذاری سؤال‌های این موضوع…" : "در حال بارگذاری سؤال‌های این فصل…"} />;
   }
 
   return (
@@ -116,16 +132,39 @@ export function TopicQuestions({ subject, topic }: { subject: string; topic: str
           >
             {subject}
           </Link>
-          <span>/</span>
-          <span className="text-[var(--ink)] font-black">موضوع: {topic}</span>
+          {chapter && (
+            <>
+              <span>/</span>
+              {topic ? (
+                <Link
+                  href={`/bank/topic/?subject=${encodeURIComponent(subject)}&chapter=${encodeURIComponent(chapter)}`}
+                  className="hover:text-[var(--brand-orange)] transition-colors underline decoration-dotted underline-offset-4"
+                >
+                  فصل: {chapter}
+                </Link>
+              ) : (
+                <span className="text-[var(--ink)] font-black">فصل: {chapter}</span>
+              )}
+            </>
+          )}
+          {topic && (
+            <>
+              <span>/</span>
+              <span className="text-[var(--ink)] font-black">موضوع: {topic}</span>
+            </>
+          )}
         </div>
 
         <Link
-          href={`/sessions/new/?subject=${encodeURIComponent(subject)}&topic=${encodeURIComponent(topic)}`}
+          href={
+            topic
+              ? `/sessions/new/?subject=${encodeURIComponent(subject)}&topic=${encodeURIComponent(topic)}`
+              : `/sessions/new/?subject=${encodeURIComponent(subject)}&chapter=${encodeURIComponent(chapter || "")}`
+          }
           className="btn-neo-orange py-2 px-4 text-xs font-black flex items-center gap-1.5"
         >
           <Play size={14} className="fill-current" />
-          <span>شروع آزمون از این مبحث</span>
+          <span>{topic ? "شروع آزمون از این مبحث" : "شروع آزمون از این فصل"}</span>
         </Link>
       </div>
 
@@ -137,15 +176,20 @@ export function TopicQuestions({ subject, topic }: { subject: string; topic: str
               <span className="inline-block text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[var(--pastel-blue)] text-[var(--ink-on-color)] border border-[var(--line-strong)]">
                 درس {subject}
               </span>
+              {chapter && topic && (
+                <span className="inline-block text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border border-[var(--line-strong)]">
+                  فصل: {chapter}
+                </span>
+              )}
               <span className="text-[11px] text-[var(--muted)] font-bold">
-                {questions.length} سؤال در این مبحث
+                {questions.length} سؤال در این {topic ? "مبحث" : "فصل"}
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-[var(--ink)] mt-2">
-              {topic}
+              {topic || chapter || "همهٔ سؤالات"}
             </h1>
             <p className="text-xs text-[var(--muted)] font-bold mt-1">
-              فهرست کامل تست‌های این مبحث به همراه مشاهده گزینه‌ها، پاسخ صحیح، ویرایش و تمرین سریع
+              فهرست کامل تست‌های این {topic ? "مبحث" : "فصل"} به همراه مشاهده گزینه‌ها، پاسخ صحیح، ویرایش و تمرین سریع
             </p>
           </div>
           <div className="w-14 h-14 rounded-2xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)] flex-shrink-0">
@@ -163,7 +207,7 @@ export function TopicQuestions({ subject, topic }: { subject: string; topic: str
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="جستجو در متن سؤالات این موضوع..."
+              placeholder={`جستجو در متن سؤالات ${topic ? "این موضوع" : "این فصل"}...`}
               className="w-full pr-10 pl-3 py-2 text-xs font-bold rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] focus:outline-none focus:bg-[var(--surface)]"
             />
           </div>

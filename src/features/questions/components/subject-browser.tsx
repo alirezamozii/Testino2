@@ -8,6 +8,7 @@ import {
   ArrowRight,
   BookOpen,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Compass,
@@ -491,10 +492,17 @@ export function SubjectBrowser() {
 
 export function SubjectDetail({ name }: { name: string }) {
   const { db, status } = useDatabase();
-  const [activeTab, setActiveTab] = useState<"overview" | "chapters" | "analytics" | "topics">("overview");
-  const [selectedChapterName, setSelectedChapterName] = useState<string | null>(null);
-  const [topicSearchTerm, setTopicSearchTerm] = useState("");
+  const [activeTab, setActiveTab] = useState<"overview" | "chapters_topics" | "analytics">("overview");
+  const [expandedChapters, setExpandedChapters] = useState<Record<string, boolean>>({});
+  const [searchTerm, setSearchTerm] = useState("");
   const [analyticsPeriod, setAnalyticsPeriod] = useState<"7d" | "1m" | "3m" | "all">("all");
+
+  const toggleChapter = (chapterName: string) => {
+    setExpandedChapters((prev) => ({
+      ...prev,
+      [chapterName]: !prev[chapterName],
+    }));
+  };
 
   const statsQuery = useQuery({
     queryKey: ["subject-stats", name],
@@ -510,17 +518,24 @@ export function SubjectDetail({ name }: { name: string }) {
 
   const allQuestions = questionsQuery.data ?? [];
   const stats = statsQuery.data;
-  const topicsList = stats?.topics;
 
-  // Filter topics for the topic tab
-  const filteredTopics = useMemo(() => {
-    if (!topicsList) return [];
-    if (!topicSearchTerm.trim()) return topicsList;
-    const term = topicSearchTerm.trim().toLowerCase();
-    return topicsList.filter(
-      (t) => t.name.toLowerCase().includes(term) || t.chapter.toLowerCase().includes(term)
-    );
-  }, [topicsList, topicSearchTerm]);
+  // Filter chapters and topics
+  const filteredChapters = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const chs = stats?.chapters ?? [];
+    if (!term) return chs;
+    return chs.filter((ch) => {
+      if (ch.name.toLowerCase().includes(term)) return true;
+      const chTopics = (stats?.topics ?? []).filter((t) => (t.chapter || "") === ch.name);
+      return chTopics.some((t) => t.name.toLowerCase().includes(term));
+    });
+  }, [stats?.chapters, stats?.topics, searchTerm]);
+
+  // Topics without matching chapter
+  const orphanTopics = useMemo(() => {
+    const chNames = new Set((stats?.chapters ?? []).map((c) => c.name));
+    return (stats?.topics ?? []).filter((t) => !chNames.has(t.chapter || ""));
+  }, [stats?.chapters, stats?.topics]);
 
   if (statsQuery.isLoading || questionsQuery.isLoading) {
     return <LoadingState label="در حال آماده‌سازی جزئیات درس…" />;
@@ -610,14 +625,14 @@ export function SubjectDetail({ name }: { name: string }) {
         </div>
       </div>
 
-      {/* 3. Navigation Tabs (Matching Wireframe 06 4-Phone Layout) */}
-      <div className="grid grid-cols-4 gap-1.5 p-1 bg-[var(--surface)] rounded-2xl border-2 border-[var(--line-strong)] text-xs font-black shadow-[3px_3px_0px_var(--neo-shadow)]">
+      {/* 3. Navigation Tabs (3 Clean Tabs) */}
+      <div className="grid grid-cols-3 gap-1.5 p-1 bg-[var(--surface)] rounded-2xl border-2 border-[var(--line-strong)] text-xs font-black shadow-[3px_3px_0px_var(--neo-shadow)]">
         <button
           type="button"
-          onClick={() => { setActiveTab("overview"); setSelectedChapterName(null); }}
+          onClick={() => setActiveTab("overview")}
           className={cn(
             "py-2.5 rounded-xl transition-all border-2 flex items-center justify-center",
-            activeTab === "overview" && !selectedChapterName
+            activeTab === "overview"
               ? "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
               : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
           )}
@@ -626,19 +641,19 @@ export function SubjectDetail({ name }: { name: string }) {
         </button>
         <button
           type="button"
-          onClick={() => { setActiveTab("chapters"); setSelectedChapterName(null); }}
+          onClick={() => setActiveTab("chapters_topics")}
           className={cn(
             "py-2.5 rounded-xl transition-all border-2 flex items-center justify-center",
-            activeTab === "chapters" || selectedChapterName
+            activeTab === "chapters_topics"
               ? "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
               : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
           )}
         >
-          فصل‌ها ({stats?.chapters.length ?? 0})
+          فصل‌ها و موضوعات ({stats?.chapters.length ?? 0})
         </button>
         <button
           type="button"
-          onClick={() => { setActiveTab("analytics"); setSelectedChapterName(null); }}
+          onClick={() => setActiveTab("analytics")}
           className={cn(
             "py-2.5 rounded-xl transition-all border-2 flex items-center justify-center",
             activeTab === "analytics"
@@ -648,22 +663,10 @@ export function SubjectDetail({ name }: { name: string }) {
         >
           تحلیل درس
         </button>
-        <button
-          type="button"
-          onClick={() => { setActiveTab("topics"); setSelectedChapterName(null); }}
-          className={cn(
-            "py-2.5 rounded-xl transition-all border-2 flex items-center justify-center",
-            activeTab === "topics"
-              ? "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-              : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
-          )}
-        >
-          موضوعات ({stats?.topics.length ?? 0})
-        </button>
       </div>
 
       {/* TAB 1: نمای کلی درس */}
-      {activeTab === "overview" && !selectedChapterName && (
+      {activeTab === "overview" && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="card-neo p-3.5 bg-[var(--surface)] text-center space-y-1">
@@ -721,14 +724,14 @@ export function SubjectDetail({ name }: { name: string }) {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <button
               type="button"
-              onClick={() => setActiveTab("chapters")}
+              onClick={() => setActiveTab("chapters_topics")}
               className="card-neo p-4 bg-[var(--surface)] hover:bg-[var(--surface-2)] transition-all flex items-center justify-between text-right"
             >
               <div className="flex items-center gap-2.5">
                 <FolderOpen size={20} className="text-[var(--brand-orange)]" />
                 <div>
-                  <strong className="text-xs font-black text-[var(--ink)] block">مشاهده فصول</strong>
-                  <span className="text-[10px] text-[var(--muted)] font-bold">سرفصل‌ها و بودجه‌بندی</span>
+                  <strong className="text-xs font-black text-[var(--ink)] block">مشاهده فصول و موضوعات</strong>
+                  <span className="text-[10px] text-[var(--muted)] font-bold">سرفصل‌ها، مباحث و بودجه‌بندی</span>
                 </div>
               </div>
               <ChevronLeft size={16} />
@@ -759,112 +762,217 @@ export function SubjectDetail({ name }: { name: string }) {
         </div>
       )}
 
-      {/* TAB 2: فصل‌های درس */}
-      {(activeTab === "chapters" || selectedChapterName) && (
+      {/* TAB 2: فصل‌ها و موضوعات ادغام‌شده با دراپ‌داون */}
+      {activeTab === "chapters_topics" && (
         <div className="space-y-4">
-          {selectedChapterName ? (
-            <div className="space-y-4">
-              <button
-                type="button"
-                onClick={() => setSelectedChapterName(null)}
-                className="flex items-center gap-1.5 text-xs font-black text-[var(--brand-orange)] hover:underline"
-              >
-                <ChevronRight size={16} />
-                <span>بازگشت به لیست تمام فصل‌ها</span>
-              </button>
+          {/* Search box for chapters and topics */}
+          <div className="relative">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="جستجو در فصل‌ها و موضوعات این درس..."
+              className="w-full bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-2xl pr-10 pl-4 py-3 text-xs font-black text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none shadow-[2px_2px_0px_var(--neo-shadow)]"
+            />
+            <Search size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
+          </div>
 
-              <div className="card-neo p-5 bg-[var(--surface)] space-y-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="inline-block text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border border-[var(--line-strong)]">
-                      جزئیات فصل
-                    </span>
-                    <h3 className="text-xl font-black text-[var(--ink)] mt-1">{selectedChapterName}</h3>
-                  </div>
-                  <Link
-                    href={`/sessions/new/?subject=${encodeURIComponent(name)}`}
-                    className="btn-neo-orange py-2 px-3 text-xs font-black flex items-center gap-1"
+          <div className="space-y-3">
+            {filteredChapters.length === 0 && orphanTopics.length === 0 ? (
+              <div className="card-neo p-8 text-center bg-[var(--surface)]">
+                <EmptyState
+                  icon={BookOpen}
+                  title="موردی یافت نشد"
+                  description="فصل یا موضوعی با این عنوان در این درس پیدا نشد."
+                />
+              </div>
+            ) : (
+              filteredChapters.map((ch, idx) => {
+                const chapterTopics = (stats?.topics ?? []).filter((t) => (t.chapter || "") === ch.name);
+                const isExpanded = Boolean(expandedChapters[ch.name]) || Boolean(searchTerm.trim());
+
+                return (
+                  <div
+                    key={ch.name}
+                    className="card-neo p-4 bg-[var(--surface)] space-y-3 transition-all"
                   >
-                    <Play size={14} className="fill-current" />
-                    <span>آزمون این فصل</span>
-                  </Link>
-                </div>
-
-                <div className="p-3.5 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-1">
-                  <strong className="text-xs font-black text-[var(--ink)] block">درباره این فصل</strong>
-                  <p className="text-xs text-[var(--muted)] font-bold leading-relaxed">
-                    این فصل شامل تست‌های مفهومی و تحلیلی از مباحث اصلی {name} است.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <h4 className="text-xs font-black text-[var(--ink)]">موضوعات این فصل:</h4>
-                  <div className="space-y-2">
-                    {(stats?.topics ?? [])
-                      .filter((t) => t.chapter === selectedChapterName)
-                      .map((topic, tIdx) => (
-                        <Link
-                          key={topic.name}
-                          href={`/bank/topic/?subject=${encodeURIComponent(name)}&topic=${encodeURIComponent(topic.name)}`}
-                          className="p-3 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] hover:bg-[var(--surface-2)] transition-all flex items-center justify-between"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <span className="w-6 h-6 rounded-lg bg-[var(--pastel-blue)] border border-[var(--line-strong)] flex items-center justify-center font-black text-xs text-[var(--ink-on-color)]">
-                              {tIdx + 1}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      {/* Chapter Info */}
+                      <div className="flex items-center gap-3.5 flex-1 min-w-0">
+                        <div className="w-10 h-10 rounded-2xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center font-black text-sm text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
+                          {idx + 1}
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <strong className="text-xs sm:text-sm font-black text-[var(--ink)] truncate">
+                              {ch.name}
+                            </strong>
+                            <span className="text-xs font-black text-[var(--brand-orange)] shrink-0">
+                              {ch.percentage}٪
                             </span>
-                            <span className="text-xs font-black text-[var(--ink)]">{topic.name}</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-[var(--muted)] font-bold">{topic.total} سؤال</span>
-                            <ChevronLeft size={14} />
+                          <div className="w-full bg-[var(--surface-3)] h-2 rounded-full border border-[var(--line-strong)] overflow-hidden">
+                            <div
+                              className="bg-[var(--brand-green)] h-full transition-all"
+                              style={{ width: `${ch.percentage}%` }}
+                            />
                           </div>
+                          <div className="flex justify-between text-[10px] text-[var(--muted)] font-bold">
+                            <span>{ch.total} سؤال در فصل</span>
+                            <span>{ch.solved} پاسخ داده شده</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons: View Chapter Questions + Dropdown Topics Toggle + Quick Exam */}
+                      <div className="flex items-center gap-2 self-end sm:self-center shrink-0 flex-wrap">
+                        {/* 1. View all questions of this chapter */}
+                        <Link
+                          href={`/bank/topic/?subject=${encodeURIComponent(name)}&chapter=${encodeURIComponent(ch.name)}`}
+                          className="py-2 px-3 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] hover:bg-[var(--surface)] text-xs font-black text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5 hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
+                        >
+                          <span>مشاهده سؤال‌ها</span>
+                          <ChevronLeft size={14} />
                         </Link>
-                      ))}
+
+                        {/* 2. Collapsible Topics Dropdown Toggle */}
+                        <button
+                          type="button"
+                          onClick={() => toggleChapter(ch.name)}
+                          className={cn(
+                            "py-2 px-3 rounded-xl border-2 border-[var(--line-strong)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5 hover:translate-x-[1px] hover:translate-y-[1px] transition-all",
+                            isExpanded
+                              ? "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)]"
+                              : "bg-[var(--surface)] text-[var(--ink)]"
+                          )}
+                        >
+                          <span>{chapterTopics.length} مبحث</span>
+                          <ChevronDown
+                            size={14}
+                            className={cn("transition-transform duration-200", isExpanded && "rotate-180")}
+                          />
+                        </button>
+
+                        {/* 3. Quick Exam */}
+                        <Link
+                          href={`/sessions/new/?subject=${encodeURIComponent(name)}&chapter=${encodeURIComponent(ch.name)}`}
+                          title="شروع آزمون از این فصل"
+                          className="w-9 h-9 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--brand-orange)] text-white flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all shrink-0"
+                        >
+                          <Play size={13} className="fill-current" />
+                        </Link>
+                      </div>
+                    </div>
+
+                    {/* Collapsible Topics Dropdown Content */}
+                    {isExpanded && (
+                      <div className="pt-2 border-t-2 border-[var(--line-strong)]/20 space-y-2">
+                        {chapterTopics.length === 0 ? (
+                          <p className="text-xs text-[var(--muted)] font-bold py-2 text-center">
+                            زیرمبحث مجزایی برای این فصل تعریف نشده است؛ تمام تست‌ها در سطح همین فصل قرار دارند.
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                            {chapterTopics.map((topic, tIdx) => (
+                              <div
+                                key={topic.name}
+                                className="p-3 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)]/60 hover:bg-[var(--surface-2)] flex items-center justify-between gap-2 transition-all"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="w-5 h-5 rounded-md bg-[var(--pastel-blue)] border border-[var(--line-strong)] flex items-center justify-center font-black text-[10px] text-[var(--ink-on-color)] shrink-0">
+                                    {tIdx + 1}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <strong className="block text-xs font-black text-[var(--ink)] truncate">
+                                      {topic.name}
+                                    </strong>
+                                    <span className="text-[10px] text-[var(--muted)] font-bold block">
+                                      {topic.total} سؤال
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <Link
+                                    href={`/bank/topic/?subject=${encodeURIComponent(name)}&chapter=${encodeURIComponent(ch.name)}&topic=${encodeURIComponent(topic.name)}`}
+                                    className="py-1 px-2.5 rounded-lg border border-[var(--line-strong)] bg-[var(--surface)] hover:bg-[var(--surface-3)] text-[11px] font-black text-[var(--ink)] flex items-center gap-1 shadow-sm transition-all"
+                                  >
+                                    <span>مشاهده سؤال‌ها</span>
+                                    <ChevronLeft size={12} />
+                                  </Link>
+                                  <Link
+                                    href={`/sessions/new/?subject=${encodeURIComponent(name)}&topic=${encodeURIComponent(topic.name)}`}
+                                    title="آزمون این مبحث"
+                                    className="w-7 h-7 rounded-lg border border-[var(--line-strong)] bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] flex items-center justify-center shadow-sm hover:scale-105 transition-all"
+                                  >
+                                    <Play size={10} className="fill-current" />
+                                  </Link>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
+                );
+              })
+            )}
+
+            {/* Orphan Topics (without specific chapter) */}
+            {orphanTopics.length > 0 && (
+              <div className="card-neo p-4 bg-[var(--surface)] space-y-3 transition-all mt-4 border-dashed">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Compass size={18} className="text-[var(--brand-orange)]" />
+                    <strong className="text-xs sm:text-sm font-black text-[var(--ink)]">
+                      سایر موضوعات عمومی ({orphanTopics.length} مبحث)
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {orphanTopics.map((topic, tIdx) => (
+                    <div
+                      key={topic.name}
+                      className="p-3 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)]/60 hover:bg-[var(--surface-2)] flex items-center justify-between gap-2 transition-all"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-5 h-5 rounded-md bg-[var(--pastel-blue)] border border-[var(--line-strong)] flex items-center justify-center font-black text-[10px] text-[var(--ink-on-color)] shrink-0">
+                          {tIdx + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <strong className="block text-xs font-black text-[var(--ink)] truncate">
+                            {topic.name}
+                          </strong>
+                          <span className="text-[10px] text-[var(--muted)] font-bold block">
+                            {topic.total} سؤال
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Link
+                          href={`/bank/topic/?subject=${encodeURIComponent(name)}&topic=${encodeURIComponent(topic.name)}`}
+                          className="py-1 px-2.5 rounded-lg border border-[var(--line-strong)] bg-[var(--surface)] hover:bg-[var(--surface-3)] text-[11px] font-black text-[var(--ink)] flex items-center gap-1 shadow-sm transition-all"
+                        >
+                          <span>مشاهده سؤال‌ها</span>
+                          <ChevronLeft size={12} />
+                        </Link>
+                        <Link
+                          href={`/sessions/new/?subject=${encodeURIComponent(name)}&topic=${encodeURIComponent(topic.name)}`}
+                          title="آزمون این مبحث"
+                          className="w-7 h-7 rounded-lg border border-[var(--line-strong)] bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] flex items-center justify-center shadow-sm hover:scale-105 transition-all"
+                        >
+                          <Play size={10} className="fill-current" />
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {(stats?.chapters ?? []).map((ch, idx) => (
-                <div
-                  key={ch.name}
-                  className="card-neo p-4 bg-[var(--surface)] flex items-center justify-between gap-4 hover:-translate-y-0.5 transition-all"
-                >
-                  <div className="flex items-center gap-3.5 flex-1">
-                    <div className="w-10 h-10 rounded-2xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center font-black text-sm text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-                      {idx + 1}
-                    </div>
-                    <div className="flex-1 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <strong className="text-xs sm:text-sm font-black text-[var(--ink)]">{ch.name}</strong>
-                        <span className="text-xs font-black text-[var(--brand-orange)]">{ch.percentage}٪</span>
-                      </div>
-                      <div className="w-full bg-[var(--surface-3)] h-2 rounded-full border border-[var(--line-strong)] overflow-hidden">
-                        <div
-                          className="bg-[var(--brand-green)] h-full transition-all"
-                          style={{ width: `${ch.percentage}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between text-[10px] text-[var(--muted)] font-bold">
-                        <span>{ch.total} سؤال</span>
-                        <span>{ch.solved} پاسخ داده شده</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setSelectedChapterName(ch.name)}
-                    className="py-2 px-3 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] hover:bg-[var(--surface)] text-xs font-black text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1"
-                  >
-                    <span>جزئیات</span>
-                    <ChevronLeft size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
 
@@ -947,58 +1055,6 @@ export function SubjectDetail({ name }: { name: string }) {
                 {weakestTopic ? `دقت پاسخگویی: ${weakestTopic.accuracy}٪ (${weakestTopic.solved} تست)` : "نیاز به حل آزمون"}
               </span>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 4: موضوعات درس */}
-      {activeTab === "topics" && (
-        <div className="space-y-4">
-          <div className="relative">
-            <input
-              type="text"
-              value={topicSearchTerm}
-              onChange={(e) => setTopicSearchTerm(e.target.value)}
-              placeholder="جستجوی موضوع در این درس..."
-              className="w-full bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-2xl pr-10 pl-4 py-3 text-xs font-black text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none shadow-[2px_2px_0px_var(--neo-shadow)]"
-            />
-            <Search size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--ink)]" />
-          </div>
-
-          <div className="space-y-2.5">
-            {!filteredTopics.length ? (
-              <div className="card-neo p-6 text-center bg-[var(--surface)]">
-                <EmptyState
-                  icon={BookOpen}
-                  title="موضوعی یافت نشد"
-                  description="عبارت جستجو را تغییر دهید یا موضوع جدیدی اضافه کنید."
-                />
-              </div>
-            ) : (
-              filteredTopics.map((topic) => (
-                <div
-                  key={topic.name}
-                  className="card-neo p-4 bg-[var(--surface)] flex items-center justify-between gap-3 hover:-translate-y-0.5 transition-all"
-                >
-                  <div>
-                    <strong className="block text-xs sm:text-sm font-black text-[var(--ink)]">{topic.name}</strong>
-                    <span className="text-[11px] text-[var(--muted)] font-bold">
-                      فصل: {topic.chapter} • {topic.total} سؤال
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Link
-                      href={`/bank/topic/?subject=${encodeURIComponent(name)}&topic=${encodeURIComponent(topic.name)}`}
-                      className="py-1.5 px-3 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] hover:bg-[var(--surface)] text-xs font-black text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1"
-                    >
-                      <span>مشاهده سؤال‌ها</span>
-                      <ChevronLeft size={14} />
-                    </Link>
-                  </div>
-                </div>
-              ))
-            )}
           </div>
         </div>
       )}
