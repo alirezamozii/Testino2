@@ -628,61 +628,68 @@ export function QuestionImporter() {
                   {fileQueue.map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between gap-2 p-2 rounded-xl border border-[var(--line)] bg-[var(--surface-2)]/50 text-xs"
+                      className="rounded-xl border border-[var(--line)] bg-[var(--surface-2)]/50 p-2 space-y-1.5 text-xs transition-colors"
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <FileText size={16} className="text-neutral-500 shrink-0" />
-                        <div className="truncate">
-                          <span className="font-black text-[var(--ink)] truncate block text-[11px]">
-                            {item.name}
-                          </span>
-                          <span className="text-[10px] text-[var(--muted)] font-mono">
-                            {(item.size / 1024).toFixed(1)} KB
-                          </span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText size={16} className="text-neutral-500 shrink-0" />
+                          <div className="truncate">
+                            <span className="font-black text-[var(--ink)] truncate block text-[11px]">
+                              {item.name}
+                            </span>
+                            <span className="text-[10px] text-[var(--muted)] font-mono">
+                              {(item.size / 1024).toFixed(1)} KB
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {item.status === "idle" && (
+                            <span className="px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-[10px] text-neutral-600 dark:text-neutral-400 font-bold">
+                              در انتظار
+                            </span>
+                          )}
+                          {item.status === "processing" && (
+                            <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-300 text-[10px] text-amber-700 dark:text-amber-300 font-bold flex items-center gap-1">
+                              <Loader2 size={11} className="animate-spin" />
+                              در حال ثبت…
+                            </span>
+                          )}
+                          {item.status === "success" && (
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 text-[10px] text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1">
+                              <CheckCircle2 size={11} />
+                              <span>
+                                {item.report?.added ?? 0} سؤال ثبت شد
+                              </span>
+                            </span>
+                          )}
+                          {item.status === "error" && (
+                            <span className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 border border-rose-300 text-[10px] text-rose-700 dark:text-rose-300 font-bold flex items-center gap-1">
+                              <AlertCircle size={11} />
+                              خطا در ورود
+                            </span>
+                          )}
+
+                          {!isProcessingQueue && (
+                            <button
+                              type="button"
+                              onClick={() => removeQueueItem(item.id)}
+                              className="p-1 rounded-lg text-[var(--muted)] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                              title="حذف از صف"
+                            >
+                              <X size={13} />
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        {item.status === "idle" && (
-                          <span className="px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-[10px] text-neutral-600 dark:text-neutral-400 font-bold">
-                            در انتظار
-                          </span>
-                        )}
-                        {item.status === "processing" && (
-                          <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-300 text-[10px] text-amber-700 dark:text-amber-300 font-bold flex items-center gap-1">
-                            <Loader2 size={11} className="animate-spin" />
-                            در حال ثبت…
-                          </span>
-                        )}
-                        {item.status === "success" && (
-                          <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 text-[10px] text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1">
-                            <CheckCircle2 size={11} />
-                            <span>
-                              {item.report?.added ?? 0} سؤال ثبت شد
-                            </span>
-                          </span>
-                        )}
-                        {item.status === "error" && (
-                          <span
-                            className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 border border-rose-300 text-[10px] text-rose-700 dark:text-rose-300 font-bold flex items-center gap-1"
-                            title={item.errorMessage}
-                          >
-                            <AlertCircle size={11} />
-                            خطا در پردازش
-                          </span>
-                        )}
-
-                        {!isProcessingQueue && (
-                          <button
-                            type="button"
-                            onClick={() => removeQueueItem(item.id)}
-                            className="p-1 rounded-lg text-[var(--muted)] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                            title="حذف از صف"
-                          >
-                            <X size={13} />
-                          </button>
-                        )}
-                      </div>
+                      {/* Explicit Error Details for this File */}
+                      {item.status === "error" && item.errorMessage && (
+                        <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-[11px] text-rose-700 dark:text-rose-300 font-mono leading-relaxed flex items-start gap-1.5" dir="ltr">
+                          <AlertCircle size={13} className="shrink-0 mt-0.5 text-rose-600" />
+                          <span className="break-all">{item.errorMessage}</span>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
