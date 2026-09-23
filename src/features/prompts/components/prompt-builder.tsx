@@ -42,6 +42,7 @@ import { BankNavTabs } from "@/components/navigation/bank-nav-tabs";
 import { useDatabase } from "@/providers/database-provider";
 import { useQuery } from "@tanstack/react-query";
 import { findSubjectPromptConfig } from "@/features/questions/domain/subject-registry";
+import { toEnDigits, sanitizeIntegerInput, parseSafeInt } from "@/lib/number-utils";
 
 const YEARS = [1405, 1404, 1403, 1402, 1401, 1400, 1399];
 type SourceKind = "EXAM" | "AI" | "BOOK" | "OTHER";
@@ -72,8 +73,32 @@ export function PromptBuilder() {
   const [year, setYear] = useState<number>(1401);
   const [isCustomYear, setIsCustomYear] = useState<boolean>(false);
   const [customYear, setCustomYear] = useState<string>("1398");
-  const [startQ, setStartQ] = useState<number>(1);
-  const [endQ, setEndQ] = useState<number>(30);
+
+  // String-backed input state allows natural typing, backspace, and Persian numeral support without fighting user
+  const [startQInput, setStartQInput] = useState<string>("1");
+  const [endQInput, setEndQInput] = useState<string>("30");
+
+  const startQ = useMemo(() => {
+    return parseSafeInt(startQInput, 0);
+  }, [startQInput]);
+
+  const endQ = useMemo(() => {
+    return parseSafeInt(endQInput, 0);
+  }, [endQInput]);
+
+  const isAllQuestions = startQ === 0 && endQ === 0;
+
+  const effectiveStartQ = useMemo(() => {
+    if (isAllQuestions) return 0;
+    if (startQ > 0 && endQ > 0 && startQ > endQ) return endQ;
+    return startQ;
+  }, [isAllQuestions, startQ, endQ]);
+
+  const effectiveEndQ = useMemo(() => {
+    if (isAllQuestions) return 0;
+    if (startQ > 0 && endQ > 0 && startQ > endQ) return startQ;
+    return endQ;
+  }, [isAllQuestions, startQ, endQ]);
 
   const [keyCsv, setKeyCsv] = useState<string>("");
   const [csvDragging, setCsvDragging] = useState<boolean>(false);
@@ -97,8 +122,8 @@ export function PromptBuilder() {
       queueMicrotask(() => {
         setSelectedSubjectId(cfg.id);
         setActiveProfileSubject(first);
-        setStartQ(cfg.defaultStartQ);
-        setEndQ(cfg.defaultEndQ);
+        setStartQInput(String(cfg.defaultStartQ));
+        setEndQInput(String(cfg.defaultEndQ));
         setSubjectScope("profile");
         setInitialized(true);
       });
@@ -134,8 +159,8 @@ export function PromptBuilder() {
     const cfg = findSubjectPromptConfig(sub.name);
     setSelectedSubjectId(cfg.id);
     setActiveProfileSubject(sub);
-    setStartQ(cfg.defaultStartQ);
-    setEndQ(cfg.defaultEndQ);
+    setStartQInput(String(cfg.defaultStartQ));
+    setEndQInput(String(cfg.defaultEndQ));
     setIsSubjectPickerOpen(false);
   };
 
@@ -144,8 +169,8 @@ export function PromptBuilder() {
     setSelectedSubjectId(subjId);
     setActiveProfileSubject(null);
     const config = SUBJECT_CONFIGS[subjId] || SUBJECT_CONFIGS.universal;
-    setStartQ(config.defaultStartQ);
-    setEndQ(config.defaultEndQ);
+    setStartQInput(String(config.defaultStartQ));
+    setEndQInput(String(config.defaultEndQ));
     setIsSubjectPickerOpen(false);
   };
 
@@ -155,32 +180,6 @@ export function PromptBuilder() {
     }
     return SUBJECT_CONFIGS[selectedSubjectId] || SUBJECT_CONFIGS.universal;
   }, [activeProfileSubject, selectedSubjectId]);
-
-  // Query existing questions in database for the active subject to extract existing topics
-  const resolvedSubjectName = activeProfileSubject?.name || currentConfig.titleFa;
-  const questionsQuery = useQuery({
-    queryKey: ["questions-for-prompt", resolvedSubjectName],
-    queryFn: () => db.listQuestions({ subject: resolvedSubjectName, limit: 1000 }),
-    enabled: status === "ready",
-  });
-
-  const existingTopicsByChapter = useMemo(() => {
-    const questions = questionsQuery.data ?? [];
-    const map: Record<string, Set<string>> = {};
-    for (const q of questions) {
-      const ch = q.chapter?.trim();
-      const top = q.topic?.trim();
-      if (ch && top) {
-        if (!map[ch]) map[ch] = new Set();
-        map[ch].add(top);
-      }
-    }
-    const result: Record<string, string[]> = {};
-    for (const [ch, set] of Object.entries(map)) {
-      result[ch] = Array.from(set).sort();
-    }
-    return result;
-  }, [questionsQuery.data]);
 
   // Build the live prompt
   const generatedPrompt = useMemo(() => {
@@ -200,12 +199,11 @@ export function PromptBuilder() {
       sourceKind,
       sourceTitle: sourceTitle.trim() || undefined,
       year: sourceKind === "EXAM" ? effectiveYear : undefined,
-      startQ,
-      endQ,
+      startQ: effectiveStartQ,
+      endQ: effectiveEndQ,
       keyCsv: keyCsv.trim() || undefined,
       customNotes: effectiveCustomNotes,
       includeGroups: selectedSubjectId === "ENG",
-      existingTopicsByChapter,
     };
     return buildSubjectPrompt(params);
   }, [
@@ -216,12 +214,11 @@ export function PromptBuilder() {
     year,
     isCustomYear,
     customYear,
-    startQ,
-    endQ,
+    effectiveStartQ,
+    effectiveEndQ,
     keyCsv,
     customNotes,
     enforceCapsuleLeitner,
-    existingTopicsByChapter,
   ]);
 
   // Copy prompt to clipboard
@@ -241,7 +238,8 @@ export function PromptBuilder() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `prompt-${currentConfig.abbreviation.toLowerCase()}-${year}-q${startQ}-q${endQ}.txt`;
+    const rangeTag = isAllQuestions ? "all" : `q${effectiveStartQ}-q${effectiveEndQ}`;
+    a.download = `prompt-${currentConfig.abbreviation.toLowerCase()}-${year}-${rangeTag}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -366,7 +364,7 @@ export function PromptBuilder() {
                       </>
                     ) : null}
                     <span>•</span>
-                    <span>سؤالات آزمون {currentConfig.defaultStartQ} تا {currentConfig.defaultEndQ}</span>
+                    <span>سؤالات آزمون {isAllQuestions ? "همه سؤالات (۰ تا ۰)" : `${effectiveStartQ} تا ${effectiveEndQ}`}</span>
                   </div>
                 </div>
               </div>
@@ -555,7 +553,9 @@ export function PromptBuilder() {
                     type="button"
                     onClick={() => {
                       const sampleLines = [];
-                      for (let q = startQ; q <= Math.min(startQ + 4, endQ); q++) {
+                      const s = isAllQuestions ? 1 : Math.max(1, effectiveStartQ);
+                      const e = isAllQuestions ? 5 : Math.max(s, effectiveEndQ);
+                      for (let q = s; q <= Math.min(s + 4, e); q++) {
                         sampleLines.push(`${q},${((q % 4) + 1).toString()}`);
                       }
                       setKeyCsv(sampleLines.join("\n"));
@@ -603,7 +603,7 @@ export function PromptBuilder() {
                   rows={3}
                   value={keyCsv}
                   onChange={(e) => setKeyCsv(e.target.value)}
-                  placeholder={`شماره,گزینه\n${startQ},1\n${startQ + 1},4\n...`}
+                  placeholder={`شماره,گزینه\n${effectiveStartQ || 1},1\n${(effectiveStartQ || 1) + 1},4\n...`}
                   className="w-full p-2.5 text-xs font-mono rounded-xl border border-[var(--line)] bg-[var(--surface)] text-left"
                   dir="ltr"
                 />
@@ -701,7 +701,7 @@ export function PromptBuilder() {
                     <input
                       type="text"
                       value={customYear}
-                      onChange={(e) => setCustomYear(e.target.value)}
+                      onChange={(e) => setCustomYear(toEnDigits(e.target.value))}
                       placeholder="مثال: 1398 یا نوبت دوم 1403"
                       className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-[var(--line)] bg-[var(--surface)]"
                       dir="rtl"
@@ -754,27 +754,86 @@ export function PromptBuilder() {
               </div>
             )}
 
-            {/* Range Start - End */}
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <div className="space-y-1">
-                <label className="text-xs font-black text-[var(--muted)]">از سؤال شماره:</label>
-                <input
-                  type="number"
-                  value={startQ}
-                  onChange={(e) => setStartQ(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                  className="w-full px-3 py-2 text-sm font-black text-center rounded-xl border-2 border-[var(--line)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                />
+            {/* Range Start - End with Persian & English digits and 0 to 0 support */}
+            <div className="space-y-2 pt-1 border-t border-[var(--line)]">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-black text-[var(--muted)]">بازه سؤالات آزمون:</label>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStartQInput("0");
+                      setEndQInput("0");
+                    }}
+                    className={cn(
+                      "px-2.5 py-1 text-[11px] font-black rounded-lg border transition-all cursor-pointer flex items-center gap-1",
+                      isAllQuestions
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                        : "bg-[var(--surface-2)] border-[var(--line)] hover:border-[var(--testino-orange)] text-[var(--ink)]"
+                    )}
+                  >
+                    <Sparkles size={12} className={isAllQuestions ? "text-white" : "text-[var(--testino-orange)]"} />
+                    <span>همه سؤالات (۰ تا ۰)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStartQInput(String(currentConfig.defaultStartQ));
+                      setEndQInput(String(currentConfig.defaultEndQ));
+                    }}
+                    className="px-2 py-1 text-[11px] font-bold rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--ink)] cursor-pointer"
+                  >
+                    پیش‌فرض ({currentConfig.defaultStartQ} تا {currentConfig.defaultEndQ})
+                  </button>
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-black text-[var(--muted)]">تا سؤال شماره:</label>
-                <input
-                  type="number"
-                  value={endQ}
-                  onChange={(e) => setEndQ(Math.max(startQ, parseInt(e.target.value, 10) || startQ))}
-                  className="w-full px-3 py-2 text-sm font-black text-center rounded-xl border-2 border-[var(--line)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-[var(--muted)]">از سؤال شماره:</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    dir="ltr"
+                    value={startQInput}
+                    onChange={(e) => setStartQInput(sanitizeIntegerInput(e.target.value))}
+                    onBlur={() => {
+                      if (!startQInput.trim()) setStartQInput("0");
+                    }}
+                    placeholder="مثلاً ۱ یا ۰"
+                    className="w-full px-3 py-2 text-sm font-black text-center rounded-xl border-2 border-[var(--line)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)] focus:border-[var(--testino-orange)] focus:outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-[var(--muted)]">تا سؤال شماره:</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    dir="ltr"
+                    value={endQInput}
+                    onChange={(e) => setEndQInput(sanitizeIntegerInput(e.target.value))}
+                    onBlur={() => {
+                      if (!endQInput.trim()) setEndQInput("0");
+                    }}
+                    placeholder="مثلاً ۳۰ یا ۰"
+                    className="w-full px-3 py-2 text-sm font-black text-center rounded-xl border-2 border-[var(--line)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)] focus:border-[var(--testino-orange)] focus:outline-none"
+                  />
+                </div>
               </div>
+
+              {isAllQuestions && (
+                <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 flex items-center gap-2 text-xs font-black text-emerald-800 dark:text-emerald-200 animate-in fade-in duration-150">
+                  <Sparkles size={15} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <span>حالت استخراج همه سؤالات فعال است (۰ تا ۰): در پرامپت نوشته می‌شود «هر سوالی که تو فایلی که بهت دادم می‌بینی»</span>
+                </div>
+              )}
+
+              {!isAllQuestions && startQ > 0 && endQ > 0 && startQ > endQ && (
+                <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 text-[11px] font-bold text-amber-800 dark:text-amber-200 animate-in fade-in duration-150">
+                  شماره شروع ({startQ}) از پایان ({endQ}) بزرگ‌تر است. در پرامپت به صورت خودکار ({effectiveStartQ} تا {effectiveEndQ}) اعمال می‌شود.
+                </div>
+              )}
             </div>
           </div>
 

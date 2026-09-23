@@ -36,6 +36,7 @@ import { useTheme, ACCENT_OPTIONS } from "@/providers/theme-provider";
 import { cn } from "@/lib/utils";
 import { canonicalizeSubject, isSameSubject } from "@/features/questions/domain/subject-registry";
 import { partitionSubjectsForDisplay, normalizeScoreGroup } from "@/features/profiles/domain/score-groups";
+import { parseSafeInt, sanitizeIntegerInput } from "@/lib/number-utils";
 import { CloudSyncCard } from "@/features/account/components/cloud-sync-card";
 import { createBackup, restoreBackup } from "@/features/backup/domain/backup-service";
 import { registerSubject } from "@/platform/shared-subjects";
@@ -782,13 +783,13 @@ export default function SettingsPage() {
                               <span className="text-[10px] font-bold text-[var(--muted)]">ضریب:</span>
                               <input
                                 aria-label={`ضریب گروه ${entry.groupName}`}
-                                type="number"
-                                min="0"
-                                max="20"
+                                type="text"
+                                inputMode="numeric"
+                                dir="ltr"
                                 defaultValue={entry.coefficient}
                                 onBlur={(event) => {
-                                  const val = Number(event.currentTarget.value);
-                                  if (Number.isFinite(val) && val !== entry.coefficient) {
+                                  const val = parseSafeInt(event.currentTarget.value, entry.coefficient);
+                                  if (val !== entry.coefficient) {
                                     handleUpdateSubject(entry.subjects[0].id, "coefficient", val, entry.coefficient);
                                   }
                                 }}
@@ -832,20 +833,20 @@ export default function SettingsPage() {
                                     <div className="flex items-center gap-1.5 bg-[var(--surface-2)] px-2 py-1 rounded-lg border border-[var(--line-strong)]/20">
                                       <span className="text-[10px] text-[var(--muted)] font-bold">تست:</span>
                                       <input
-                                        type="number"
-                                        min="1"
-                                        max="200"
+                                        type="text"
+                                        inputMode="numeric"
+                                        dir="ltr"
                                         defaultValue={sub.questionCount ?? 25}
-                                        onBlur={(event) => handleUpdateSubject(sub.id, "questionCount", Number(event.currentTarget.value), sub.questionCount ?? 25)}
+                                        onBlur={(event) => handleUpdateSubject(sub.id, "questionCount", parseSafeInt(event.currentTarget.value, sub.questionCount ?? 25), sub.questionCount ?? 25)}
                                         className="w-10 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
                                       />
                                       <span className="text-[10px] text-[var(--muted)] font-bold mr-1">هدف:</span>
                                       <input
-                                        type="number"
-                                        min="0"
-                                        max="100"
+                                        type="text"
+                                        inputMode="numeric"
+                                        dir="ltr"
                                         defaultValue={sub.targetPercentage}
-                                        onBlur={(event) => handleUpdateSubject(sub.id, "targetPercentage", Number(event.currentTarget.value), sub.targetPercentage)}
+                                        onBlur={(event) => handleUpdateSubject(sub.id, "targetPercentage", parseSafeInt(event.currentTarget.value, sub.targetPercentage), sub.targetPercentage)}
                                         className="w-9 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
                                       />
                                       <span className="text-[10px] font-black text-[var(--muted)]">٪</span>
@@ -961,31 +962,31 @@ export default function SettingsPage() {
                         <div className="flex items-center gap-1.5 bg-[var(--surface)] px-2.5 py-1 rounded-xl border border-[var(--line-strong)]/20 shadow-sm text-xs font-bold">
                           <span className="text-[var(--muted)] text-[11px]">تست:</span>
                           <input
-                            type="number"
-                            min="1"
-                            max="200"
+                            type="text"
+                            inputMode="numeric"
+                            dir="ltr"
                             defaultValue={entry.totalQuestions}
-                            onBlur={(event) => handleUpdateSubject(s.id, "questionCount", Number(event.currentTarget.value), entry.totalQuestions)}
+                            onBlur={(event) => handleUpdateSubject(s.id, "questionCount", parseSafeInt(event.currentTarget.value, entry.totalQuestions), entry.totalQuestions)}
                             className="w-9 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
                             title="تعداد سؤال"
                           />
                           <span className="text-[var(--muted)] text-[11px] mr-1">ضریب:</span>
                           <input
-                            type="number"
-                            min="0"
-                            max="20"
+                            type="text"
+                            inputMode="numeric"
+                            dir="ltr"
                             defaultValue={s.coefficient}
-                            onBlur={(event) => handleUpdateSubject(s.id, "coefficient", Number(event.currentTarget.value), s.coefficient)}
+                            onBlur={(event) => handleUpdateSubject(s.id, "coefficient", parseSafeInt(event.currentTarget.value, s.coefficient), s.coefficient)}
                             className="w-8 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
                             title="ضریب درس"
                           />
                           <span className="text-[var(--muted)] text-[11px] mr-1">هدف:</span>
                           <input
-                            type="number"
-                            min="0"
-                            max="100"
+                            type="text"
+                            inputMode="numeric"
+                            dir="ltr"
                             defaultValue={s.targetPercentage}
-                            onBlur={(event) => handleUpdateSubject(s.id, "targetPercentage", Number(event.currentTarget.value), s.targetPercentage)}
+                            onBlur={(event) => handleUpdateSubject(s.id, "targetPercentage", parseSafeInt(event.currentTarget.value, s.targetPercentage), s.targetPercentage)}
                             className="w-9 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
                             title="درصد هدف"
                           />
@@ -1089,31 +1090,46 @@ export default function SettingsPage() {
                     <span className="text-[var(--muted)]">سؤال:</span>
                     <input
                       aria-label="تعداد سؤال درس جدید"
-                      type="number"
-                      min="1"
-                      max="200"
-                      value={newSubjQuestions}
-                      onChange={(e) => setNewSubjQuestions(Math.max(1, Number(e.target.value)))}
+                      type="text"
+                      inputMode="numeric"
+                      dir="ltr"
+                      value={newSubjQuestions || ""}
+                      onChange={(e) => {
+                        const s = sanitizeIntegerInput(e.target.value, { max: 200 });
+                        setNewSubjQuestions(s ? parseInt(s, 10) : 0);
+                      }}
+                      onBlur={() => {
+                        if (!newSubjQuestions) setNewSubjQuestions(25);
+                      }}
                       className="w-9 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
                     />
                     <span className="text-[var(--muted)] mr-1">ضریب:</span>
                     <input
                       aria-label="ضریب درس جدید"
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={newSubjCoefficient}
-                      onChange={(e) => setNewSubjCoefficient(Math.max(0, Number(e.target.value)))}
+                      type="text"
+                      inputMode="numeric"
+                      dir="ltr"
+                      value={newSubjCoefficient || ""}
+                      onChange={(e) => {
+                        const s = sanitizeIntegerInput(e.target.value, { max: 100 });
+                        setNewSubjCoefficient(s ? parseInt(s, 10) : 0);
+                      }}
+                      onBlur={() => {
+                        if (!newSubjCoefficient) setNewSubjCoefficient(1);
+                      }}
                       className="w-8 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
                     />
                     <span className="text-[var(--muted)] mr-1">هدف:</span>
                     <input
                       aria-label="هدف درصدی درس جدید"
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={newSubjTarget}
-                      onChange={(e) => setNewSubjTarget(Math.max(0, Math.min(100, Number(e.target.value))))}
+                      type="text"
+                      inputMode="numeric"
+                      dir="ltr"
+                      value={newSubjTarget === 0 ? "0" : (newSubjTarget || "")}
+                      onChange={(e) => {
+                        const s = sanitizeIntegerInput(e.target.value, { max: 100 });
+                        setNewSubjTarget(s ? parseInt(s, 10) : 0);
+                      }}
                       className="w-9 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
                     />
                     <span className="text-[var(--muted)] font-black">٪</span>

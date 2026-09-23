@@ -35,6 +35,7 @@ import { useDatabase } from "@/providers/database-provider";
 import { cn } from "@/lib/utils";
 import { isSameSubject } from "@/features/questions/domain/subject-registry";
 import type { QuestionPoolMode } from "@/database/app-database";
+import { sanitizeIntegerInput, parseSafeInt } from "@/lib/number-utils";
 
 export function SessionBuilder() {
   const database = useDatabase();
@@ -379,7 +380,7 @@ export function SessionBuilder() {
         sessionType: "exam",
         count: isContinuous ? null : count,
         mode: isContinuous ? "continuous" : (selectedModes[0] || "random"),
-        modes: isContinuous ? undefined : selectedModes,
+        modes: selectedModes,
         subjects: selectedSubjects,
         chapters: scopeMode === "custom" && selectedChapters.length > 0 ? selectedChapters : undefined,
         topics: scopeMode === "custom" && selectedTopics.length > 0 ? selectedTopics : undefined,
@@ -1355,20 +1356,21 @@ export function SessionBuilder() {
                       <span className="text-xs font-black text-[var(--muted)] shrink-0">مدت دلخواه:</span>
                       <div className="relative flex-1">
                         <input
-                          type="number"
-                          min={1}
-                          max={360}
+                          type="text"
+                          inputMode="numeric"
+                          dir="ltr"
                           placeholder="مثلاً ۲۵ یا ۷۵"
                           value={customMinutes}
                           onChange={(e) => {
-                            const v = e.target.value;
+                            const v = sanitizeIntegerInput(e.target.value, { max: 360 });
                             setCustomMinutes(v);
                             setTimeTouched(true);
-                            if (v && Number(v) > 0) {
-                              setDurationMinutes(Number(v));
+                            const parsed = parseSafeInt(v, 0);
+                            if (parsed > 0) {
+                              setDurationMinutes(parsed);
                             }
                           }}
-                          className="w-full bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-1.5 text-xs font-black text-[var(--ink)] focus:outline-none focus:bg-[var(--surface)]"
+                          className="w-full bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-1.5 text-xs font-black text-[var(--ink)] focus:outline-none focus:bg-[var(--surface)] text-center font-mono"
                         />
                         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[var(--muted)]">
                           دقیقه

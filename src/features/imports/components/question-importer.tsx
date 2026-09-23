@@ -23,9 +23,12 @@ import {
   FolderArchive,
   Calendar,
   Loader2,
+  UploadCloud,
+  FileText,
+  X,
 } from "lucide-react";
-import { parseImportJson } from "@/features/questions/domain/importer";
-import { importMediaPackage, type PackageImportReport } from "@/features/media/domain/media-package";
+import { parseImportJson, splitMultipleJsonObjects } from "@/features/questions/domain/importer";
+import { importMediaPackage } from "@/features/media/domain/media-package";
 import { MediaService } from "@/features/media/domain/media-service";
 import { useDatabase } from "@/providers/database-provider";
 import type { ImportBatch } from "@/database/app-database";
@@ -58,16 +61,40 @@ const sample = JSON.stringify(
   2
 );
 
-type Report = Awaited<ReturnType<ReturnType<typeof useDatabase>["db"]["importQuestions"]>> | PackageImportReport;
+export interface UnifiedImportReport {
+  added: number;
+  drafts: number;
+  duplicates: number;
+  failed: number;
+  issues: Array<{ rowIndex: number; path: string; message: string }>;
+  batchId?: string | null;
+  total?: number;
+}
+
+interface QueuedFileItem {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  status: "idle" | "processing" | "success" | "error";
+  errorMessage?: string;
+  report?: UnifiedImportReport;
+  batchId?: string | null;
+}
 
 export function QuestionImporter() {
   const { db, status } = useDatabase();
   const { syncNow } = useSync();
   const client = useQueryClient();
   const [source, setSource] = useState("");
-  const [report, setReport] = useState<Report | null>(null);
+  const [report, setReport] = useState<UnifiedImportReport | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Multi-file queue states
+  const [fileQueue, setFileQueue] = useState<QueuedFileItem[]>([]);
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Edit / Delete states for questions
   const [editorOpen, setEditorOpen] = useState(false);
@@ -185,66 +212,269 @@ export function QuestionImporter() {
     }
   }
 
+  function cleanFileTitle(filename: string): string {
+    return filename.replace(/\.(json|zip)$/i, "").trim() || "دسته وارد شده";
+  }
+
+  function addFilesToQueue(files: FileList | File[]) {
+    const newItems: QueuedFileItem[] = [];
+    const oversized: string[] = [];
+
+    Array.from(files).forEach((file) => {
+      if (file.size > 50 * 1024 * 1024) {
+        oversized.push(file.name);
+        return;
+      }
+      newItems.push({
+        id: crypto.randomUUID(),
+        file,
+        name: file.name,
+        size: file.size,
+        status: "idle",
+      });
+    });
+
+    if (oversized.length > 0) {
+      setError(`فایل‌های زیر بیش از ۵۰ مگابایت بوده و نادیده گرفته شدند: ${oversized.join("، ")}`);
+    }
+
+    if (newItems.length > 0) {
+      setFileQueue((prev) => [...prev, ...newItems]);
+    }
+  }
+
+  function removeQueueItem(id: string) {
+    setFileQueue((prev) => prev.filter((item) => item.id !== id));
+  }
+
+  function clearQueue() {
+    setFileQueue([]);
+  }
+
+  async function processAllQueue() {
+    if (fileQueue.length === 0 || isProcessingQueue) return;
+    setIsProcessingQueue(true);
+    setError("");
+
+    let lastSuccessfulBatchId: string | null = null;
+    let aggregateAdded = 0;
+    let aggregateDrafts = 0;
+    let aggregateDuplicates = 0;
+    let aggregateFailed = 0;
+    const aggregateIssues: UnifiedImportReport["issues"] = [];
+
+    for (let i = 0; i < fileQueue.length; i++) {
+      const item = fileQueue[i];
+      if (item.status === "success") continue; // skip already completed
+
+      setFileQueue((prev) =>
+        prev.map((it) => (it.id === item.id ? { ...it, status: "processing", errorMessage: undefined } : it))
+      );
+
+      try {
+        const file = item.file;
+        const fileTitle = cleanFileTitle(file.name);
+
+        if (file.name.endsWith(".zip") || file.type.includes("zip")) {
+          const buffer = await file.arrayBuffer();
+          const mediaService = new MediaService(db.getClient());
+          const pkgReport = await importMediaPackage(new Uint8Array(buffer), db, mediaService);
+
+          aggregateAdded += pkgReport.added;
+          aggregateDrafts += pkgReport.drafts;
+          aggregateDuplicates += pkgReport.duplicates;
+          aggregateFailed += pkgReport.failed;
+          aggregateIssues.push(...pkgReport.issues);
+
+          setFileQueue((prev) =>
+            prev.map((it) =>
+              it.id === item.id ? { ...it, status: "success", report: pkgReport } : it
+            )
+          );
+        } else {
+          const text = await file.text();
+          // Support multiple envelope chunks inside a single JSON file too
+          const chunks = splitMultipleJsonObjects(text);
+
+          if (chunks.length > 1) {
+            let chunkAdded = 0;
+            let chunkDrafts = 0;
+            let chunkDuplicates = 0;
+            let chunkFailed = 0;
+            const chunkIssues: UnifiedImportReport["issues"] = [];
+
+            for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+              const chunkText = chunks[cIdx];
+              const parsed = parseImportJson(chunkText);
+              const customTitle = `${fileTitle} (بخش ${cIdx + 1})`;
+              const next = await db.importQuestions(parsed, { batchTitle: customTitle });
+
+              chunkAdded += next.added;
+              chunkDrafts += next.drafts;
+              chunkDuplicates += next.duplicates;
+              chunkFailed += next.failed;
+              chunkIssues.push(...next.issues);
+
+              if (next.batchId) lastSuccessfulBatchId = next.batchId;
+            }
+
+            const multiReport: UnifiedImportReport = {
+              added: chunkAdded,
+              drafts: chunkDrafts,
+              duplicates: chunkDuplicates,
+              failed: chunkFailed,
+              issues: chunkIssues,
+            };
+
+            aggregateAdded += chunkAdded;
+            aggregateDrafts += chunkDrafts;
+            aggregateDuplicates += chunkDuplicates;
+            aggregateFailed += chunkFailed;
+            aggregateIssues.push(...chunkIssues);
+
+            setFileQueue((prev) =>
+              prev.map((it) =>
+                it.id === item.id
+                  ? {
+                      ...it,
+                      status: "success",
+                      report: multiReport,
+                      batchId: lastSuccessfulBatchId,
+                    }
+                  : it
+              )
+            );
+          } else {
+            const parsed = parseImportJson(text);
+            const next = await db.importQuestions(parsed, { batchTitle: fileTitle });
+
+            aggregateAdded += next.added;
+            aggregateDrafts += next.drafts;
+            aggregateDuplicates += next.duplicates;
+            aggregateFailed += next.failed;
+            aggregateIssues.push(...next.issues);
+
+            if (next.batchId) lastSuccessfulBatchId = next.batchId;
+
+            setFileQueue((prev) =>
+              prev.map((it) =>
+                it.id === item.id
+                  ? {
+                      ...it,
+                      status: "success",
+                      report: next,
+                      batchId: next.batchId,
+                    }
+                  : it
+              )
+            );
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "خطا در پردازش فایل";
+        setFileQueue((prev) =>
+          prev.map((it) =>
+            it.id === item.id ? { ...it, status: "error", errorMessage: msg } : it
+          )
+        );
+      }
+    }
+
+    setIsProcessingQueue(false);
+
+    // Refresh query caches
+    await client.invalidateQueries({ queryKey: ["import-batches"] });
+    await client.invalidateQueries({ queryKey: ["questions"] });
+    await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+    await client.invalidateQueries({ queryKey: ["booklet-catalog"] });
+    await client.invalidateQueries({ queryKey: ["dashboard"] });
+
+    // Show aggregated report in sidebar
+    setReport({
+      added: aggregateAdded,
+      drafts: aggregateDrafts,
+      duplicates: aggregateDuplicates,
+      failed: aggregateFailed,
+      issues: aggregateIssues,
+    });
+
+    if (lastSuccessfulBatchId) {
+      setExpandedBatchId(lastSuccessfulBatchId);
+      const qs = await db.listQuestions({ batchId: lastSuccessfulBatchId, limit: 500 });
+      setBatchQuestions((prev) => ({ ...prev, [lastSuccessfulBatchId!]: qs }));
+    }
+  }
+
   async function submit() {
     setBusy(true);
     setError("");
     setReport(null);
     try {
-      const parsed = parseImportJson(source);
-      const next = await db.importQuestions(parsed);
-      setReport(next);
-      await client.invalidateQueries({ queryKey: ["import-batches"] });
-      await client.invalidateQueries({ queryKey: ["questions"] });
-      await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
-      await client.invalidateQueries({ queryKey: ["booklet-catalog"] });
-      await client.invalidateQueries({ queryKey: ["dashboard"] });
+      const chunks = splitMultipleJsonObjects(source);
+      if (chunks.length > 1) {
+        let totalAdded = 0;
+        let totalDrafts = 0;
+        let totalDuplicates = 0;
+        let totalFailed = 0;
+        const totalIssues: UnifiedImportReport["issues"] = [];
+        let lastBatchId: string | null = null;
 
-      // Automatically expand and load questions of the newly imported batch
-      if (next.batchId) {
-        setExpandedBatchId(next.batchId);
-        const qs = await db.listQuestions({ batchId: next.batchId, limit: 500 });
-        setBatchQuestions((prev) => ({ ...prev, [next.batchId!]: qs }));
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          const parsed = parseImportJson(chunk);
+          const title = parsed.envelope.defaults.subject
+            ? `${parsed.envelope.defaults.subject} (ورود ${i + 1})`
+            : `ورود دسته‌ای ${i + 1}`;
+          const next = await db.importQuestions(parsed, { batchTitle: title });
+          totalAdded += next.added;
+          totalDrafts += next.drafts;
+          totalDuplicates += next.duplicates;
+          totalFailed += next.failed;
+          totalIssues.push(...next.issues);
+          if (next.batchId) lastBatchId = next.batchId;
+        }
+
+        const aggReport: UnifiedImportReport = {
+          added: totalAdded,
+          drafts: totalDrafts,
+          duplicates: totalDuplicates,
+          failed: totalFailed,
+          issues: totalIssues,
+        };
+        setReport(aggReport);
+
+        await client.invalidateQueries({ queryKey: ["import-batches"] });
+        await client.invalidateQueries({ queryKey: ["questions"] });
+        await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+        await client.invalidateQueries({ queryKey: ["booklet-catalog"] });
+        await client.invalidateQueries({ queryKey: ["dashboard"] });
+
+        if (lastBatchId) {
+          setExpandedBatchId(lastBatchId);
+          const qs = await db.listQuestions({ batchId: lastBatchId, limit: 500 });
+          setBatchQuestions((prev) => ({ ...prev, [lastBatchId!]: qs }));
+        }
+      } else {
+        const parsed = parseImportJson(source);
+        const next = await db.importQuestions(parsed);
+        setReport(next);
+        await client.invalidateQueries({ queryKey: ["import-batches"] });
+        await client.invalidateQueries({ queryKey: ["questions"] });
+        await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
+        await client.invalidateQueries({ queryKey: ["booklet-catalog"] });
+        await client.invalidateQueries({ queryKey: ["dashboard"] });
+
+        if (next.batchId) {
+          setExpandedBatchId(next.batchId);
+          const qs = await db.listQuestions({ batchId: next.batchId, limit: 500 });
+          setBatchQuestions((prev) => ({ ...prev, [next.batchId!]: qs }));
+        }
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "ورود انجام نشد.");
     } finally {
       setBusy(false);
     }
-  }
-
-  async function readFile(file?: File) {
-    if (!file) return;
-    if (file.size > 20 * 1024 * 1024) {
-      setError("حجم فایل بیشتر از ۲۰ مگابایت است.");
-      return;
-    }
-
-    if (file.name.endsWith(".zip") || file.type.includes("zip")) {
-      setBusy(true);
-      setError("");
-      setReport(null);
-      try {
-        const buffer = await file.arrayBuffer();
-        const mediaService = new MediaService(db.getClient());
-        const pkgReport = await importMediaPackage(new Uint8Array(buffer), db, mediaService);
-        setReport(pkgReport);
-        await client.invalidateQueries({ queryKey: ["import-batches"] });
-        await client.invalidateQueries({ queryKey: ["questions"] });
-        await client.invalidateQueries({ queryKey: ["questions-all-subjects"] });
-        await client.invalidateQueries({ queryKey: ["booklet-catalog"] });
-        await client.invalidateQueries({ queryKey: ["dashboard"] });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "خطا در پردازش بسته فشرده");
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
-
-    file
-      .text()
-      .then(setSource)
-      .catch(() => setError("فایل خوانده نشد."));
   }
 
   function formatJalaliDate(timestamp: number) {
@@ -293,17 +523,171 @@ export function QuestionImporter() {
       <div className="grid split gap-6">
         <div className="card space-y-4">
           <div className="field">
-            <label htmlFor="json-file" className="flex items-center gap-1.5">
-              <FileUp size={16} className="text-neutral-500" />
-              <span>انتخاب فایل JSON یا بسته ZIP رسانه</span>
+            <label className="flex items-center justify-between mb-1.5">
+              <span className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-[var(--ink)]">
+                <FileUp size={16} className="text-[var(--testino-orange)]" />
+                <span>بارگذاری فایل‌های JSON یا بسته‌های ZIP (تکی یا گروهی)</span>
+              </span>
+              <span className="text-[11px] text-[var(--muted)] font-mono">
+                چند فایلی + Drag & Drop
+              </span>
             </label>
-            <input
-              id="json-file"
-              type="file"
-              accept="application/json,.json,application/zip,.zip"
-              className="text-xs file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 dark:file:bg-emerald-950 dark:file:text-emerald-300"
-              onChange={(event) => readFile(event.target.files?.[0])}
-            />
+
+            {/* Drag & Drop Area */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragOver(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                  addFilesToQueue(e.dataTransfer.files);
+                }
+              }}
+              className={`relative border-2 border-dashed rounded-2xl p-4 sm:p-5 text-center transition-all ${
+                isDragOver
+                  ? "border-[var(--testino-orange)] bg-[var(--surface-cream)] scale-[1.01]"
+                  : "border-[var(--line-strong)] hover:border-[var(--testino-orange)] bg-[var(--surface-2)]/40"
+              }`}
+            >
+              <input
+                id="json-file-multiple"
+                type="file"
+                multiple
+                accept="application/json,.json,application/zip,.zip"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                onChange={(event) => {
+                  if (event.target.files && event.target.files.length > 0) {
+                    addFilesToQueue(event.target.files);
+                    event.target.value = ""; // reset for re-uploading same file if desired
+                  }
+                }}
+              />
+              <div className="flex flex-col items-center justify-center gap-2 pointer-events-none">
+                <div className="p-3 rounded-2xl bg-[var(--surface-cream)] border border-[var(--line)] text-[var(--testino-orange)] shadow-xs">
+                  <UploadCloud size={24} />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xs sm:text-sm font-black text-[var(--ink)]">
+                    فایل‌های JSON یا ZIP را اینجا بکشید و رها کنید یا کلیک نمایید
+                  </p>
+                  <p className="text-[11px] text-[var(--muted)] font-bold">
+                    می‌توانید چندین فایل را همزمان انتخاب کنید؛ هر فایل در یک نشست مجزا ذخیره می‌شود.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* File Queue List */}
+            {fileQueue.length > 0 && (
+              <div className="mt-3 space-y-2 rounded-2xl border-2 border-[var(--line)] bg-[var(--surface)] p-3 shadow-xs">
+                <div className="flex items-center justify-between text-xs font-bold text-[var(--ink)] border-b border-[var(--line)] pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-black text-[var(--testino-orange)]">صف پردازش فایل‌ها</span>
+                    <span className="px-1.5 py-0.2 rounded-md bg-[var(--surface-cream)] text-[10px]">
+                      {fileQueue.length} فایل
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isProcessingQueue}
+                      onClick={clearQueue}
+                      className="text-[11px] text-rose-600 hover:underline disabled:opacity-50"
+                    >
+                      پاک کردن صف
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isProcessingQueue || fileQueue.every((f) => f.status === "success")}
+                      onClick={processAllQueue}
+                      className="px-3 py-1 rounded-xl bg-[var(--testino-orange)] hover:bg-[#e05318] text-white text-xs font-black shadow-xs transition-colors flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isProcessingQueue ? (
+                        <>
+                          <Loader2 size={13} className="animate-spin" />
+                          <span>در حال ورود دسته‌ای…</span>
+                        </>
+                      ) : (
+                        <>
+                          <FileUp size={13} />
+                          <span>شروع ورود همه فایل‌ها</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                  {fileQueue.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between gap-2 p-2 rounded-xl border border-[var(--line)] bg-[var(--surface-2)]/50 text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText size={16} className="text-neutral-500 shrink-0" />
+                        <div className="truncate">
+                          <span className="font-black text-[var(--ink)] truncate block text-[11px]">
+                            {item.name}
+                          </span>
+                          <span className="text-[10px] text-[var(--muted)] font-mono">
+                            {(item.size / 1024).toFixed(1)} KB
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {item.status === "idle" && (
+                          <span className="px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 text-[10px] text-neutral-600 dark:text-neutral-400 font-bold">
+                            در انتظار
+                          </span>
+                        )}
+                        {item.status === "processing" && (
+                          <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-300 text-[10px] text-amber-700 dark:text-amber-300 font-bold flex items-center gap-1">
+                            <Loader2 size={11} className="animate-spin" />
+                            در حال ثبت…
+                          </span>
+                        )}
+                        {item.status === "success" && (
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 text-[10px] text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1">
+                            <CheckCircle2 size={11} />
+                            <span>
+                              {item.report?.added ?? 0} سؤال ثبت شد
+                            </span>
+                          </span>
+                        )}
+                        {item.status === "error" && (
+                          <span
+                            className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/50 border border-rose-300 text-[10px] text-rose-700 dark:text-rose-300 font-bold flex items-center gap-1"
+                            title={item.errorMessage}
+                          >
+                            <AlertCircle size={11} />
+                            خطا در پردازش
+                          </span>
+                        )}
+
+                        {!isProcessingQueue && (
+                          <button
+                            type="button"
+                            onClick={() => removeQueueItem(item.id)}
+                            className="p-1 rounded-lg text-[var(--muted)] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                            title="حذف از صف"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="field">

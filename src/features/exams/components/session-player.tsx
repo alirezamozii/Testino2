@@ -43,7 +43,7 @@ import { buildSessionExport } from "@/features/ai/domain/export-builder";
 import { simulateOverallConfidence } from "@/features/analytics/domain/confidence-simulation";
 import { SignedNumber, SignedPercent, formatSignedPercentString } from "@/components/ui/signed-number";
 import { useDatabase } from "@/providers/database-provider";
-import { extractQuestionSortKey, extractOriginalQuestionNumber } from "@/database/app-database";
+import { extractQuestionSortKey, extractOriginalQuestionNumber, type SessionView } from "@/database/app-database";
 import { cn } from "@/lib/utils";
 
 const PERSIAN_LETTERS = ["الف", "ب", "ج", "د"];
@@ -342,6 +342,19 @@ export function SessionPlayer() {
       setError("");
       try {
         const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
+        // Optimistic cache update so the option checkmark is instant
+        cache.setQueryData<SessionView | null>(["session", id], (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            currentOrdinal: nextIndex,
+            questions: old.questions.map((q) =>
+              q.id === current.id
+                ? { ...q, selectedOptionId: optionId, confidence, visited: true }
+                : q
+            ),
+          };
+        });
         await database.db.saveAnswer(id, current.id, optionId, confidence, elapsed, nextIndex);
         openedAt.current = performance.now();
         await cache.invalidateQueries({ queryKey: ["session", id] });
@@ -375,14 +388,19 @@ export function SessionPlayer() {
 
   const handleNext = useCallback(async () => {
     if (!id || !current) return;
+    const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
     if (index < totalQuestions - 1) {
-      await save(current.selectedOptionId, current.confidence, index + 1);
+      setSelectedIndex(index + 1);
+      setElapsedSeconds(0);
+      openedAt.current = performance.now();
+      void database.db
+        .recordQuestionVisit(id, current.id, elapsed, index + 1)
+        .catch(() => undefined);
     } else if (isOpenEnded) {
       setPending(true);
       setError("");
       try {
-        const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
-        await database.db.saveAnswer(id, current.id, current.selectedOptionId, current.confidence, elapsed, index);
+        await database.db.recordQuestionVisit(id, current.id, elapsed, index);
         openedAt.current = performance.now();
         const appended = await database.db.appendNextUnit(id);
         if (appended && appended.length > 0) {
@@ -399,22 +417,36 @@ export function SessionPlayer() {
         setPending(false);
       }
     }
-  }, [cache, current, database.db, id, index, isOpenEnded, save, session, totalQuestions]);
+  }, [cache, current, database.db, id, index, isOpenEnded, session, totalQuestions]);
 
   const handleNavSelectQuestion = useCallback(
     (targetIndex: number) => {
-      void save(current?.selectedOptionId ?? null, current?.confidence ?? null, targetIndex);
+      if (id && current) {
+        const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
+        void database.db
+          .recordQuestionVisit(id, current.id, elapsed, targetIndex)
+          .catch(() => undefined);
+      }
+      setSelectedIndex(targetIndex);
+      setElapsedSeconds(0);
+      openedAt.current = performance.now();
       setShowNavSheet(false);
     },
-    [current?.confidence, current?.selectedOptionId, save]
+    [current, database.db, id]
   );
 
   const handlePrev = useCallback(async () => {
     if (!id || !current) return;
     if (index > 0) {
-      await save(current.selectedOptionId, current.confidence, index - 1);
+      const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
+      setSelectedIndex(index - 1);
+      setElapsedSeconds(0);
+      openedAt.current = performance.now();
+      void database.db
+        .recordQuestionVisit(id, current.id, elapsed, index - 1)
+        .catch(() => undefined);
     }
-  }, [current, id, index, save]);
+  }, [current, database.db, id, index]);
 
   // Auto-pause & flush checkpoint on visibilitychange, blur, pagehide, beforeunload
   useEffect(() => {
@@ -423,7 +455,7 @@ export function SessionPlayer() {
       const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
       openedAt.current = null;
       void database.db
-        .saveAnswer(id, current.id, current.selectedOptionId, current.confidence, elapsed, index)
+        .recordQuestionVisit(id, current.id, elapsed, index)
         .then(() => database.db.pauseSession(id))
         .then(() => cache.invalidateQueries({ queryKey: ["session", id] }))
         .catch(() => undefined);
@@ -463,6 +495,8 @@ export function SessionPlayer() {
       // SKIP_WAITING mid-exam (route was renamed to /sessions/run long ago).
       try { sessionStorage.setItem("testino_session_running", "true"); } catch { /* ignore */ }
       openedAt.current = performance.now();
+      timerStateRef.current = createActiveTimer(performance.now());
+      setGapNotice(false);
       await session.refetch();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "خطا در شروع آزمون.");
@@ -474,7 +508,10 @@ export function SessionPlayer() {
   async function pause() {
     if (!id) return;
     try {
-      await save(current?.selectedOptionId ?? null, current?.confidence ?? null, index);
+      if (current) {
+        const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
+        await database.db.recordQuestionVisit(id, current.id, elapsed, index);
+      }
       await database.db.pauseSession(id);
       await session.refetch();
     } catch (cause) {
@@ -487,7 +524,10 @@ export function SessionPlayer() {
     setIsFinishing(true);
     setError("");
     try {
-      await save(current?.selectedOptionId ?? null, current?.confidence ?? null, index);
+      if (current) {
+        const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
+        await database.db.recordQuestionVisit(id, current.id, elapsed, index);
+      }
       await database.db.finishSession(id);
       try { sessionStorage.removeItem("testino_session_running"); } catch { /* ignore */ }
       await session.refetch();
@@ -1814,7 +1854,7 @@ export function SessionPlayer() {
                         key={pq.id}
                         type="button"
                         onClick={() => {
-                          save(current.selectedOptionId, current.confidence, pq.qIdx);
+                          handleNavSelectQuestion(pq.qIdx);
                         }}
                         className={cn(
                           "w-8 h-8 rounded-md border text-[11px] font-black transition-all flex items-center justify-center shrink-0",
@@ -2102,7 +2142,7 @@ export function SessionPlayer() {
 
       {/* Confidence Action Pills & Clear Selection (only when not yet revealed): شک دارم | حدس زدم | پاک کردن */}
       {!isCurrentRevealed && (
-        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-2.5 pt-1">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 pt-1 w-full">
           {/* 1. شک دارم */}
           <button
             type="button"
@@ -2111,14 +2151,14 @@ export function SessionPlayer() {
               save(current?.selectedOptionId ?? null, nextConf, index);
             }}
             className={cn(
-              "py-2 sm:py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-1.5 text-xs font-black transition-colors cursor-pointer active:scale-[0.98]",
+              "w-full py-2.5 sm:py-3 px-3.5 sm:px-4 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-2 text-xs sm:text-sm font-black transition-all cursor-pointer active:scale-[0.98]",
               current?.confidence === "doubtful"
                 ? "bg-amber-100 dark:bg-amber-950/70 text-amber-950 dark:text-amber-200 border-amber-500 shadow-[2px_2px_0px_#f59e0b]"
                 : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
             )}
             title="اگر بین دو یا سه گزینه تردید دارید"
           >
-            <HelpCircle size={15} />
+            <HelpCircle size={16} />
             <span>{current?.confidence === "doubtful" ? "با شک" : "شک دارم"}</span>
           </button>
 
@@ -2130,28 +2170,30 @@ export function SessionPlayer() {
               save(current?.selectedOptionId ?? null, nextConf, index);
             }}
             className={cn(
-              "py-2 sm:py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-1.5 text-xs font-black transition-colors cursor-pointer active:scale-[0.98]",
+              "w-full py-2.5 sm:py-3 px-3.5 sm:px-4 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-2 text-xs sm:text-sm font-black transition-all cursor-pointer active:scale-[0.98]",
               current?.confidence === "guess"
                 ? "bg-purple-100 dark:bg-purple-950/70 text-purple-950 dark:text-purple-200 border-purple-500 shadow-[2px_2px_0px_#a855f7]"
                 : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
             )}
             title="اگر بدون اطمینان علمی و صرفاً بر پایه شانس گزینه زده‌اید"
           >
-            <Zap size={15} />
+            <Zap size={16} />
             <span>{current?.confidence === "guess" ? "حدسی" : "حدس زدم"}</span>
           </button>
 
           {/* 3. پاک کردن انتخاب گزینه */}
-          {current?.selectedOptionId && (
+          {current?.selectedOptionId ? (
             <button
               type="button"
               onClick={() => save(null, null, index)}
-              className="col-span-2 sm:col-span-1 py-2 sm:py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-rose-600 shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-1 text-xs font-bold transition-colors shrink-0 cursor-pointer active:scale-[0.98]"
+              className="col-span-2 sm:col-span-1 w-full py-2.5 sm:py-3 px-3.5 sm:px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-rose-600 shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-1.5 text-xs sm:text-sm font-bold transition-all shrink-0 cursor-pointer active:scale-[0.98]"
               title="پاک کردن انتخاب گزینه"
             >
-              <RotateCcw size={14} />
+              <RotateCcw size={15} />
               <span>پاک کردن انتخاب</span>
             </button>
+          ) : (
+            <div className="hidden sm:block" />
           )}
         </div>
       )}
@@ -2251,9 +2293,18 @@ export function SessionPlayer() {
             <h2 id="finish-title" className="text-lg font-black text-[var(--ink)]">
               تعیین وضعیت پایان آزمون
             </h2>
-            <p className="text-xs text-[var(--muted)] font-bold leading-relaxed">
-              {sData.questions.filter((item) => !item.selectedOptionId).length} سؤال بی‌پاسخ مانده است. نحوهٔ ثبت جلسه را انتخاب کنید:
-            </p>
+            {(() => {
+              const unansweredCount = isOpenEnded
+                ? sData.questions.slice(0, index + 1).filter((item) => !item.selectedOptionId).length
+                : sData.questions.filter((item) => !item.selectedOptionId).length;
+              return (
+                <p className="text-xs text-[var(--muted)] font-bold leading-relaxed">
+                  {unansweredCount > 0
+                    ? `${unansweredCount.toLocaleString("fa-IR")} سؤال بی‌پاسخ مانده است. نحوهٔ ثبت جلسه را انتخاب کنید:`
+                    : "به تمام سؤالات این آزمون پاسخ داده‌اید. نحوهٔ ثبت جلسه را انتخاب کنید:"}
+                </p>
+              );
+            })()}
 
             {error && (
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs font-bold text-right">

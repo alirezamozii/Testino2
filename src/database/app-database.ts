@@ -1870,13 +1870,36 @@ export class AppDatabase {
       const extraSessionSql = sessionConstraintSql.length > 0 ? " AND " + sessionConstraintSql.join(" AND ") : "";
       const baseParams = [profileId, ...sessionConstraintParams];
 
+      const attemptRows = await this.client.query<{
+        question_id: string;
+        result: "correct" | "wrong" | "unanswered";
+        confidence: "sure" | "doubtful" | "guess" | null;
+      }>(
+        `SELECT a.question_id, a.result, a.confidence
+         FROM attempts a
+         JOIN sessions s ON s.id=a.session_id
+         WHERE s.profile_id=?${extraSessionSql}
+         ORDER BY a.finalized_at DESC`,
+        baseParams
+      );
+
+      const latestAttemptMap = new Map<string, { result: string; confidence: string | null }>();
+      const allEverWrong = new Set<string>();
+      const allEverDoubtful = new Set<string>();
+      const allEverGuess = new Set<string>();
+
+      for (const row of attemptRows) {
+        if (!latestAttemptMap.has(row.question_id)) {
+          latestAttemptMap.set(row.question_id, { result: row.result, confidence: row.confidence });
+        }
+        if (row.result === "wrong") allEverWrong.add(row.question_id);
+        if (row.confidence === "doubtful") allEverDoubtful.add(row.question_id);
+        if (row.confidence === "guess") allEverGuess.add(row.question_id);
+      }
+
       // 1. New / Unsolved
       if (selectedModes.includes("new")) {
-        const attempted = await this.client.query<{ question_id: string }>(
-          `SELECT DISTINCT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=?${extraSessionSql}`,
-          baseParams
-        );
-        const attemptedIds = new Set(attempted.map((r) => r.question_id));
+        const attemptedIds = new Set(attemptRows.map((r) => r.question_id));
         for (const q of questions) {
           if (!attemptedIds.has(q.id)) {
             eligibleQuestionIds.add(q.id);
@@ -1886,29 +1909,23 @@ export class AppDatabase {
 
       // 2. Wrong answers
       if (selectedModes.includes("wrong")) {
-        const wrong = await this.client.query<{ question_id: string }>(
-          `SELECT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.result='wrong'${extraSessionSql}`,
-          baseParams
-        );
-        for (const r of wrong) eligibleQuestionIds.add(r.question_id);
+        for (const [qId, att] of latestAttemptMap.entries()) {
+          if (att.result === "wrong" || allEverWrong.has(qId)) eligibleQuestionIds.add(qId);
+        }
       }
 
       // 3. Doubtful
       if (selectedModes.includes("doubtful")) {
-        const doubtful = await this.client.query<{ question_id: string }>(
-          `SELECT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.confidence='doubtful'${extraSessionSql}`,
-          baseParams
-        );
-        for (const r of doubtful) eligibleQuestionIds.add(r.question_id);
+        for (const [qId, att] of latestAttemptMap.entries()) {
+          if (att.confidence === "doubtful" || allEverDoubtful.has(qId)) eligibleQuestionIds.add(qId);
+        }
       }
 
       // 4. Guess
       if (selectedModes.includes("guess")) {
-        const guess = await this.client.query<{ question_id: string }>(
-          `SELECT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.confidence='guess'${extraSessionSql}`,
-          baseParams
-        );
-        for (const r of guess) eligibleQuestionIds.add(r.question_id);
+        for (const [qId, att] of latestAttemptMap.entries()) {
+          if (att.confidence === "guess" || allEverGuess.has(qId)) eligibleQuestionIds.add(qId);
+        }
       }
 
       // 5. Bookmarked
@@ -1929,22 +1946,20 @@ export class AppDatabase {
         for (const r of due) eligibleQuestionIds.add(r.question_id);
       }
 
-      // 7. Skipped
+      // 7. Skipped (only questions whose latest attempt was unanswered)
       if (selectedModes.includes("skipped")) {
-        const skipped = await this.client.query<{ question_id: string }>(
-          `SELECT DISTINCT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.result='unanswered'${extraSessionSql}`,
-          baseParams
-        );
-        for (const r of skipped) eligibleQuestionIds.add(r.question_id);
+        for (const [qId, att] of latestAttemptMap.entries()) {
+          if (att.result === "unanswered") eligibleQuestionIds.add(qId);
+        }
       }
 
       // 8. Mastered / Confirmed correct questions (placed at back of queue by urgency weighting)
       if (selectedModes.includes("mastered")) {
-        const mastered = await this.client.query<{ question_id: string }>(
-          `SELECT DISTINCT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.result='correct'${extraSessionSql}`,
-          baseParams
-        );
-        for (const r of mastered) eligibleQuestionIds.add(r.question_id);
+        for (const [qId, att] of latestAttemptMap.entries()) {
+          if (att.result === "correct" && att.confidence !== "doubtful" && att.confidence !== "guess") {
+            eligibleQuestionIds.add(qId);
+          }
+        }
       }
 
       questions = questions.filter((q) => eligibleQuestionIds.has(q.id));
@@ -2057,47 +2072,78 @@ export class AppDatabase {
     const extraSessionSql = sessionConstraintSql.length > 0 ? " AND " + sessionConstraintSql.join(" AND ") : "";
     const baseParams = [profileId, ...sessionConstraintParams];
 
-    const attempted = await this.client.query<{ question_id: string }>(
-      `SELECT DISTINCT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=?${extraSessionSql}`,
+    const attemptRows = await this.client.query<{
+      question_id: string;
+      result: "correct" | "wrong" | "unanswered";
+      confidence: "sure" | "doubtful" | "guess" | null;
+    }>(
+      `SELECT a.question_id, a.result, a.confidence
+       FROM attempts a
+       JOIN sessions s ON s.id=a.session_id
+       WHERE s.profile_id=?${extraSessionSql}
+       ORDER BY a.finalized_at DESC`,
       baseParams
     );
-    const wrong = await this.client.query<{ question_id: string }>(
-      `SELECT DISTINCT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.result='wrong'${extraSessionSql}`,
-      baseParams
-    );
-    const doubtful = await this.client.query<{ question_id: string }>(
-      `SELECT DISTINCT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.confidence='doubtful'${extraSessionSql}`,
-      baseParams
-    );
-    const guess = await this.client.query<{ question_id: string }>(
-      `SELECT DISTINCT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.confidence='guess'${extraSessionSql}`,
-      baseParams
-    );
+
+    const latestAttemptByQ = new Map<string, { result: string; confidence: string | null }>();
+    const allAttemptedIds = new Set<string>();
+    const allEverWrongIds = new Set<string>();
+    const allEverDoubtfulIds = new Set<string>();
+    const allEverGuessIds = new Set<string>();
+
+    for (const r of attemptRows) {
+      allAttemptedIds.add(r.question_id);
+      if (!latestAttemptByQ.has(r.question_id)) {
+        latestAttemptByQ.set(r.question_id, { result: r.result, confidence: r.confidence });
+      }
+      if (r.result === "wrong") allEverWrongIds.add(r.question_id);
+      if (r.confidence === "doubtful") allEverDoubtfulIds.add(r.question_id);
+      if (r.confidence === "guess") allEverGuessIds.add(r.question_id);
+    }
+
     const due = await this.client.query<{ question_id: string }>(
       "SELECT question_id FROM review_items WHERE due_at <= ?",
       [Date.now()]
     );
-    const skipped = await this.client.query<{ question_id: string }>(
-      `SELECT DISTINCT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.result='unanswered'${extraSessionSql}`,
-      baseParams
-    );
+
     const bookmarked = await this.client.query<{ question_id: string }>(
       "SELECT question_id FROM review_items WHERE priority >= 3"
     );
-    const mastered = await this.client.query<{ question_id: string }>(
-      `SELECT DISTINCT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.result='correct'${extraSessionSql}`,
-      baseParams
-    );
+
+    const wrongIds = new Set<string>();
+    const doubtfulIds = new Set<string>();
+    const guessIds = new Set<string>();
+    const skippedIds = new Set<string>();
+    const masteredIds = new Set<string>();
+
+    for (const [qId, att] of latestAttemptByQ.entries()) {
+      if (att.result === "unanswered") {
+        skippedIds.add(qId);
+      }
+      if (att.result === "correct" && att.confidence !== "doubtful" && att.confidence !== "guess") {
+        masteredIds.add(qId);
+      }
+    }
+
+    for (const qId of allEverWrongIds) {
+      wrongIds.add(qId);
+    }
+    for (const qId of allEverDoubtfulIds) {
+      doubtfulIds.add(qId);
+    }
+    for (const qId of allEverGuessIds) {
+      guessIds.add(qId);
+    }
 
     return {
-      attemptedIds: attempted.map((r) => r.question_id),
-      wrongIds: wrong.map((r) => r.question_id),
-      doubtfulIds: doubtful.map((r) => r.question_id),
-      guessIds: guess.map((r) => r.question_id),
+      attemptedIds: Array.from(allAttemptedIds),
+      wrongIds: Array.from(wrongIds),
+      doubtfulIds: Array.from(doubtfulIds),
+      guessIds: Array.from(guessIds),
       dueIds: due.map((r) => r.question_id),
-      skippedIds: skipped.map((r) => r.question_id),
+      skippedIds: Array.from(skippedIds),
       bookmarkedIds: bookmarked.map((r) => r.question_id),
-      masteredIds: mastered.map((r) => r.question_id),
+      masteredIds: Array.from(masteredIds),
     };
   }
 
@@ -2338,21 +2384,25 @@ export class AppDatabase {
     }
     candidates = candidates.filter((q) => !usedIds.has(q.id));
 
-    if (config?.mode === "new") {
+    const activeModes = config?.modes && config.modes.length > 0
+      ? config.modes
+      : config?.mode ? [config.mode as QuestionPoolMode] : [];
+
+    if (activeModes.includes("new")) {
       const attempted = await this.client.query<{ question_id: string }>(
         "SELECT DISTINCT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=?",
-        [config.profileId]
+        [config?.profileId || sessionRow.profile_id]
       );
       const attemptedIds = new Set(attempted.map((r) => r.question_id));
       candidates = candidates.filter((q) => !attemptedIds.has(q.id));
-    } else if (config?.mode === "wrong") {
+    } else if (activeModes.includes("wrong")) {
       const wrong = await this.client.query<{ question_id: string }>(
         "SELECT a.question_id FROM attempts a JOIN sessions s ON s.id=a.session_id WHERE s.profile_id=? AND a.result='wrong'",
-        [config.profileId]
+        [config?.profileId || sessionRow.profile_id]
       );
       const wrongIds = new Set(wrong.map((r) => r.question_id));
       candidates = candidates.filter((q) => wrongIds.has(q.id));
-    } else if (config?.mode === "due") {
+    } else if (activeModes.includes("due")) {
       const now = Date.now();
       const due = await this.client.query<{ question_id: string }>(
         "SELECT question_id FROM review_items WHERE due_at <= ?",
@@ -2566,6 +2616,32 @@ export class AppDatabase {
           JSON.stringify({ optionId, confidence }),
           Date.now(),
         ],
+      },
+    ]);
+  }
+
+  async recordQuestionVisit(
+    sessionId: string,
+    sessionQuestionId: string,
+    activeMs: number,
+    ordinal: number
+  ) {
+    await this.client.batch([
+      {
+        sql: `UPDATE session_questions 
+              SET visited=1,
+                  active_ms=active_ms+?
+              WHERE id=? AND session_id=? AND (SELECT state FROM sessions WHERE id=?)='RUNNING'`,
+        bind: [
+          Math.max(0, Math.round(activeMs)),
+          sessionQuestionId,
+          sessionId,
+          sessionId,
+        ],
+      },
+      {
+        sql: "UPDATE sessions SET current_ordinal=?,active_ms=active_ms+? WHERE id=? AND state='RUNNING'",
+        bind: [ordinal, Math.max(0, Math.round(activeMs)), sessionId],
       },
     ]);
   }
@@ -2821,6 +2897,13 @@ export class AppDatabase {
       "SELECT COUNT(*) count FROM review_items WHERE due_at<=?",
       [Date.now()]
     );
+    const [uniqueAnswered] = await this.client.query<{ count: number }>(
+      `SELECT COUNT(DISTINCT a.question_id) count
+       FROM attempts a
+       JOIN sessions s ON s.id=a.session_id
+       WHERE s.profile_id=? AND s.state='FINISHED' AND a.result != 'unanswered'`,
+      [profileId]
+    );
     const sessions = await this.listSessions(profileId);
 
     const rows = await this.client.query<{
@@ -2894,6 +2977,7 @@ export class AppDatabase {
 
     return {
       questionCount: Number(questionCount?.count || 0),
+      uniqueAnsweredQuestionsCount: Number(uniqueAnswered?.count || 0),
       reviewCount: Number(reviewCount?.count || 0),
       sessions,
       confidenceSimulation,

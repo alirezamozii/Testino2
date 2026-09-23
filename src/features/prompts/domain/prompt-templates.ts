@@ -1164,9 +1164,10 @@ export function buildSubjectPrompt(params: PromptGenerationParams): string {
   const config = SUBJECT_CONFIGS[params.subjectId] || SUBJECT_CONFIGS.universal;
   const subjectTitle = params.forceSubjectTitle?.trim() || config.titleFa;
   const sourceKind: SourceKind = params.sourceKind || "EXAM";
-  const startQ = params.startQ || config.defaultStartQ;
-  const endQ = params.endQ || config.defaultEndQ;
-  const totalQ = Math.max(1, endQ - startQ + 1);
+  const isAllQuestions = params.startQ === 0 && params.endQ === 0;
+  const startQ = typeof params.startQ === "number" ? params.startQ : config.defaultStartQ;
+  const endQ = typeof params.endQ === "number" ? params.endQ : config.defaultEndQ;
+  const totalQ = isAllQuestions ? 0 : Math.max(1, endQ - startQ + 1);
   const isQuantitative =
     config.requiresMathAndLatex ||
     ["universal", "MATH", "STAT", "OR", "MICRO", "MACRO", "PROD", "FIN"].includes(config.id);
@@ -1203,14 +1204,24 @@ export function buildSubjectPrompt(params: PromptGenerationParams): string {
   let missionTitle = "";
   let missionDescription = "";
   if (sourceKind === "EXAM") {
-    missionTitle = `دستورالعمل استخراج سؤالات آزمون سراسری درس «${subjectTitle}» (${resolvedSourceTitle})`;
-    missionDescription = `شما به عنوان طراح ارشد کنکور سراسری کارشناسی ارشد مدیریت و کارشناس خبره داده‌های آموزشی (AI Data Engineer)، مأموریت دارید سؤالات شماره ${startQ} تا ${endQ} (مجموعاً ${totalQ} سؤال) را از فایل یا تصاویر ارسالی پیوست با نهایت دقت علمی، بدون هیچ‌گونه خطا و بدون دخل و تصرف استخراج کرده و منحصراً در قالب استاندارد Testino JSON Envelope Schema 1.0 خروجی دهید.`;
+    missionTitle = isAllQuestions
+      ? `دستورالعمل استخراج تمامی سؤالات آزمون سراسری درس «${subjectTitle}» (${resolvedSourceTitle})`
+      : `دستورالعمل استخراج سؤالات آزمون سراسری درس «${subjectTitle}» (${resolvedSourceTitle})`;
+    missionDescription = isAllQuestions
+      ? `شما به عنوان طراح ارشد کنکور سراسری کارشناسی ارشد مدیریت و کارشناس خبره داده‌های آموزشی (AI Data Engineer)، مأموریت دارید هر سوالی که تو فایلی که بهت دادم می‌بینی (تمامی سؤالات موجود در فایل یا تصاویر ارسالی پیوست مربوط به این درس) را با نهایت دقت علمی، بدون هیچ‌گونه خطا و بدون دخل و تصرف استخراج کرده و منحصراً در قالب استاندارد Testino JSON Envelope Schema 1.0 خروجی دهید.`
+      : `شما به عنوان طراح ارشد کنکور سراسری کارشناسی ارشد مدیریت و کارشناس خبره داده‌های آموزشی (AI Data Engineer)، مأموریت دارید سؤالات شماره ${startQ} تا ${endQ} (مجموعاً ${totalQ} سؤال) را از فایل یا تصاویر ارسالی پیوست با نهایت دقت علمی، بدون هیچ‌گونه خطا و بدون دخل و تصرف استخراج کرده و منحصراً در قالب استاندارد Testino JSON Envelope Schema 1.0 خروجی دهید.`;
   } else if (sourceKind === "AI") {
     missionTitle = `دستورالعمل طراحی سؤالات تألیفی استاندارد درس «${subjectTitle}» (${resolvedSourceTitle})`;
-    missionDescription = `شما به عنوان طراح ارشد آزمون‌های آزمایشی و کنکور کارشناسی ارشد مدیریت، مأموریت دارید تعداد ${totalQ} سؤال استاندارد، مفهومی، نکته‌دار و متناسب با بودجه‌بندی کنکور سراسری همراه با ۴ گزینه و حل تحلیلی مرحله‌به‌مرحله برای درس «${subjectTitle}» طراحی کرده و منحصراً در قالب استاندارد Testino JSON Envelope Schema 1.0 خروجی دهید.`;
+    missionDescription = isAllQuestions
+      ? `شما به عنوان طراح ارشد آزمون‌های آزمایشی و کنکور کارشناسی ارشد مدیریت، مأموریت دارید هر سوالی که تو فایلی که بهت دادم می‌بینی (یا طراحی یک پکیج جامع سؤالات استاندارد، مفهومی، نکته‌دار و متناسب با بودجه‌بندی کنکور سراسری همراه با ۴ گزینه و حل تحلیلی مرحله‌به‌مرحله) برای درس «${subjectTitle}» تهیه کرده و منحصراً در قالب استاندارد Testino JSON Envelope Schema 1.0 خروجی دهید.`
+      : `شما به عنوان طراح ارشد آزمون‌های آزمایشی و کنکور کارشناسی ارشد مدیریت، مأموریت دارید تعداد ${totalQ} سؤال استاندارد، مفهومی، نکته‌دار و متناسب با بودجه‌بندی کنکور سراسری همراه با ۴ گزینه و حل تحلیلی مرحله‌به‌مرحله برای درس «${subjectTitle}» طراحی کرده و منحصراً در قالب استاندارد Testino JSON Envelope Schema 1.0 خروجی دهید.`;
   } else {
-    missionTitle = `دستورالعمل استخراج و دیجیتال‌سازی سؤالات درس «${subjectTitle}» از «${resolvedSourceTitle}»`;
-    missionDescription = `شما به عنوان کارشناس خبره دیجیتال‌سازی منابع آموزشی، مأموریت دارید سؤالات شماره ${startQ} تا ${endQ} (مجموعاً ${totalQ} سؤال) از منبع «${resolvedSourceTitle}» را با دقت تمام استخراج کرده و منحصراً در قالب استاندارد Testino JSON Envelope Schema 1.0 خروجی دهید.`;
+    missionTitle = isAllQuestions
+      ? `دستورالعمل استخراج و دیجیتال‌سازی تمامی سؤالات درس «${subjectTitle}» از «${resolvedSourceTitle}»`
+      : `دستورالعمل استخراج و دیجیتال‌سازی سؤالات درس «${subjectTitle}» از «${resolvedSourceTitle}»`;
+    missionDescription = isAllQuestions
+      ? `شما به عنوان کارشناس خبره دیجیتال‌سازی منابع آموزشی، مأموریت دارید هر سوالی که تو فایلی که بهت دادم می‌بینی (تمامی سؤالات موجود در فایل یا منبع «${resolvedSourceTitle}») را با دقت تمام استخراج کرده و منحصراً در قالب استاندارد Testino JSON Envelope Schema 1.0 خروجی دهید.`
+      : `شما به عنوان کارشناس خبره دیجیتال‌سازی منابع آموزشی، مأموریت دارید سؤالات شماره ${startQ} تا ${endQ} (مجموعاً ${totalQ} سؤال) از منبع «${resolvedSourceTitle}» را با دقت تمام استخراج کرده و منحصراً در قالب استاندارد Testino JSON Envelope Schema 1.0 خروجی دهید.`;
   }
 
   const keyVerificationBlock = params.keyCsv?.trim()
@@ -1231,6 +1242,11 @@ ${params.keyCsv.trim()}
     subjectTitle.includes("زبان") ||
     subjectTitle.toLowerCase().includes("english");
 
+  const groupQ1 = isAllQuestions ? 1 : startQ;
+  const groupQ2 = groupQ1 + 1;
+  const groupQ3 = groupQ1 + 2;
+  const groupQ4 = groupQ1 + 3;
+
   const readingGroupRequirement =
     params.includeGroups || isEnglishSubject
       ? `
@@ -1245,20 +1261,20 @@ ${params.keyCsv.trim()}
     "kind": "cloze",
     "subject": "${subjectTitle}",
     "content": "Full cloze passage text with (1) ... (2) ...",
-    "questionKeys": ["${startQ}", "${startQ + 1}"]
+    "questionKeys": ["${groupQ1}", "${groupQ2}"]
   },
   {
     "key": "group-reading-${yearNum || 1405}-pass1",
     "kind": "reading",
     "subject": "${subjectTitle}",
     "content": "Full reading comprehension passage text goes here...",
-    "questionKeys": ["${startQ + 2}", "${startQ + 3}"]
+    "questionKeys": ["${groupQ3}", "${groupQ4}"]
   }
 ]
 \`\`\`
 - **الزام حیاتی اتصال دوطرفه (groupKey و questionKeys)**:
   1. در هر سؤالی که متعلق به یک متن کلوزتست یا درک مطلب است، فیلد \`"groupKey"\` را دقیقاً برابر با شناسه همان گروه بگذارید (مثلاً \`"groupKey": "group-cloze-${yearNum || 1405}-1"\` یا \`"groupKey": "group-reading-${yearNum || 1405}-pass1"\`).
-  2. در شیء گروه، در آرایه \`"questionKeys"\` شماره سؤالات متصل به آن متن (مثلاً \`["${startQ}", "${startQ + 1}"]\`) را قید کنید تا ارتباط دوطرفه کامل در سامانه برقرار شود.
+  2. در شیء گروه، در آرایه \`"questionKeys"\` شماره سؤالات متصل به آن متن (مثلاً \`["${groupQ1}", "${groupQ2}"]\`) را قید کنید تا ارتباط دوطرفه کامل در سامانه برقرار شود.
 - **اسکیپ کوتیشن‌ها در متون ریدینگ**: دقت فرمایید تمام علامت‌های نقل‌قول داخل متن ریدینگ به صورت \`\\"\` اسکیپ شوند تا ساختار JSON نشکند.
 - **کلمات خط‌کشیده‌شده (Underlined Words) و ضمایر در ریدینگ**: اگر در دفترچه آزمون زیر کلمه‌ای خط کشیده شده یا سؤالی می‌گوید «The underlined word/phrase X in paragraph Y...»، **حتماً** آن کلمه را در متن ریدینگ با تگ \`<u>...</u>\` بنویسید (مثلاً: \`<u>initiated</u>\`). در مورد ضمایر (مثل his یا it)، دقت کنید دقیقاً زیر همان کلمه‌ای که در دفترچه زیر آن خط کشیده شده \`<u>\` بگذارید، نه تمام تکرارهای آن در متن.
 `
@@ -1267,24 +1283,6 @@ ${params.keyCsv.trim()}
   const officialChaptersList = (config.officialChapters || [])
     .map((ch, idx) => `${idx + 1}. **${ch}**`)
     .join("\n");
-
-  // Format dynamic existing topics per chapter if available
-  let existingTopicsBlock = "";
-  if (params.existingTopicsByChapter && Object.keys(params.existingTopicsByChapter).length > 0) {
-    const lines: string[] = [];
-    for (const [chName, tList] of Object.entries(params.existingTopicsByChapter)) {
-      if (tList.length > 0) {
-        lines.push(`- **فصل: ${chName}** -> موضوعات ثبت‌شده قبلی: [ ${tList.map((t) => `«${t}»`).join(" ، ")} ]`);
-      }
-    }
-    if (lines.length > 0) {
-      existingTopicsBlock = `
-### موضوعات (Topic) ثبت‌شده قبلی در سامانه برای درس «${subjectTitle}»:
-لیست زیر شامل موضوعاتی است که قبلاً در پایگاه‌داده تستیونو برای این درس و فصول آن ثبت شده است. اگر سؤال مورد نظر با یکی از این موضوعات قرابت علمی دارد، **ترجیحاً از همین نام برای یکدستی دیتابیس استفاده کنید**. در غیر این صورت، مجازید موضوع متناسب جدیدی طبق ضوابط بالا تعیین فرمایید:
-${lines.join("\n")}
-`;
-    }
-  }
 
   const chaptersSection = isEnglishSubject
     ? `
@@ -1304,7 +1302,6 @@ ${lines.join("\n")}
 3. **فیلد "content" و "options"**: متن انگلیسی کامل بدون هیچ کاراکتر فارسی با جهت \`"direction": "ltr"\`.
 4. **فیلد "groupKey"**: برای تمام سؤالات متصل به کلوزتست یا ریدینگ، فیلد "groupKey" همنام با گروه در "groups" الزامی است.
 5. **تنها فیلدی که زبان فارسی در آن مجاز است**: بخش \`"explanation"\` است که در آن ترجمه فارسی روان و تحلیل تشریحی گزینه‌ها به زبان فارسی برای درک بهتر داوطلب ارائه می‌شود.
-${existingTopicsBlock}
 `
     : `
 ## سرفصل‌های قطعی و الزامی درس «${subjectTitle}» (الزام صددرصد و بدون استثنا):
@@ -1319,8 +1316,6 @@ ${officialChaptersList}
 1. **نه خیلی جزئی و ریز باشد**: موضوع نباید تبدیل به یک عبارت بسیار جزئی، یک عدد، فرمول خام یا کلمه‌ای بی‌معنی شود که فقط برای همان یک تست کاربرد دارد.
 2. **نه به شدت کلی و وسیع باشد**: موضوع نباید آن‌قدر کلی و عام باشد که مجدداً شبیه به نام فصل‌ها شود یا تکرار عنوان همان فصل باشد.
 3. **تعادل علمی و استاندارد**: موضوع باید دقیقاً بیانگر مفهوم، مدل، نظریه، قانون یا مسئله‌ی مورد پرسش در آن تست در حد یک اصطلاح علمی استاندارد باشد.
-
-${existingTopicsBlock}
 `;
 
   return `
@@ -1337,7 +1332,11 @@ ${missionDescription}
 3. اولین کاراکتر پاسخ شما باید حتماً کاراکتر "{" و آخرین کاراکتر آن "}" باشد و کل خروجی را در قالب \`\`\`json و \`\`\` محصور کنید.
 4. **الزام اسکیپ کوتیشن‌ها (Escape Double Quotes)**: در تمامی فیلدهای متنی (به ویژه در متون طولانی درک مطلب ریدینگ، کلوزتست، صورت سؤال و گزینه‌ها)، هرگز از علامت نقل‌قول دونقطه/کوتیشن انگلیسی (") بدون اسکیپ استفاده نکنید! حتماً آن را با بک‌اسلش اسکیپ کنید: \\" تا ساختار JSON نشکند.
 5. **ممنوعیت کامای اضافه (No Trailing Commas)**: قبل از بسته‌شدن هر آکولاد یا براکت (} یا ])، از گذاشتن کاما (,) اکیداً خودداری کنید.
-6. **پاسخ کامل و بدون برش**: تمام ${totalQ} سؤال از شماره ${startQ} تا ${endQ} باید کامل در آرایه questions قرار گیرند؛ از خلاصه کردن یا نوشتن عبارت‌هایی مانند «...ادامه سوالات» خودداری کنید.
+${
+  isAllQuestions
+    ? `6. **پاسخ کامل و بدون برش**: هر سوالی که تو فایلی که بهت دادم می‌بینی (تمامی سؤالات موجود در فایل/تصاویر ارسالی بدون هیچ استثنا یا حذفی) باید کامل در آرایه questions قرار گیرند؛ از خلاصه کردن، حذف سؤالات یا نوشتن عبارت‌هایی مانند «...ادامه سوالات» اکیداً خودداری کنید.`
+    : `6. **پاسخ کامل و بدون برش**: تمام ${totalQ} سؤال از شماره ${startQ} تا ${endQ} باید کامل در آرایه questions قرار گیرند؛ از خلاصه کردن یا نوشتن عبارت‌هایی مانند «...ادامه سوالات» خودداری کنید.`
+}
 
 ---
 
@@ -1392,7 +1391,7 @@ ${chaptersSection}
 ## تشریح دقیق و کامل تمام فیلدهای هر سؤال در آرایه questions (۱۰۰٪ اختصاصی برای درس «${subjectTitle}»):
 
 1. **"sourceNumber"** (شماره سؤال در دفترچه آزمون):
-   - نوع: رشته یا عدد حاوی شماره سؤال در آزمون اصلی (مثلاً: "${startQ}").
+   - نوع: رشته یا عدد حاوی شماره سؤال در آزمون اصلی (مثلاً: "${isAllQuestions ? "1" : startQ}").
    - اهمیت: این شماره مبنای شماره‌گذاری دفترچه و کلیدهای سامانه است.
 
 2. **"chapter"** (فصل علمی سؤال):
@@ -1528,11 +1527,15 @@ ${config.sampleQuestionJson}
   },
   "groups": [],
   "questions": [
-    // آرایه حاوی دقیقاً ${totalQ} سؤال از شماره ${startQ} تا ${endQ}
+    ${isAllQuestions ? "// آرایه حاوی هر سوالی که تو فایلی که بهت دادم می‌بینی (تمامی سؤالات موجود در فایل ارسالی بدون هیچ حذفی)" : `// آرایه حاوی دقیقاً ${totalQ} سؤال از شماره ${startQ} تا ${endQ}`}
   ]
 }
 \`\`\`
 
-اکنون لطفاً فایل یا منبع پیوست (${resolvedSourceTitle}) را بررسی کرده و سؤالات شماره **${startQ} تا ${endQ}** مربوط به درس **«${subjectTitle}»** را با رعایت کامل تمام قواعد فوق در قالب JSON خالص ارائه دهید.
+${
+  isAllQuestions
+    ? `اکنون لطفاً فایل یا منبع پیوست (${resolvedSourceTitle}) را بررسی کرده و هر سوالی که تو فایلی که بهت دادم می‌بینی مربوط به درس **«${subjectTitle}»** (تمامی سؤالات فایل ارسالی) را با رعایت کامل تمام قواعد فوق در قالب JSON خالص ارائه دهید.`
+    : `اکنون لطفاً فایل یا منبع پیوست (${resolvedSourceTitle}) را بررسی کرده و سؤالات شماره **${startQ} تا ${endQ}** مربوط به درس **«${subjectTitle}»** را با رعایت کامل تمام قواعد فوق در قالب JSON خالص ارائه دهید.`
+}
 `.trim();
 }

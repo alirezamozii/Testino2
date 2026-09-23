@@ -18,6 +18,7 @@ import { EmptyState, LoadingState, MascotBanner } from "@/components/ui/testino-
 import { useDatabase } from "@/providers/database-provider";
 import { cn } from "@/lib/utils";
 import { isSameSubject } from "@/features/questions/domain/subject-registry";
+import { sanitizeIntegerInput } from "@/lib/number-utils";
 
 interface StudyGoal {
   id: string;
@@ -587,12 +588,18 @@ export function GoalsPage() {
                         <div className="space-y-1">
                           <label className="text-[11px] font-bold text-[var(--ink)]">تعداد سؤالات در کنکور:</label>
                           <input
-                            type="number"
-                            min="1"
-                            max="200"
-                            value={editQuestions}
-                            onChange={(e) => setEditQuestions(Number(e.target.value))}
-                            className="w-full p-2 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] text-xs font-black text-[var(--ink)]"
+                            type="text"
+                            inputMode="numeric"
+                            dir="ltr"
+                            value={editQuestions || ""}
+                            onChange={(e) => {
+                              const s = sanitizeIntegerInput(e.target.value, { max: 200 });
+                              setEditQuestions(s ? parseInt(s, 10) : 0);
+                            }}
+                            onBlur={() => {
+                              if (!editQuestions) setEditQuestions(25);
+                            }}
+                            className="w-full p-2 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] text-xs font-black text-center text-[var(--ink)]"
                           />
                           <span className="text-[10px] text-[var(--muted)] font-bold block">
                             ارزش هر تست: +{(100 / (editQuestions || 25)).toFixed(2)}٪ | منفی: -{(100 / (3 * (editQuestions || 25))).toFixed(2)}٪
@@ -601,12 +608,15 @@ export function GoalsPage() {
                         <div className="space-y-1">
                           <label className="text-[11px] font-bold text-[var(--ink)]">درصد هدف مطلوب (٪):</label>
                           <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={editTarget}
-                            onChange={(e) => setEditTarget(Number(e.target.value))}
-                            className="w-full p-2 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] text-xs font-black text-[var(--ink)]"
+                            type="text"
+                            inputMode="numeric"
+                            dir="ltr"
+                            value={editTarget === 0 ? "0" : (editTarget || "")}
+                            onChange={(e) => {
+                              const s = sanitizeIntegerInput(e.target.value, { max: 100 });
+                              setEditTarget(s ? parseInt(s, 10) : 0);
+                            }}
+                            className="w-full p-2 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] text-xs font-black text-center text-[var(--ink)]"
                           />
                         </div>
                       </div>
@@ -857,12 +867,16 @@ export function GoalsPage() {
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-[var(--ink)]">مقدار هدف *</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
+                    dir="ltr"
                     required
-                    min={1}
-                    value={newTargetValue}
-                    onChange={(e) => setNewTargetValue(Number(e.target.value))}
-                    className="w-full p-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] text-xs font-bold text-[var(--ink)]"
+                    value={newTargetValue || ""}
+                    onChange={(e) => {
+                      const s = sanitizeIntegerInput(e.target.value);
+                      setNewTargetValue(s ? parseInt(s, 10) : 0);
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] text-xs font-bold text-center text-[var(--ink)]"
                   />
                 </div>
 
@@ -883,12 +897,16 @@ export function GoalsPage() {
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-[var(--ink)]">مهلت (روز)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
+                    dir="ltr"
                     required
-                    min={1}
-                    value={newDays}
-                    onChange={(e) => setNewDays(Number(e.target.value))}
-                    className="w-full p-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] text-xs font-bold text-[var(--ink)]"
+                    value={newDays || ""}
+                    onChange={(e) => {
+                      const s = sanitizeIntegerInput(e.target.value);
+                      setNewDays(s ? parseInt(s, 10) : 0);
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] text-xs font-bold text-center text-[var(--ink)]"
                   />
                 </div>
               </div>

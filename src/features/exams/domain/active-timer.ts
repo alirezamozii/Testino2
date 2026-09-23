@@ -6,7 +6,7 @@ export interface ActiveTimerState {
 }
 
 export const HEARTBEAT_INTERVAL_MS = 2000;
-export const MAX_GAP_MS = 5000;
+export const MAX_GAP_MS = 30000;
 
 export function createActiveTimer(now = performance.now()): ActiveTimerState {
   return {

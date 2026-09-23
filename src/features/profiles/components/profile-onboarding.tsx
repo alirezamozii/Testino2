@@ -29,6 +29,7 @@ import { withTimeout } from "@/lib/with-timeout";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { calculateWeightedTarget } from "@/features/profiles/domain/score-groups";
 import { canonicalizeSubject, isSameSubject } from "@/features/questions/domain/subject-registry";
+import { sanitizeIntegerInput } from "@/lib/number-utils";
 import {
   getSupabaseConfig,
   signInWithGoogle,
@@ -1355,11 +1356,17 @@ export function ProfileOnboarding() {
                     <div className="sm:col-span-3 flex items-center gap-1.5">
                       <span className="text-[11px] font-bold text-[var(--muted)] shrink-0">تعداد سؤال:</span>
                       <input
-                        type="number"
-                        min="1"
-                        max="200"
-                        value={newSubjQuestions}
-                        onChange={(e) => setNewSubjQuestions(Math.max(1, Number(e.target.value)))}
+                        type="text"
+                        inputMode="numeric"
+                        dir="ltr"
+                        value={newSubjQuestions || ""}
+                        onChange={(e) => {
+                          const s = sanitizeIntegerInput(e.target.value, { max: 200 });
+                          setNewSubjQuestions(s ? parseInt(s, 10) : 0);
+                        }}
+                        onBlur={() => {
+                          if (!newSubjQuestions) setNewSubjQuestions(25);
+                        }}
                         className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
                         title="تعداد سؤالات این درس در دفترچه کنکور"
                       />
@@ -1367,22 +1374,31 @@ export function ProfileOnboarding() {
                     <div className="sm:col-span-2 flex items-center gap-1.5">
                       <span className="text-[11px] font-bold text-[var(--muted)] shrink-0">ضریب:</span>
                       <input
-                        type="number"
-                        min="1"
-                        max="30"
-                        value={newSubjCoeff}
-                        onChange={(e) => setNewSubjCoeff(Number(e.target.value))}
+                        type="text"
+                        inputMode="numeric"
+                        dir="ltr"
+                        value={newSubjCoeff || ""}
+                        onChange={(e) => {
+                          const s = sanitizeIntegerInput(e.target.value, { max: 30 });
+                          setNewSubjCoeff(s ? parseInt(s, 10) : 0);
+                        }}
+                        onBlur={() => {
+                          if (!newSubjCoeff) setNewSubjCoeff(1);
+                        }}
                         className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
                       />
                     </div>
                     <div className="sm:col-span-3 flex items-center gap-1.5">
                       <span className="text-[11px] font-bold text-[var(--muted)] shrink-0">هدف:</span>
                       <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={newSubjTarget}
-                        onChange={(e) => setNewSubjTarget(Number(e.target.value))}
+                        type="text"
+                        inputMode="numeric"
+                        dir="ltr"
+                        value={newSubjTarget === 0 ? "0" : (newSubjTarget || "")}
+                        onChange={(e) => {
+                          const s = sanitizeIntegerInput(e.target.value, { max: 100 });
+                          setNewSubjTarget(s ? parseInt(s, 10) : 0);
+                        }}
                         className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
                       />
                       <span className="text-[11px] font-bold text-[var(--muted)] shrink-0">٪</span>

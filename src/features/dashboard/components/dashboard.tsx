@@ -87,12 +87,8 @@ export function Dashboard() {
   const completedSessions =
     data?.sessions.filter((item) => item.state === "FINISHED") ?? [];
 
-  // Real progress from finished attempts (0 until the user actually answers
-  // questions — never fabricate a number from the target).
-  const finishedQuestions = completedSessions.reduce(
-    (sum, s) => sum + (s.answered || 0),
-    0
-  );
+  // Real progress from finished attempts — distinct questions answered in the bank
+  const finishedQuestions = data?.uniqueAnsweredQuestionsCount ?? 0;
   const totalQuestions = data?.questionCount || 0;
   const progressPercent = totalQuestions
     ? Math.min(100, Math.round((finishedQuestions / totalQuestions) * 100))

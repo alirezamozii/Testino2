@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDatabase } from "@/providers/database-provider";
 import { parseImportJson } from "@/features/questions/domain/importer";
+import { sanitizeIntegerInput, parseSafeInt } from "@/lib/number-utils";
 
 type AiTab = "generate" | "extract" | "analyze";
 
@@ -50,7 +51,7 @@ export function AiTools() {
   const [chapter, setChapter] = useState("");
   const [topic, setTopic] = useState("");
   const [countInput, setCountInput] = useState("15");
-  const count = Math.max(1, parseInt(countInput, 10) || 15);
+  const count = Math.max(1, parseSafeInt(countInput, 15));
   const [difficulty, setDifficulty] = useState("کنکور سراسری و سازمان سنجش");
   const [includeFormulas, setIncludeFormulas] = useState(true);
   const [userNotes, setUserNotes] = useState("");
@@ -345,7 +346,15 @@ ${JSON.stringify(analysisExportData, null, 2)}`;
             <div className="space-y-2 pt-2">
               <div className="flex justify-between items-center"><label htmlFor="ai-count" className="text-xs font-bold">تعداد سؤال مورد نیاز (تایپ دستی یا انتخاب سریع)</label><span className="text-xs text-neutral-400 font-mono">{count} تست</span></div>
               <div className="flex gap-2">
-                <input id="ai-count" type="number" min="1" max="100" value={countInput} onChange={(e) => setCountInput(e.target.value)} className="w-24 font-mono font-bold text-center" />
+                <input
+                  id="ai-count"
+                  type="text"
+                  inputMode="numeric"
+                  dir="ltr"
+                  value={countInput}
+                  onChange={(e) => setCountInput(sanitizeIntegerInput(e.target.value, { max: 100 }))}
+                  className="w-24 font-mono font-bold text-center"
+                />
                 <div className="flex-1 min-w-0 flex gap-1.5 overflow-x-auto">{presets.map((p) => <button key={p} type="button" onClick={() => setCountInput(String(p))} className={cn("flex-none sm:flex-1 py-1.5 px-2 rounded-lg text-xs font-bold border transition-all whitespace-nowrap", count === p ? "bg-emerald-600 text-white border-emerald-600 shadow-sm" : "bg-neutral-50 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100")}>{new Intl.NumberFormat("fa-IR").format(p)} سؤال</button>)}</div>
               </div>
             </div>
