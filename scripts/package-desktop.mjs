@@ -172,14 +172,57 @@ console.log("\n🎉 بیلد نسخه ویندوز دسکتاپ با موفقی�
 console.log(`📁 پوشه برنامه: ${outputAppDir}`);
 console.log(`🚀 فایل اجرایی مستقیم: ${targetExe}\n`);
 
-const desktopTarget = "C:\\Users\\Mozart\\Desktop\\Testino-win-x64";
-try {
-  if (fs.existsSync("C:\\Users\\Mozart\\Desktop")) {
-    console.log(`📋 در حال همگام‌سازی با پوشه دسکتاپ کاربر: ${desktopTarget}...`);
-    fs.cpSync(outputAppDir, desktopTarget, { recursive: true });
-    console.log(`✅ نسخه اجرایی در دسکتاپ کاربر نیز به‌روزرسانی شد.`);
+function safeSyncToTarget(sourceDir, targetDir, targetName) {
+  try {
+    if (!fs.existsSync(targetDir)) {
+      console.log(`📁 ایجاد پوشه مقصد: ${targetDir}...`);
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    console.log(`📋 در حال به‌روزرسانی فایل‌های برنامه در ${targetName}: ${targetDir}...`);
+
+    const entries = fs.readdirSync(sourceDir);
+    for (const entry of entries) {
+      const srcPath = path.join(sourceDir, entry);
+      const destPath = path.join(targetDir, entry);
+      try {
+        const stat = fs.statSync(srcPath);
+        if (stat.isDirectory()) {
+          fs.cpSync(srcPath, destPath, { recursive: true, force: true });
+        } else {
+          fs.copyFileSync(srcPath, destPath);
+        }
+      } catch (itemErr) {
+        if (entry === "Testino.exe") {
+          console.warn(`⚠️ فایل ${entry} احتمالاً در حال اجراست و بازنویسی نشد. لطفاً در صورت نیاز برنامه را ببندید.`);
+        } else {
+          console.warn(`⚠️ خطا در کپی ${entry}:`, itemErr.message);
+        }
+      }
+    }
+
+    // Clean up default_app.asar in target if present so Electron loads resources/app directly
+    const targetDefaultAppAsar = path.join(targetDir, "resources", "default_app.asar");
+    if (fs.existsSync(targetDefaultAppAsar)) {
+      try {
+        fs.unlinkSync(targetDefaultAppAsar);
+      } catch {
+        // ignore
+      }
+    }
+
+    console.log(`✅ فایل‌های برنامه در ${targetName} با موفقیت جایگزین شدند (فایل‌های اختصاصی و شخصی شما کاملاً حفظ شدند).`);
+  } catch (err) {
+    console.warn(`⚠️ خطا در همگام‌سازی با ${targetName}:`, err.message);
   }
-} catch (err) {
-  console.warn("⚠️ کپی به دسکتاپ ویندوز:", err.message);
 }
+
+// 1. Primary working directory requested by user: D:\Konkoor_Arshad\6-تستینو
+safeSyncToTarget(outputAppDir, "D:\\Konkoor_Arshad\\6-تستینو", "پوشه کنکور ارشد (6-تستینو)");
+
+// 2. Desktop convenience shortcut folder
+if (fs.existsSync("C:\\Users\\Mozart\\Desktop")) {
+  safeSyncToTarget(outputAppDir, "C:\\Users\\Mozart\\Desktop\\Testino-win-x64", "دسکتاپ کاربر");
+}
+
 
