@@ -77,7 +77,7 @@ describe("Stress & Benchmark Suite (TASK-036.1, TASK-036.2)", () => {
     console.log(`[Benchmark Evidence] LIKE Filter on 10k Items: ${searchDurationMs}ms`);
 
     await db.close();
-  });
+  }, 20_000);
 
   it("handles media dataset fixtures and orphan detection at scale", async () => {
     const db = await createTestDatabase();

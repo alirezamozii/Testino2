@@ -416,18 +416,30 @@ async function applyQuestionBundle(trx: DatabasePort, payload: Record<string, un
     };
     await upsertRaw(trx, "media_files", remoteMedia, MEDIA_COLUMNS);
   }
+  const safeQuestion = {
+    ...question,
+    id: String(question.id || ""),
+    external_key: String(question.external_key || `ext-${question.id}`),
+    subject: String(question.subject || "عمومی"),
+    content_json: String(question.content_json || "[]"),
+    explanation_json: String(question.explanation_json || "[]"),
+    status: question.status || "published",
+    shuffle_safe: question.shuffle_safe ? 1 : 0,
+    created_at: question.created_at || Date.now(),
+  };
+
   // Skip duplicate questions if already imported/present locally by external_key
-  if (question.external_key) {
+  if (safeQuestion.external_key) {
     const existing = await trx.query<{ id: string }>(
       "SELECT id FROM questions WHERE external_key=? LIMIT 1",
-      [question.external_key]
+      [safeQuestion.external_key]
     );
-    if (existing.length && existing[0].id !== question.id) {
+    if (existing.length && existing[0].id !== safeQuestion.id) {
       return;
     }
   }
 
-  await upsertRaw(trx, "questions", question, QUESTION_COLUMNS);
+  await upsertRaw(trx, "questions", safeQuestion, QUESTION_COLUMNS);
   await trx.execute("DELETE FROM question_options WHERE question_id=?", [question.id]);
   for (const option of records(payload.options)) await upsertRaw(trx, "question_options", option, OPTION_COLUMNS);
   for (const revision of records(payload.revisions)) {
