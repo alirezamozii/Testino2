@@ -575,6 +575,16 @@ async function applySessionBundle(
     await trx.execute("DELETE FROM sessions WHERE id=?", [sessionId]);
     return;
   }
+
+  // If this device has a local pending tombstone in outbox for this session, do not resurrect
+  const pendingTombstone = await trx.query<{ id: string }>(
+    "SELECT id FROM outbox WHERE entity_type='sessionBundle' AND entity_id=? AND (state='pending' OR state='sending') AND (payload_json LIKE '%DELETED%' OR payload_json LIKE '%is_tombstone%') LIMIT 1",
+    [entityId]
+  );
+  if (pendingTombstone.length > 0) {
+    return;
+  }
+
   const local = await trx.query<{ state: string }>("SELECT state FROM sessions WHERE id=? LIMIT 1", [session.id]);
   if (local[0]?.state === "FINISHED" && session.state !== "FINISHED") return;
 

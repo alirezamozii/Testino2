@@ -34,6 +34,15 @@ export function remapExplanationForShuffle(
     return blocks;
   }
 
+  const PERSIAN_ORDINALS = [
+    ["اول", "نخست", "اولین", "یکم"],
+    ["دوم", "دومین"],
+    ["سوم", "سومین"],
+    ["چهارم", "چهارمین"],
+  ];
+  const PERSIAN_ORDINAL_NAMES = ["اول", "دوم", "سوم", "چهارم"];
+  const ENGLISH_LETTERS = ["A", "B", "C", "D"];
+
   // Build mapping from original index (0, 1, 2, 3) to new display position
   interface MapTarget {
     origIndex: number;
@@ -41,6 +50,8 @@ export function remapExplanationForShuffle(
     newNum: number;
     newFaNum: string;
     newLetter: string;
+    newEngLetter: string;
+    newOrdinal: string;
     shortText: string;
   }
 
@@ -60,6 +71,8 @@ export function remapExplanationForShuffle(
         newNum: newIdx + 1,
         newFaNum: PERSIAN_DIGITS[newIdx] || String(newIdx + 1),
         newLetter: PERSIAN_LETTERS[newIdx] || String(newIdx + 1),
+        newEngLetter: ENGLISH_LETTERS[newIdx] || String(newIdx + 1),
+        newOrdinal: PERSIAN_ORDINAL_NAMES[newIdx] || String(newIdx + 1),
         shortText,
       });
     }
@@ -73,35 +86,73 @@ export function remapExplanationForShuffle(
       const origNum = t.origIndex + 1;
       const origFaNum = PERSIAN_DIGITS[t.origIndex];
       const origLetter = PERSIAN_LETTERS[t.origIndex];
+      const origEngLetter = ENGLISH_LETTERS[t.origIndex];
+      const ordinals = PERSIAN_ORDINALS[t.origIndex] || [];
 
-      // Pattern 1: گزینه 1 / گزینه ۱ / گزینه الف / گزینهٔ ۱ (Unicode boundary)
+      // Pattern 1: Ordinals: گزینه اول / گزینهٔ اول / گزینه‌ی چهارم
+      for (const ord of ordinals) {
+        const ordRegex = new RegExp(
+          `(گزینه(?:ٔ|ی|‌|‌ه|‌ی|‌اش)?\\s*)${ord}(?![0-9\\u06F0-\\u06F9a-zA-Z\\u0600-\\u06FF])`,
+          "g"
+        );
+        result = result.replace(ordRegex, `@@OPT_ORD_${t.origIndex}@@`);
+      }
+
+      // Pattern 2: گزینه 1 / گزینه ۱ / گزینه الف / گزینهٔ ۱ / گزینه4 (with/without space, with ی/ٔ)
       const faOptRegex = new RegExp(
-        `(گزینه(?:ٔ|\\s+شماره)?\\s*)(?:${origNum}|${origFaNum}|${origLetter})(?![0-9\\u06F0-\\u06F9a-zA-Z\\u0600-\\u06FF])`,
+        `(گزینه(?:ٔ|ی|‌|‌ه|‌ی|‌اش|\\s+شماره|\\s+های|\\s+هایِ)?\\s*)(?:${origNum}|${origFaNum}|${origLetter})(?![0-9\\u06F0-\\u06F9])`,
         "g"
       );
       result = result.replace(faOptRegex, `@@OPT_FA_${t.origIndex}@@`);
 
-      // Pattern 2: Line-start bullet: "1)" or "1-" or "1:" or "۱)" or "۱-" or "الف)" or "الف-"
+      // Pattern 3: English "Choice 1", "choice A", "Choice (1)", "Choice (A)"
+      const choiceRegex = new RegExp(
+        `\\b(Choice|choice)\\s*\\(?\\s*(?:${origNum}|${origEngLetter})\\)?\\b`,
+        "gi"
+      );
+      result = result.replace(choiceRegex, `@@OPT_CHOICE_${t.origIndex}@@`);
+
+      // Pattern 4: English "Option 1" / "option 1" / "Option A" / "Option (1)"
+      const engOptRegex = new RegExp(
+        `\\b(Option|option)\\s*\\(?\\s*(?:${origNum}|${origEngLetter})\\)?\\b`,
+        "g"
+      );
+      result = result.replace(engOptRegex, `@@OPT_ENG_${t.origIndex}@@`);
+
+      // Pattern 5: Line-start / bullet: "1)" or "1-" or "1:" or "۱)" or "۱-" or "الف)" or "الف-"
       const bulletRegex = new RegExp(
-        `(^|[\\n\\r])(\\s*)(?:${origNum}|${origFaNum}|${origLetter})([\\)\\-\\:])(\\s*)`,
+        `(^|[\\n\\r]|;\\s*|\\.\\s*)(\\s*)(?:${origNum}|${origFaNum}|${origLetter})([\\)\\-\\:])(\\s*)`,
         "g"
       );
       result = result.replace(bulletRegex, `$1$2@@OPT_BULLET_${t.origIndex}@@$4`);
+    }
 
-      // Pattern 3: English "Option 1" / "option 1"
-      const engOptRegex = new RegExp(`\\b(Option|option)\\s*${origNum}\\b`, "g");
-      result = result.replace(engOptRegex, `@@OPT_ENG_${t.origIndex}@@`);
+    // Pattern 6: Compound Persian options e.g. "@@OPT_FA_0@@ و4" or "@@OPT_FA_0@@ و 4" -> catch second number
+    for (const t of targets) {
+      const origNum = t.origIndex + 1;
+      const origFaNum = PERSIAN_DIGITS[t.origIndex];
+      const compoundRegex = new RegExp(
+        `(@@OPT_FA_\\d+@@\\s*(?:و|یا)\\s*)(?:${origNum}|${origFaNum})(?![0-9\\u06F0-\\u06F9])`,
+        "g"
+      );
+      result = result.replace(compoundRegex, `$1@@OPT_FA_${t.origIndex}@@`);
     }
 
     // STEP 2: Replace placeholders with new display positions and badges
     for (const t of targets) {
-      // For "گزینه [X]" -> "گزینه [newFaNum] ([newLetter])"
+      // For "گزینه [X]" -> "گزینه [newFaNum] (${t.newLetter})"
       result = result.replace(
         new RegExp(`@@OPT_FA_${t.origIndex}@@`, "g"),
         `گزینه ${t.newFaNum} (${t.newLetter})`
       );
 
-      // For line bullets -> "[newFaNum]) [گزینه ${newLetter}]"
+      // For "گزینه [Ordinal]" -> "گزینه ${t.newOrdinal} (${t.newLetter})"
+      result = result.replace(
+        new RegExp(`@@OPT_ORD_${t.origIndex}@@`, "g"),
+        `گزینه ${t.newOrdinal} (${t.newLetter})`
+      );
+
+      // For line bullets -> "[newFaNum]) [گزینه ${t.newLetter}]"
       result = result.replace(
         new RegExp(`@@OPT_BULLET_${t.origIndex}@@`, "g"),
         `${t.newFaNum}) [گزینه ${t.newLetter}]`
@@ -111,6 +162,12 @@ export function remapExplanationForShuffle(
       result = result.replace(
         new RegExp(`@@OPT_ENG_${t.origIndex}@@`, "g"),
         `Option ${t.newNum} (${t.newLetter})`
+      );
+
+      // For English "Choice X" -> "Choice ${t.newNum} (${t.newEngLetter})"
+      result = result.replace(
+        new RegExp(`@@OPT_CHOICE_${t.origIndex}@@`, "g"),
+        `Choice ${t.newNum} (${t.newEngLetter})`
       );
     }
 

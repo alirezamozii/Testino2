@@ -367,26 +367,29 @@ function StudyReviewRunner({ searchParams }: { searchParams: ReturnType<typeof u
           return (
             <div
               key={opt.id}
-              className={cn("w-full p-4 rounded-2xl border-2 text-right flex items-center gap-3.5 transition", cardStyle)}
+              className={cn("w-full p-3 sm:p-4 rounded-2xl border-2 text-right flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3.5 transition", cardStyle)}
             >
-              <div
-                className={cn(
-                  "w-8 h-8 rounded-xl border-2 flex items-center justify-center font-black text-xs shrink-0",
-                  isCorrect
-                    ? "bg-emerald-600 text-white border-emerald-700"
-                    : isUserSelected
-                    ? "bg-red-600 text-white border-red-700"
-                    : "bg-[var(--surface-cream)] text-[var(--ink-on-color)] border-[var(--line-strong)]"
-                )}
-              >
-                {letter}
+              <div className="flex items-center justify-between sm:justify-start gap-2.5 shrink-0">
+                <div
+                  className={cn(
+                    "w-7 h-7 sm:w-8 sm:h-8 rounded-xl border-2 flex items-center justify-center font-black text-xs shrink-0",
+                    isCorrect
+                      ? "bg-emerald-600 text-white border-emerald-700"
+                      : isUserSelected
+                      ? "bg-red-600 text-white border-red-700"
+                      : "bg-[var(--surface-cream)] text-[var(--ink-on-color)] border-[var(--line-strong)]"
+                  )}
+                >
+                  {letter}
+                </div>
+                {badge && <div className="sm:hidden">{badge}</div>}
               </div>
 
-              <div className="flex-1 text-right font-bold text-xs sm:text-sm leading-relaxed">
+              <div className="flex-1 text-right font-bold text-xs sm:text-sm leading-relaxed overflow-x-auto">
                 <ContentRenderer blocks={opt.content} />
               </div>
 
-              {badge && <div className="shrink-0">{badge}</div>}
+              {badge && <div className="hidden sm:block shrink-0">{badge}</div>}
             </div>
           );
         })}
@@ -394,7 +397,7 @@ function StudyReviewRunner({ searchParams }: { searchParams: ReturnType<typeof u
 
       {/* Explanation Card (Always Open in Study Mode) */}
       {q.explanation && q.explanation.length > 0 && (
-        <div className="card-neo p-5 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] space-y-3 shadow-[3px_3px_0px_var(--neo-shadow)]">
+        <div className="card-neo p-4 sm:p-5 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] space-y-3 shadow-[3px_3px_0px_var(--neo-shadow)]">
           <div className="flex items-center gap-2 border-b border-[var(--line)] pb-2 text-[var(--brand-orange)] font-black text-xs">
             <Lightbulb size={16} />
             <span>پاسخ تشریحی و نکته کلیدی:</span>
@@ -406,14 +409,14 @@ function StudyReviewRunner({ searchParams }: { searchParams: ReturnType<typeof u
       )}
 
       {/* Sticky Bottom Action Controls */}
-      <footer className="sticky bottom-3 z-30 flex items-center justify-between gap-2.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-3 shadow-[4px_4px_0px_var(--neo-shadow)]">
+      <footer className="sticky bottom-2 sm:bottom-3 z-30 flex items-center justify-between gap-1.5 sm:gap-2.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-2 sm:p-3 shadow-[4px_4px_0px_var(--neo-shadow)]">
         {/* Prev Question */}
         <button
           type="button"
           disabled={selectedIndex === 0}
           onClick={() => setSelectedIndex((prev) => Math.max(0, prev - 1))}
           className={cn(
-            "py-3 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5 transition",
+            "py-2.5 sm:py-3 px-3 sm:px-4 rounded-xl sm:rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1 sm:gap-1.5 transition shrink-0",
             selectedIndex === 0 ? "opacity-40 cursor-not-allowed" : "hover:translate-x-[1px] hover:translate-y-[1px] cursor-pointer"
           )}
         >
@@ -427,14 +430,15 @@ function StudyReviewRunner({ searchParams }: { searchParams: ReturnType<typeof u
           disabled={isMarking}
           onClick={() => handleMarkUnderstood(q.id)}
           className={cn(
-            "btn-neo flex-1 min-h-12 py-3 px-5 rounded-2xl border-2 border-[var(--line-strong)] text-xs sm:text-sm font-black flex items-center justify-center gap-2 shadow-[3px_3px_0px_var(--neo-shadow)] transition cursor-pointer",
+            "btn-neo flex-1 min-h-11 sm:min-h-12 py-2.5 sm:py-3 px-2 sm:px-5 rounded-xl sm:rounded-2xl border-2 border-[var(--line-strong)] text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 sm:gap-2 shadow-[2px_2px_0px_var(--neo-shadow)] sm:shadow-[3px_3px_0px_var(--neo-shadow)] transition cursor-pointer truncate",
             isCurrentUnderstood
               ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-900 dark:text-emerald-100 border-emerald-600"
               : "bg-[var(--pastel-green)] text-[var(--ink-on-color)] hover:translate-x-[-1px] hover:translate-y-[-1px]"
           )}
         >
-          <Check size={18} className="stroke-[3]" />
-          <span>{isCurrentUnderstood ? "تسلط ثبت شد (ادامه)" : "یاد گرفتم (ثبت تسلط و بعدی)"}</span>
+          <Check size={18} className="stroke-[3] shrink-0" />
+          <span className="sm:hidden">{isCurrentUnderstood ? "تسلط ثبت شد" : "یاد گرفتم"}</span>
+          <span className="hidden sm:inline">{isCurrentUnderstood ? "تسلط ثبت شد (ادامه)" : "یاد گرفتم (ثبت تسلط و بعدی)"}</span>
         </button>
 
         {/* Next Question */}
@@ -442,7 +446,7 @@ function StudyReviewRunner({ searchParams }: { searchParams: ReturnType<typeof u
           <button
             type="button"
             onClick={() => setSelectedIndex((prev) => prev + 1)}
-            className="py-3 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5 hover:translate-x-[1px] hover:translate-y-[1px] transition cursor-pointer"
+            className="py-2.5 sm:py-3 px-3 sm:px-4 rounded-xl sm:rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1 sm:gap-1.5 hover:translate-x-[1px] hover:translate-y-[1px] transition cursor-pointer shrink-0"
           >
             <span className="hidden sm:inline">سؤال بعدی</span>
             <ChevronLeft size={17} />
@@ -451,9 +455,9 @@ function StudyReviewRunner({ searchParams }: { searchParams: ReturnType<typeof u
           <button
             type="button"
             onClick={() => setIsCompleted(true)}
-            className="py-3 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--pastel-yellow)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1.5 hover:translate-x-[1px] hover:translate-y-[1px] transition cursor-pointer"
+            className="py-2.5 sm:py-3 px-3 sm:px-4 rounded-xl sm:rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--pastel-yellow)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1 sm:gap-1.5 hover:translate-x-[1px] hover:translate-y-[1px] transition cursor-pointer shrink-0"
           >
-            <span>پایان مطالعه</span>
+            <span className="text-xs">پایان مطالعه</span>
             <CheckCircle2 size={17} />
           </button>
         )}

@@ -2657,6 +2657,7 @@ export class AppDatabase {
       { sql: "DELETE FROM attempts WHERE session_id=?", bind: [id] },
       { sql: "DELETE FROM session_questions WHERE session_id=?", bind: [id] },
       { sql: "DELETE FROM sync_dirty_entities WHERE entity_type='sessionBundle' AND entity_id=?", bind: [id] },
+      { sql: "DELETE FROM sync_entity_cache WHERE entity_type='sessionBundle' AND entity_id=?", bind: [id] },
       { sql: "DELETE FROM sessions WHERE id=?", bind: [id] },
     ]);
   }

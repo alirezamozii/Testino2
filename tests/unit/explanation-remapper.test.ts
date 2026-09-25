@@ -88,4 +88,46 @@ Step 3: Distractor analysis:
     // 4) agreement (o4) moved to pos 1 (الف)
     expect(text).toContain("۱) [گزینه الف] agreement");
   });
+
+  it("remaps Persian ordinals, attached digits, compound options, and Choice references", () => {
+    const originalOptions = [
+      { id: "opt-1", content: [{ type: "text" as const, value: "گزینه ۱" }] },
+      { id: "opt-2", content: [{ type: "text" as const, value: "گزینه ۲" }] },
+      { id: "opt-3", content: [{ type: "text" as const, value: "گزینه ۳" }] },
+      { id: "opt-4", content: [{ type: "text" as const, value: "گزینه ۴" }] },
+    ];
+
+    // Shuffled: 4, 3, 2, 1
+    // opt-4 -> 1 (الف)
+    // opt-3 -> 2 (ب)
+    // opt-2 -> 3 (ج)
+    // opt-1 -> 4 (د)
+    const shuffled = [
+      originalOptions[3],
+      originalOptions[2],
+      originalOptions[1],
+      originalOptions[0],
+    ];
+
+    const blocks: ContentBlock[] = [
+      {
+        type: "text",
+        value: "گزینه 2 و4 رد میشن. گزینه4 اگه اینجوری بود درست بود. گزینه اول کاملاً اشتباه است و گزینه چهارم صحیح است. Choice 4 is the best answer.",
+      },
+    ];
+
+    const result = remapExplanationForShuffle(blocks, originalOptions, shuffled);
+    const text = result[0]?.type === "text" ? result[0].value : "";
+
+    // Original 2 -> new 3 (ج)
+    expect(text).toContain("گزینه ۳ (ج)");
+    // Original 4 -> new 1 (الف)
+    expect(text).toContain("گزینه ۱ (الف)");
+    // Original 1 ("گزینه اول") -> new 4 ("گزینه چهارم (د)")
+    expect(text).toContain("گزینه چهارم (د)");
+    // Original 4 ("گزینه چهارم") -> new 1 ("گزینه اول (الف)")
+    expect(text).toContain("گزینه اول (الف)");
+    // Choice 4 -> Choice 1 (A)
+    expect(text).toContain("Choice 1 (A)");
+  });
 });

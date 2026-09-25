@@ -327,6 +327,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   });
 
   const avatarUrl = useAuthAvatar();
+  const [avatarError, setAvatarError] = useState(false);
 
   const profiles = useQuery({
     queryKey: ["profiles-shell"],
@@ -442,10 +443,12 @@ function ShellInner({ children }: { children: React.ReactNode }) {
             title="تنظیمات حساب کاربری"
           >
             <span className="avatar overflow-hidden flex items-center justify-center">
-              {avatarUrl ? (
+              {avatarUrl && !avatarError ? (
                 <img
                   src={avatarUrl}
                   alt={owner.data?.displayName || "آواتار"}
+                  referrerPolicy="no-referrer"
+                  onError={() => setAvatarError(true)}
                   className="w-full h-full object-cover rounded-full"
                 />
               ) : (

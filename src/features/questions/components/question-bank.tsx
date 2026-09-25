@@ -167,11 +167,11 @@ export function QuestionBank() {
           <h1 className="text-2xl sm:text-3xl font-black text-[var(--ink)]">بانک سؤالات</h1>
           <p className="text-xs sm:text-sm text-[var(--muted)] font-bold mt-0.5">مدیریت، جست‌وجو و دسته‌بندی سؤال‌های چهارگزینه‌ای</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-1 xs:grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
           {totalBankQuestions > 0 && (
             <button
               type="button"
-              className="h-10 sm:h-11 px-3.5 rounded-2xl border-2 border-red-500 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 text-xs font-black shadow-[2px_2px_0px_#EF4444] hover:bg-red-100 dark:hover:bg-red-900/50 hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              className="h-10 sm:h-11 px-3.5 rounded-2xl border-2 border-red-500 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 text-xs font-black shadow-[2px_2px_0px_#EF4444] hover:bg-red-100 dark:hover:bg-red-900/50 hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-1.5 cursor-pointer w-full sm:w-auto"
               onClick={() => setBulkDeleteModalOpen(true)}
               title="پاک‌سازی گروهی سؤالات"
             >
@@ -181,7 +181,7 @@ export function QuestionBank() {
           )}
           <button
             type="button"
-            className="h-10 sm:h-11 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--testino-orange)] text-white text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            className="h-10 sm:h-11 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--testino-orange)] text-white text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-1.5 cursor-pointer w-full sm:w-auto"
             onClick={() => {
               setEditingQuestion(null);
               setEditorOpen(true);
@@ -259,29 +259,29 @@ export function QuestionBank() {
               return (
                 <div
                   key={sub}
-                  className="card-neo p-4 bg-[var(--surface)] flex items-center justify-between gap-3 hover:-translate-y-0.5 transition-all"
+                  className="card-neo p-3.5 sm:p-4 bg-[var(--surface)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:-translate-y-0.5 transition-all"
                 >
                   <div className="flex items-center gap-3">
-                    <div className={cn("w-11 h-11 rounded-2xl border-2 border-[var(--line-strong)] text-[var(--ink)] flex items-center justify-center font-black text-sm", tileColor)}>
+                    <div className={cn("w-10 h-10 sm:w-11 sm:h-11 rounded-2xl border-2 border-[var(--line-strong)] text-[var(--ink)] flex items-center justify-center font-black text-sm shrink-0", tileColor)}>
                       {idx + 1}
                     </div>
-                    <Link href={`/bank/subject/?name=${encodeURIComponent(sub)}`} className="hover:underline">
-                      <strong className="block text-xs sm:text-sm font-black text-[var(--ink)]">{sub}</strong>
+                    <Link href={`/bank/subject/?name=${encodeURIComponent(sub)}`} className="hover:underline flex-1 min-w-0">
+                      <strong className="block text-xs sm:text-sm font-black text-[var(--ink)] truncate">{sub}</strong>
                       <span className="text-[11px] text-[var(--muted)] font-bold">{countInSubject} سؤال موجود • مشاهده جزئیات</span>
                     </Link>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 w-full sm:w-auto self-end sm:self-center shrink-0">
                     <Link
                       href={`/bank/subject/?name=${encodeURIComponent(sub)}`}
-                      className="py-1.5 px-3 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] hover:bg-[var(--surface)] text-[11px] font-black text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1"
+                      className="flex-1 sm:flex-none justify-center py-2 sm:py-1.5 px-3 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] hover:bg-[var(--surface)] text-[11px] font-black text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center gap-1 transition-all"
                     >
                       <span>جزئیات درس</span>
                       <ChevronLeft size={14} />
                     </Link>
                     <Link
                       href={`/sessions/new/?subject=${encodeURIComponent(sub)}`}
-                      className="py-1.5 px-3 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--brand-orange)] text-white text-[11px] font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px]"
+                      className="flex-1 sm:flex-none justify-center py-2 sm:py-1.5 px-3.5 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--brand-orange)] text-white text-[11px] font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all text-center"
                     >
                       آزمون
                     </Link>

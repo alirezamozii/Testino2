@@ -203,14 +203,24 @@ function normalizeRawQuestion(
     q.key = keyParts.join("-");
   }
 
+function stripCitations(str: string): string {
+  if (!str) return "";
+  return str
+    .replace(/\[\s*(?:cite|citation)\s*:[^\]]+\]/gi, "")
+    .replace(/\(\s*(?:cite|citation)\s*:[^\)]+\)/gi, "");
+}
+
 function normalizeContentBlock(rawBlock: unknown): unknown {
   if (typeof rawBlock === "string") {
-    return { type: "text", value: rawBlock.trim() };
+    return { type: "text", value: stripCitations(rawBlock.trim()) };
   }
   if (typeof rawBlock !== "object" || rawBlock === null) {
     return rawBlock;
   }
   const b = { ...(rawBlock as Record<string, unknown>) };
+  if (b.type === "text" && typeof b.value === "string") {
+    b.value = stripCitations(b.value);
+  }
 
   // Normalize table block headers and rows if provided as plain strings/numbers
   if (b.type === "table") {

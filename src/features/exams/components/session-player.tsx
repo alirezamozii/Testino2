@@ -1178,37 +1178,49 @@ export function SessionPlayer() {
                           <ContentRenderer blocks={q.snapshot.content} />
                         </div>
                         <div className="space-y-1.5 pt-1">
-                          {q.snapshot.options.map((option, optionIndex) => {
-                            const isOptionCorrect = option.id === q.snapshot.correctOptionId;
-                            const isOptionSelected = option.id === q.selectedOptionId;
+                          {(() => {
+                            const orderedOptions = q.optionOrder?.length
+                              ? q.optionOrder
+                                  .map((optId) => q.snapshot.options.find((o) => o.id === optId))
+                                  .filter((opt): opt is NonNullable<typeof opt> => Boolean(opt))
+                              : q.snapshot.options;
+
                             return (
-                              <div
-                                key={option.id}
-                                className={cn(
-                                  "p-2.5 rounded-xl border-2 text-xs font-bold flex items-center gap-2",
-                                  isOptionCorrect
-                                    ? "bg-[var(--pastel-green-soft)] border-[var(--line-strong)] text-[var(--ink)]"
-                                    : isOptionSelected && !isOptionCorrect
-                                    ? "bg-[var(--pastel-red-soft)] border-[var(--line-strong)] text-[var(--pastel-red)]"
-                                    : "bg-[var(--surface)] border-[var(--line)] text-[var(--muted)]"
+                              <>
+                                {orderedOptions.map((option, optionIndex) => {
+                                  const isOptionCorrect = option.id === q.snapshot.correctOptionId;
+                                  const isOptionSelected = option.id === q.selectedOptionId;
+                                  return (
+                                    <div
+                                      key={option.id}
+                                      className={cn(
+                                        "p-2.5 rounded-xl border-2 text-xs font-bold flex items-center gap-2",
+                                        isOptionCorrect
+                                          ? "bg-[var(--pastel-green-soft)] border-[var(--line-strong)] text-[var(--ink)]"
+                                          : isOptionSelected && !isOptionCorrect
+                                          ? "bg-[var(--pastel-red-soft)] border-[var(--line-strong)] text-[var(--pastel-red)]"
+                                          : "bg-[var(--surface)] border-[var(--line)] text-[var(--muted)]"
+                                      )}
+                                    >
+                                      <span className="w-5 h-5 rounded-md bg-[var(--surface)] border border-[var(--line-strong)] flex items-center justify-center font-black text-[10px]">
+                                        {PERSIAN_LETTERS[optionIndex]}
+                                      </span>
+                                      <div className="flex-1">
+                                        <ContentRenderer blocks={option.content} />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {q.snapshot.explanation.length > 0 && (
+                                  <div className="p-3 rounded-2xl bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] text-xs font-bold text-[var(--ink)] space-y-1 mt-2">
+                                    <strong className="block font-black text-[var(--brand-orange)]">پاسخ تشریحی:</strong>
+                                    <ContentRenderer blocks={remapExplanationForShuffle(q.snapshot.explanation, q.snapshot.options, orderedOptions)} />
+                                  </div>
                                 )}
-                              >
-                                <span className="w-5 h-5 rounded-md bg-[var(--surface)] border border-[var(--line-strong)] flex items-center justify-center font-black text-[10px]">
-                                  {PERSIAN_LETTERS[optionIndex]}
-                                </span>
-                                <div className="flex-1">
-                                  <ContentRenderer blocks={option.content} />
-                                </div>
-                              </div>
+                              </>
                             );
-                          })}
+                          })()}
                         </div>
-                        {q.snapshot.explanation.length > 0 && (
-                          <div className="p-3 rounded-2xl bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] text-xs font-bold text-[var(--ink)] space-y-1">
-                            <strong className="block font-black text-[var(--brand-orange)]">پاسخ تشریحی:</strong>
-                            <ContentRenderer blocks={q.snapshot.explanation} />
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>

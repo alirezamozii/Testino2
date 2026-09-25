@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -29,6 +29,7 @@ export function Dashboard() {
   const router = useRouter();
   const database = useDatabase();
   const avatarUrl = useAuthAvatar();
+  const [avatarError, setAvatarError] = useState(false);
   const owner = useQuery({
     queryKey: ["owner"],
     queryFn: () => database.db.getCurrentOwner(),
@@ -105,10 +106,12 @@ export function Dashboard() {
       {/* 1. Greeting Header */}
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
-          {avatarUrl && (
+          {avatarUrl && !avatarError && (
             <img
               src={avatarUrl}
               alt="Avatar"
+              referrerPolicy="no-referrer"
+              onError={() => setAvatarError(true)}
               className="w-12 h-12 rounded-2xl border-2 border-[var(--line-strong)] object-cover shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0"
             />
           )}

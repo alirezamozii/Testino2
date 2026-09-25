@@ -295,6 +295,10 @@ function sanitizeTextForMath(raw: string): string {
 
   let text = raw;
 
+  // 0. Remove AI citation artifacts: [cite: 2], [cite: 1, 2], (cite: 1), [citation: 1], etc.
+  text = text.replace(/\[\s*(?:cite|citation)\s*:[^\]]+\]/gi, "");
+  text = text.replace(/\(\s*(?:cite|citation)\s*:[^\)]+\)/gi, "");
+
   // 1. Remove empty dollar patterns: ($) or ($ ) or $ $ or $$ $$
   text = text.replace(/\(\s*\$\s*\)/g, "");
   text = text.replace(/\$[ \t]+\$/g, "");
