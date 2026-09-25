@@ -24,13 +24,20 @@ class MemoryCloudTransport implements SyncTransport {
         (change) => change.entityType === mutation.entityType && change.entityId === mutation.entityId
       );
       const changeSeq = String(this.changes.length + 1);
+      const payloadRecord = mutation.payload as Record<string, unknown> | undefined;
+      const isTombstone = Boolean(
+        mutation.entityType === "tombstone" ||
+        payloadRecord?.is_tombstone ||
+        (payloadRecord?.session as Record<string, unknown> | undefined)?.is_tombstone ||
+        (payloadRecord?.session as Record<string, unknown> | undefined)?.state === "DELETED"
+      );
       const item: PullChangeItem = {
         changeSeq,
         entityType: mutation.entityType,
         entityId: mutation.entityId,
         serverVersion: (existing?.serverVersion ?? 0) + 1,
-        isTombstone: false,
-        payload: mutation.payload as Record<string, unknown>,
+        isTombstone,
+        payload: (mutation.payload as Record<string, unknown>) || {},
         createdAt: new Date().toISOString(),
       };
       this.changes.push(item);
@@ -201,5 +208,115 @@ describe("aggregate cross-device sync and offline library", () => {
     const [remaining] = await db.query<{ total: number }>("SELECT COUNT(*) AS total FROM sync_dirty_entities");
     expect(Number(remaining.total)).toBe(0);
     await db.close();
+  });
+
+  it("synchronizes session deletion from laptop to phone and verifies bidirectional sync fidelity", async () => {
+    const laptop = await createTestDatabase();
+    const phone = await createTestDatabase();
+    await new MigrationRunner().run(laptop);
+    await new MigrationRunner().run(phone);
+
+    // 1. Seed Laptop
+    await seedDevice(laptop);
+    await phone.execute(
+      "INSERT INTO owners(id,kind,display_name,device_namespace,created_at,updated_at) VALUES('owner-sync','account','کاربر','device-phone',?,?)",
+      [Date.now(), Date.now()]
+    );
+
+    const cloud = new MemoryCloudTransport();
+
+    // 2. Laptop reconciles and pushes initial state to Cloud
+    expect(await reconcileLocalMutations("owner-sync", laptop)).toBe(3);
+    const push1 = await executePush("owner-sync", "device-laptop", new OutboxRepository(laptop), cloud, { batchSize: 100 });
+    expect(push1.pushedCount).toBe(3);
+
+    // 3. Phone pulls initial state from Cloud
+    const pull1 = await executePull("owner-sync", phone, new OutboxRepository(phone), cloud, { limit: 100 });
+    expect(pull1.pulledCount).toBe(3);
+
+    // Verify Phone has the session
+    const phoneSessionsBefore = await phone.query("SELECT id FROM sessions WHERE id='session-sync'");
+    expect(phoneSessionsBefore).toHaveLength(1);
+    const phoneQuestionsBefore = await phone.query("SELECT id FROM session_questions WHERE session_id='session-sync'");
+    expect(phoneQuestionsBefore).toHaveLength(1);
+
+    // 4. Laptop deletes the session history
+    const laptopOutbox = new OutboxRepository(laptop);
+    await laptopOutbox.enqueue("owner-sync", {
+      mutationId: `tombstone:sessionBundle:session-sync:${Date.now()}`,
+      entityType: "sessionBundle",
+      entityId: "session-sync",
+      baseVersion: 1,
+      payload: {
+        id: "session-sync",
+        is_tombstone: true,
+        session: { id: "session-sync", state: "DELETED", is_tombstone: true },
+      },
+    });
+    await laptop.execute("DELETE FROM review_items WHERE last_attempt_id IN (SELECT id FROM attempts WHERE session_id='session-sync')");
+    await laptop.execute("DELETE FROM attempt_events WHERE session_id='session-sync'");
+    await laptop.execute("DELETE FROM attempts WHERE session_id='session-sync'");
+    await laptop.execute("DELETE FROM session_questions WHERE session_id='session-sync'");
+    await laptop.execute("DELETE FROM sessions WHERE id='session-sync'");
+
+    // Verify Laptop has 0 sessions
+    expect(await laptop.query("SELECT id FROM sessions WHERE id='session-sync'")).toHaveLength(0);
+
+    // 5. Laptop pushes deletion tombstone to Cloud
+    const push2 = await executePush("owner-sync", "device-laptop", new OutboxRepository(laptop), cloud, { batchSize: 100 });
+    expect(push2.pushedCount).toBe(1);
+    await executePull("owner-sync", laptop, new OutboxRepository(laptop), cloud, { limit: 100 });
+
+    // 6. Phone pulls changes from Cloud
+    const pull2 = await executePull("owner-sync", phone, new OutboxRepository(phone), cloud, { limit: 100 });
+    expect(pull2.pulledCount).toBe(1);
+
+    // 7. Verify Phone has 0 sessions (no resurrection, ghost completely deleted)
+    const phoneSessionsAfter = await phone.query("SELECT id FROM sessions WHERE id='session-sync'");
+    expect(phoneSessionsAfter).toHaveLength(0);
+    const phoneQuestionsAfter = await phone.query("SELECT id FROM session_questions WHERE session_id='session-sync'");
+    expect(phoneQuestionsAfter).toHaveLength(0);
+
+    // 8. Phone creates a new session while offline
+    const now = Date.now();
+    const snapshot = JSON.stringify({
+      id: "question-sync",
+      externalKey: "q1",
+      subject: "ریاضی",
+      content: [{ type: "text", value: "۲+۲؟" }],
+      explanation: [],
+      correctOptionId: "option-c",
+      shuffleSafe: true,
+      options: ["option-a", "option-b", "option-c", "option-d"].map((id, position) => ({ id, key: String(position), content: [] })),
+    });
+    await phone.execute(
+      "INSERT INTO sessions(id,profile_id,state,selection_seed,current_ordinal,created_at,config_json) VALUES('session-phone-new','profile-sync','PAUSED','seed',0,?,'{}')",
+      [now]
+    );
+    await phone.execute(
+      "INSERT INTO session_questions(id,session_id,question_id,ordinal,snapshot_json,option_order_json,selected_option_id,visited) VALUES('sq-phone-new','session-phone-new','question-sync',0,?,'[\"option-a\",\"option-b\",\"option-c\",\"option-d\"]','option-b',1)",
+      [snapshot]
+    );
+
+    // 9. Phone goes online, reconciles and pushes to Cloud
+    const reconciledPhone = await reconcileLocalMutations("owner-sync", phone);
+    expect(reconciledPhone).toBe(1);
+    const push3 = await executePush("owner-sync", "device-phone", new OutboxRepository(phone), cloud, { batchSize: 100 });
+    expect(push3.pushedCount).toBe(1);
+
+    // 10. Laptop pulls from Cloud
+    const pull3 = await executePull("owner-sync", laptop, new OutboxRepository(laptop), cloud, { limit: 100 });
+    expect(pull3.pulledCount).toBe(1);
+
+    // 11. Verify Laptop receives Phone's new session perfectly
+    const laptopNewSession = await laptop.query<{ id: string }>("SELECT id FROM sessions WHERE id='session-phone-new'");
+    expect(laptopNewSession).toHaveLength(1);
+    const [laptopNewAnswer] = await laptop.query<{ selected_option_id: string }>(
+      "SELECT selected_option_id FROM session_questions WHERE id='sq-phone-new'"
+    );
+    expect(laptopNewAnswer.selected_option_id).toBe("option-b");
+
+    await laptop.close();
+    await phone.close();
   });
 });
