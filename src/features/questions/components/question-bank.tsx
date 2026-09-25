@@ -157,7 +157,7 @@ export function QuestionBank() {
   const solvedPercentage = totalBankQuestions > 0 ? Math.min(100, Math.round((solvedCount / totalBankQuestions) * 100)) : 0;
 
   return (
-    <div className="page bank-page space-y-6 pb-12 max-w-4xl mx-auto">
+    <div className="page bank-page space-y-6 pb-28 sm:pb-16 max-w-4xl mx-auto">
       {/* 4-Step Pipeline Navigation */}
       <BankNavTabs activeTab="bank" />
 
@@ -167,29 +167,29 @@ export function QuestionBank() {
           <h1 className="text-2xl sm:text-3xl font-black text-[var(--ink)]">بانک سؤالات</h1>
           <p className="text-xs sm:text-sm text-[var(--muted)] font-bold mt-0.5">مدیریت، جست‌وجو و دسته‌بندی سؤال‌های چهارگزینه‌ای</p>
         </div>
-        <div className="grid grid-cols-1 xs:grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
-          {totalBankQuestions > 0 && (
-            <button
-              type="button"
-              className="h-10 sm:h-11 px-3.5 rounded-2xl border-2 border-red-500 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 text-xs font-black shadow-[2px_2px_0px_#EF4444] hover:bg-red-100 dark:hover:bg-red-900/50 hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-1.5 cursor-pointer w-full sm:w-auto"
-              onClick={() => setBulkDeleteModalOpen(true)}
-              title="پاک‌سازی گروهی سؤالات"
-            >
-              <Trash2 size={16} className="shrink-0" />
-              <span>پاک‌سازی سؤالات ({totalBankQuestions})</span>
-            </button>
-          )}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
           <button
             type="button"
-            className="h-10 sm:h-11 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--testino-orange)] text-white text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-1.5 cursor-pointer w-full sm:w-auto"
+            className="h-11 px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--testino-orange)] text-white text-xs sm:text-sm font-black shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-2 cursor-pointer w-full sm:w-auto"
             onClick={() => {
               setEditingQuestion(null);
               setEditorOpen(true);
             }}
           >
-            <Plus size={16} className="shrink-0" />
+            <Plus size={18} className="shrink-0" />
             <span>افزودن دستی سؤال</span>
           </button>
+          {totalBankQuestions > 0 && (
+            <button
+              type="button"
+              className="h-11 px-4 rounded-2xl border-2 border-red-500 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 text-xs sm:text-sm font-black shadow-[2px_2px_0px_#EF4444] hover:bg-red-100 dark:hover:bg-red-900/50 hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-2 cursor-pointer w-full sm:w-auto"
+              onClick={() => setBulkDeleteModalOpen(true)}
+              title="پاک‌سازی گروهی سؤالات"
+            >
+              <Trash2 size={17} className="shrink-0" />
+              <span>پاک‌سازی سؤالات ({totalBankQuestions})</span>
+            </button>
+          )}
         </div>
       </div>
 
