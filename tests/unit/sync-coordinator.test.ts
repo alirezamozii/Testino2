@@ -369,4 +369,51 @@ describe("Cloud Sync Engine & Outbox (TASK-031, TASK-032, TASK-033)", () => {
 
     await db.close();
   });
+
+  it("chunks push mutations when total payload approaches 700KB limit", async () => {
+    const db = await createTestDatabase();
+    await new MigrationRunner().run(db);
+
+    const outbox = new OutboxRepository(db);
+    const ownerId = "owner-chunk-test";
+
+    // Enqueue 3 large mutations of 300KB each (total 900KB)
+    const largeStr = "X".repeat(300_000);
+    await outbox.enqueue(ownerId, {
+      mutationId: "large-1",
+      entityType: "question",
+      entityId: "q-1",
+      payload: { data: largeStr },
+    });
+    await outbox.enqueue(ownerId, {
+      mutationId: "large-2",
+      entityType: "question",
+      entityId: "q-2",
+      payload: { data: largeStr },
+    });
+    await outbox.enqueue(ownerId, {
+      mutationId: "large-3",
+      entityType: "question",
+      entityId: "q-3",
+      payload: { data: largeStr },
+    });
+
+    const transport = new MockTransport();
+    // First push cycle: 300KB + 300KB = 600KB <= 700KB. Adding third (900KB) exceeds 700KB, so it must slice to 2 items!
+    const result1 = await executePush(ownerId, "test-device", outbox, transport);
+    expect(result1.pushedCount).toBe(2);
+    expect(transport.pushedBatches[0].length).toBe(2);
+
+    // Remaining 1 item in outbox
+    const pending = await outbox.listPending(ownerId);
+    expect(pending.length).toBe(1);
+    expect(pending[0].mutation_id).toBe("large-3");
+
+    // Second push cycle pushes the remaining item
+    const result2 = await executePush(ownerId, "test-device", outbox, transport);
+    expect(result2.pushedCount).toBe(1);
+    expect(transport.pushedBatches[1].length).toBe(1);
+
+    await db.close();
+  });
 });

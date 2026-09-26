@@ -7,8 +7,8 @@ export interface PushResult {
   errors: string[];
 }
 
-const MAX_BATCH_BYTES = 350_000;
-const DEFAULT_BATCH_COUNT = 15;
+const MAX_BATCH_BYTES = 700_000;
+const DEFAULT_BATCH_COUNT = 40;
 
 export async function executePush(
   ownerId: string,
@@ -17,7 +17,7 @@ export async function executePush(
   transport: SyncTransport,
   options?: { batchSize?: number }
 ): Promise<PushResult> {
-  const maxCount = Math.min(options?.batchSize || DEFAULT_BATCH_COUNT, 30);
+  const maxCount = Math.min(options?.batchSize || DEFAULT_BATCH_COUNT, 60);
   const candidateRows = await outboxRepo.listPending(ownerId, maxCount);
 
   if (!candidateRows.length) {

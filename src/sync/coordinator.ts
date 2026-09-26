@@ -56,7 +56,7 @@ export class SyncCoordinator {
     this.outboxRepo = new OutboxRepository(db);
     this.transport = transport || new SupabaseTransport();
     this.config = {
-      autoSyncIntervalMs: 20000,
+      autoSyncIntervalMs: 120_000,
       batchSize: 50,
       ...config,
     };

@@ -144,13 +144,13 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     void syncCommunity();
     void syncOfflineLibrary();
 
-    // Periodic sync for community and enabled offline subjects (every 60 seconds)
+    // Periodic sync for community and enabled offline subjects (every 10 minutes)
     const communityInterval = setInterval(() => {
       if (typeof navigator !== "undefined" && navigator.onLine === false) return;
       if (typeof document !== "undefined" && document.hidden) return;
       void syncCommunity();
       void syncOfflineLibrary();
-    }, 60_000);
+    }, 600_000);
 
     return () => {
       unsubscribe();

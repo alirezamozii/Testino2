@@ -14,6 +14,7 @@ import {
   exchangeOAuthCode,
 } from "@/platform/auth/supabase-client";
 import { useSync } from "@/providers/sync-provider";
+import { SyncDiagnosticsModal } from "@/components/layout/sync-diagnostics-modal";
 
 // Hydration gate: flips to true on the client, false on the server — no effect needed.
 const mountedSubscribe = () => () => {};
@@ -53,6 +54,7 @@ export function CloudSyncCard() {
   const [manualCode, setManualCode] = useState("");
   const [showManualCode, setShowManualCode] = useState(false);
   const [isExchanging, setIsExchanging] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const mounted = useMounted();
 
   useEffect(() => {
@@ -218,18 +220,29 @@ export function CloudSyncCard() {
       {/* Feedback */}
       {actionFeedback && (
         <div
-          className={`p-2.5 rounded-xl border-2 border-[var(--line-strong)] text-xs font-black flex items-center gap-2 ${
+          className={`p-2.5 rounded-xl border-2 border-[var(--line-strong)] text-xs font-black flex items-center justify-between gap-2 ${
             actionFeedback.type === "success"
               ? "bg-[var(--pastel-green-soft)] text-[var(--ink)]"
               : "bg-[var(--pastel-red-soft)] text-[var(--ink)]"
           }`}
         >
-          {actionFeedback.type === "success" ? (
-            <CheckCircle2 size={15} className="shrink-0" />
-          ) : (
-            <AlertCircle size={15} className="shrink-0" />
+          <div className="flex items-center gap-2">
+            {actionFeedback.type === "success" ? (
+              <CheckCircle2 size={15} className="shrink-0" />
+            ) : (
+              <AlertCircle size={15} className="shrink-0" />
+            )}
+            <span>{actionFeedback.text}</span>
+          </div>
+          {actionFeedback.type === "error" && (
+            <button
+              type="button"
+              onClick={() => setShowDiagnostics(true)}
+              className="text-[11px] underline font-bold cursor-pointer hover:opacity-80 shrink-0"
+            >
+              مشاهده لاگ خطا
+            </button>
           )}
-          <span>{actionFeedback.text}</span>
         </div>
       )}
 
@@ -359,11 +372,32 @@ export function CloudSyncCard() {
       {lastReport && (
         <div className="text-[10px] font-bold text-[var(--muted)] flex items-center justify-between px-1">
           <span>آخرین همگام‌سازی: {new Date(lastReport.completedAt).toLocaleTimeString("fa-IR")}</span>
-          <span>
-            {lastReport.pushedCount.toLocaleString("fa-IR")} ارسال / {lastReport.pulledCount.toLocaleString("fa-IR")} دریافت
-          </span>
+          <div className="flex items-center gap-2">
+            <span>
+              {lastReport.pushedCount.toLocaleString("fa-IR")} ارسال / {lastReport.pulledCount.toLocaleString("fa-IR")} دریافت
+            </span>
+            {lastReport.errors && lastReport.errors.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowDiagnostics(true)}
+                className="text-rose-600 dark:text-rose-400 underline font-black cursor-pointer hover:opacity-85"
+              >
+                لاگ خطا ({lastReport.errors.length})
+              </button>
+            )}
+          </div>
         </div>
       )}
+
+      <SyncDiagnosticsModal
+        isOpen={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+        status={syncStatus}
+        lastReport={lastReport}
+        pendingCount={pendingCount}
+        onRetry={handleManualSync}
+        isSyncing={isSyncing}
+      />
     </div>
   );
 }

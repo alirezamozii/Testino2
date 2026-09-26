@@ -118,16 +118,33 @@ export async function syncCommunityQuestionsForSubjects(
   if (!cleanedNames.length) return { addedCount: 0 };
 
   try {
-    // 1. Query community questions from Supabase
-    const { data: rows, error } = await client
+    const lastSyncKey = "testino_last_community_sync";
+    const lastSyncTime = typeof window !== "undefined" ? window.localStorage.getItem(lastSyncKey) : null;
+
+    // 1. Query community questions incrementally from Supabase
+    let query = client
       .from("sync_entity_state")
-      .select("payload")
+      .select("payload, updated_at")
       .eq("entity_type", "questionBundle")
       .eq("is_tombstone", false)
+      .order("updated_at", { ascending: false })
       .limit(100);
 
+    if (lastSyncTime) {
+      query = query.gt("updated_at", lastSyncTime);
+    }
+
+    const { data: rows, error } = await query;
+
     if (error || !rows || rows.length === 0) {
+      if (!error && typeof window !== "undefined") {
+        window.localStorage.setItem(lastSyncKey, new Date().toISOString());
+      }
       return { addedCount: 0 };
+    }
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(lastSyncKey, new Date().toISOString());
     }
 
     let addedCount = 0;

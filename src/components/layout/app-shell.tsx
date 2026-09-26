@@ -120,17 +120,17 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
     }
   };
 
+  let indicatorNode: React.ReactNode = null;
+
   if (!databaseReady && !hasWaited) {
-    return (
+    indicatorNode = (
       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-slate-100 dark:bg-slate-800 text-slate-500 border border-[var(--border)] shadow-[1px_1px_0px_var(--neo-shadow)] select-none">
         <i className="loading w-2 h-2 rounded-full border-2 border-slate-400 border-t-transparent animate-spin inline-block" />
         <span>در حال آماده‌سازی…</span>
       </span>
     );
-  }
-
-  if (!databaseReady && hasWaited) {
-    return (
+  } else if (!databaseReady && hasWaited) {
+    indicatorNode = (
       <button
         type="button"
         onClick={() => window.location.reload()}
@@ -141,11 +141,8 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
         <span>محلی</span>
       </button>
     );
-  }
-
-  // Persistent-storage warning: memory DB loses everything on reload.
-  if (databaseReady && database.status === "ready" && database.storage === "memory") {
-    return (
+  } else if (databaseReady && database.status === "ready" && database.storage === "memory") {
+    indicatorNode = (
       <button
         type="button"
         onClick={() => window.location.reload()}
@@ -156,10 +153,8 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
         <span>حافظه موقت</span>
       </button>
     );
-  }
-
-  if (!isOnline || status === "offline") {
-    return (
+  } else if (!isOnline || status === "offline") {
+    indicatorNode = (
       <button
         type="button"
         onClick={handleClick}
@@ -170,15 +165,13 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
         <span>آفلاین</span>
       </button>
     );
-  }
-
-  if (isSyncing) {
+  } else if (isSyncing) {
     let syncText = "در حال همگام‌سازی…";
     if (status === "pushing") syncText = "در حال ارسال تغییرات…";
     else if (status === "pulling") syncText = "در حال دریافت داده‌ها…";
     else if (status === "merging") syncText = "در حال ادغام داده‌ها…";
 
-    return (
+    indicatorNode = (
       <div
         title={syncText}
         className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-2 border-amber-400 dark:border-amber-600 shadow-[2px_2px_0px_var(--neo-shadow)] select-none animate-pulse"
@@ -188,46 +181,23 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
         <span className="sm:hidden">همگام‌سازی…</span>
       </div>
     );
-  }
-
-  if (status === "error") {
+  } else if (status === "error") {
     const errorTooltip =
       lastReport?.errors?.filter(Boolean)[0] || "خطا در اتصال به سرور ابری";
 
-    return (
-      <>
-        <button
-          type="button"
-          onClick={() => setShowDiagnostics(true)}
-          title={`خطای همگام‌سازی: ${errorTooltip}\n(برای مشاهدهٔ جزئیات و لاگ خطا کلیک کنید)`}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-2 border-rose-400 dark:border-rose-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all cursor-pointer select-none active:translate-x-[1px] active:translate-y-[1px]"
-        >
-          <span className="w-2 h-2 rounded-full bg-rose-500" />
-          <span>تلاش مجدد</span>
-        </button>
-        <SyncDiagnosticsModal
-          isOpen={showDiagnostics}
-          onClose={() => setShowDiagnostics(false)}
-          status={status}
-          lastReport={lastReport}
-          pendingCount={pendingCount}
-          onRetry={async () => {
-            const res = await syncNow();
-            if (res.errors.length === 0) {
-              setJustSynced(true);
-              setTimeout(() => setJustSynced(false), 2500);
-            }
-          }}
-          isSyncing={isSyncing}
-        />
-      </>
+    indicatorNode = (
+      <button
+        type="button"
+        onClick={() => setShowDiagnostics(true)}
+        title={`خطای همگام‌سازی: ${errorTooltip}\n(برای مشاهدهٔ جزئیات و لاگ خطا کلیک کنید)`}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-2 border-rose-400 dark:border-rose-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-all cursor-pointer select-none active:translate-x-[1px] active:translate-y-[1px]"
+      >
+        <span className="w-2 h-2 rounded-full bg-rose-500" />
+        <span>تلاش مجدد</span>
+      </button>
     );
-  }
-
-  // Signed out (or cloud unconfigured): show an honest green "آنلاین (محلی)" chip
-  // so users clearly know their network is connected, while data is stored safely locally.
-  if (status === "unconfigured") {
-    return (
+  } else if (status === "unconfigured") {
+    indicatorNode = (
       <button
         type="button"
         onClick={handleClick}
@@ -238,23 +208,44 @@ function SyncStatusIndicator({ databaseReady }: { databaseReady: boolean }) {
         <span>آنلاین (محلی)</span>
       </button>
     );
+  } else {
+    // Online state
+    indicatorNode = (
+      <button
+        type="button"
+        onClick={handleClick}
+        title={
+          pendingCount > 0
+            ? `${pendingCount} تغییر محلی در صف ارسال — برای همگام‌سازی کلیک کنید`
+            : "آنلاین و متصل به فضای ابری — کلیک کنید برای همگام‌سازی دستی"
+        }
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-2 border-emerald-400 dark:border-emerald-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all cursor-pointer select-none active:translate-x-[1px] active:translate-y-[1px]"
+      >
+        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+        <span>{justSynced ? "همگام شد ✓" : pendingCount > 0 ? `آنلاین (${pendingCount})` : "آنلاین"}</span>
+      </button>
+    );
   }
 
-  // Online state
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      title={
-        pendingCount > 0
-          ? `${pendingCount} تغییر محلی در صف ارسال — برای همگام‌سازی کلیک کنید`
-          : "آنلاین و متصل به فضای ابری — کلیک کنید برای همگام‌سازی دستی"
-      }
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-2 border-emerald-400 dark:border-emerald-600 shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all cursor-pointer select-none active:translate-x-[1px] active:translate-y-[1px]"
-    >
-      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-      <span>{justSynced ? "همگام شد ✓" : pendingCount > 0 ? `آنلاین (${pendingCount})` : "آنلاین"}</span>
-    </button>
+    <>
+      {indicatorNode}
+      <SyncDiagnosticsModal
+        isOpen={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+        status={status}
+        lastReport={lastReport}
+        pendingCount={pendingCount}
+        onRetry={async () => {
+          const res = await syncNow();
+          if (res.errors.length === 0) {
+            setJustSynced(true);
+            setTimeout(() => setJustSynced(false), 2500);
+          }
+        }}
+        isSyncing={isSyncing}
+      />
+    </>
   );
 }
 
