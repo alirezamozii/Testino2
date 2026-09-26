@@ -29,7 +29,9 @@ import {
   Layers,
   Unlink,
   GripVertical,
+  Activity,
 } from "lucide-react";
+
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDatabase } from "@/providers/database-provider";
 import { useTheme, ACCENT_OPTIONS } from "@/providers/theme-provider";
@@ -661,12 +663,34 @@ export default function SettingsPage() {
               )}
             </div>
 
+            {/* Diagnostics & Benchmark Center */}
+            <Link
+              href="/diagnostics/"
+              className="py-3.5 flex items-center justify-between text-right hover:bg-[var(--surface-2)] rounded-2xl transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-950/50 border-2 border-[var(--line-strong)] text-purple-700 dark:text-purple-300 flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
+                  <Activity size={18} />
+                </div>
+                <div>
+                  <span className="text-xs sm:text-sm font-black text-[var(--ink)] block">
+                    پایش، عیب‌یابی و بنچمارک سرعت (FPS & DB)
+                  </span>
+                  <span className="text-[11px] text-[var(--muted)] font-bold">
+                    آزمون میلی‌ثانیه‌ای دیتابیس، نرخ فریم، مصرف رم و لاگ باگ‌ها
+                  </span>
+                </div>
+              </div>
+              <ChevronLeft size={18} className="text-[var(--muted)]" />
+            </Link>
+
             {/* About Testino item */}
             <button
               type="button"
               onClick={() => setShowAbout(true)}
               className="py-3.5 last:pb-1 w-full flex items-center justify-between text-right hover:bg-[var(--surface-2)] rounded-2xl transition-colors cursor-pointer"
             >
+
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/50 border-2 border-[var(--line-strong)] flex items-center justify-center p-1.5 shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
                   <img src="/logo.png" alt="لوگو" className="w-full h-full object-contain" />

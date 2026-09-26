@@ -215,7 +215,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .app-topbar {
   position: sticky; top: 0; z-index: 30; height: 68px; padding: 10px clamp(16px, 3vw, 34px);
   display: flex; align-items: center; justify-content: space-between;
-  background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(18px);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transform: translateZ(0);
+  isolation: isolate;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
 }
 .app-content { width: min(100%, 1200px); margin-inline: auto; padding: 28px clamp(16px, 3vw, 34px) calc(108px + env(safe-area-inset-bottom, 24px)); }
@@ -247,15 +251,31 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   align-items: center;
   justify-content: space-around;
   padding: 6px 4px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transform: translateZ(0);
+  isolation: isolate;
   border: 2px solid var(--line-strong);
   border-radius: 28px;
   box-shadow: 0 6px 0px var(--neo-shadow), 0 16px 32px -4px rgba(15, 23, 42, 0.22);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease, visibility 0.3s ease;
   will-change: transform, opacity;
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-topbar {
+    background: var(--bg) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .mobile-bottom-nav {
+    background: var(--surface) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
 
 /* Hidden state: slides down below the viewport with smooth cubic-bezier when any modal/dialog is open */
 .mobile-bottom-nav.nav-hidden,

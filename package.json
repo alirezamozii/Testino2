@@ -1,6 +1,6 @@
 {
   "name": "testino",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "سامانه آزمون‌یار و مرور هوشمند تستینو",
   "author": "Testino",
   "type": "module",
@@ -22,7 +22,8 @@
     "android:open": "cap open android",
     "android:build": "npm run android:sync && node scripts/build-android.mjs",
     "desktop:dev": "npm run build:web && electron electron/main.cjs",
-    "desktop:dist": "npm run build:web && node scripts/package-desktop.mjs"
+    "desktop:dist": "npm run build:web && node scripts/package-desktop.mjs",
+    "benchmark": "node scripts/benchmark-all.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",

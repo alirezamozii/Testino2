@@ -516,7 +516,27 @@ export const MIGRATIONS: Migration[] = [
       },
     ],
   },
+  {
+    version: 13,
+    name: "0013_performance_indexes",
+    checksum: "8400949f590f5d62948865fdacddadf70cc518b0e93ad2b1888858814092d16c",
+    destructive: false,
+    statements: [
+      {
+        sql: `
+          CREATE INDEX IF NOT EXISTS attempts_session_idx ON attempts(session_id);
+          CREATE INDEX IF NOT EXISTS attempts_question_idx ON attempts(question_id, finalized_at DESC);
+          CREATE INDEX IF NOT EXISTS attempts_question_result_idx ON attempts(question_id, result);
+          CREATE INDEX IF NOT EXISTS questions_created_idx ON questions(created_at DESC, id DESC);
+          CREATE INDEX IF NOT EXISTS session_questions_session_idx ON session_questions(session_id, ordinal);
+          CREATE INDEX IF NOT EXISTS session_questions_question_idx ON session_questions(question_id);
+          CREATE INDEX IF NOT EXISTS questions_subject_topic_idx ON questions(subject, topic);
+        `,
+      },
+    ],
+  },
 ];
 
 // For backwards-compatibility with direct batch executions
 export const migrationStatements: SqlStatement[] = MIGRATIONS.flatMap((m) => m.statements);
+

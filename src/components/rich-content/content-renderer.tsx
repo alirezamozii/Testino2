@@ -122,20 +122,65 @@ function cleanLatex(raw: string): string {
   return s;
 }
 
+const KATEX_CACHE_LIMIT = 800;
+const katexHtmlCache = new Map<string, { html: string; hasError: boolean }>();
+let katexCacheHits = 0;
+let katexCacheMisses = 0;
+
+export function getKatexCacheStats() {
+  return {
+    size: katexHtmlCache.size,
+    limit: KATEX_CACHE_LIMIT,
+    hits: katexCacheHits,
+    misses: katexCacheMisses,
+    hitRate: katexCacheHits + katexCacheMisses > 0 
+      ? Math.round((katexCacheHits / (katexCacheHits + katexCacheMisses)) * 100) 
+      : 0,
+  };
+}
+
+export function clearKatexCache() {
+  katexHtmlCache.clear();
+  katexCacheHits = 0;
+  katexCacheMisses = 0;
+}
+
+function getCachedKatex(cleaned: string, display: boolean): { html: string; hasError: boolean } {
+  const cacheKey = `${display ? "D:" : "I:"}${cleaned}`;
+  const hit = katexHtmlCache.get(cacheKey);
+  if (hit) {
+    katexCacheHits++;
+    katexHtmlCache.delete(cacheKey);
+    katexHtmlCache.set(cacheKey, hit);
+    return hit;
+  }
+  katexCacheMisses++;
+  const html = katex.renderToString(cleaned, {
+    displayMode: display,
+    throwOnError: false,
+    trust: true,
+    strict: "ignore",
+  });
+  const hasError = html.includes("katex-error");
+  if (katexHtmlCache.size >= KATEX_CACHE_LIMIT) {
+    const oldestKey = katexHtmlCache.keys().next().value;
+    if (oldestKey) katexHtmlCache.delete(oldestKey);
+  }
+  const entry = { html, hasError };
+  katexHtmlCache.set(cacheKey, entry);
+  return entry;
+}
+
 function renderFormula(latex: string, display: boolean, key: string | number) {
   const cleaned = cleanLatex(latex);
   if (!cleaned) return null;
 
   try {
-    const html = katex.renderToString(cleaned, {
-      displayMode: display,
-      throwOnError: false,
-      trust: true,
-      strict: "ignore",
-    });
+    const { html, hasError } = getCachedKatex(cleaned, display);
 
     // Check if KaTeX generated an error span
-    if (html.includes("katex-error")) {
+    if (hasError) {
+
       return (
         <bdi
           key={key}

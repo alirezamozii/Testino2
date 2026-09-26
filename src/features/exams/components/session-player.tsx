@@ -35,10 +35,11 @@ import {
   Zap,
 } from "lucide-react";
 import { ContentRenderer } from "@/components/rich-content/content-renderer";
+import { ExamTimerChip } from "./exam-timer-chip";
 import { calculateScore } from "../domain/scoring";
 import { remapExplanationForShuffle } from "../domain/explanation-remapper";
 import { extractQuestionPassageTarget, highlightPassageTargets } from "../domain/passage-underliner";
-import { createActiveTimer, processHeartbeat, HEARTBEAT_INTERVAL_MS } from "../domain/active-timer";
+
 import { buildSessionExport } from "@/features/ai/domain/export-builder";
 import { simulateOverallConfidence } from "@/features/analytics/domain/confidence-simulation";
 import { SignedNumber, SignedPercent, formatSignedPercentString } from "@/components/ui/signed-number";
@@ -66,7 +67,6 @@ export function SessionPlayer() {
   const [isStarting, setIsStarting] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
   const [error, setError] = useState("");
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   // Scratchpad + bookmark flags are restored lazily — safe for SSR because the
   // server render of this component is always the loading state.
   const [flaggedIndices, setFlaggedIndices] = useState<Set<number>>(() => {
@@ -110,7 +110,6 @@ export function SessionPlayer() {
   const [poolExhausted, setPoolExhausted] = useState(false);
   const [gapNotice, setGapNotice] = useState(false);
   const openedAt = useRef<number | null>(null);
-  const timerStateRef = useRef(createActiveTimer());
 
   const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
 
@@ -119,12 +118,8 @@ export function SessionPlayer() {
   const current = session.data?.questions[index];
   const persistedSeconds = Math.floor((session.data?.questions.reduce((sum, item) => sum + item.activeMs, 0) ?? 0) / 1000);
 
-  // Exam time limit (minutes) — when set, the timer chip counts DOWN instead of up
+  // Exam time limit (minutes)
   const durationMinutes = session.data?.config?.durationMinutes ?? null;
-  const remainingSeconds = durationMinutes && durationMinutes > 0
-    ? Math.max(0, durationMinutes * 60 - (persistedSeconds + elapsedSeconds))
-    : null;
-  const isTimeLow = remainingSeconds !== null && remainingSeconds <= 5 * 60;
 
   const isOpenEnded = Boolean(session.data?.config?.isOpenEnded || session.data?.config?.mode === "continuous");
   const isInstantFeedback = Boolean(
@@ -284,37 +279,11 @@ export function SessionPlayer() {
     });
   }, [current, index, isCloze, passageQuestions.length]);
 
-  // Monotonic timer for current active screen
+  // Monotonic timer for recording visit/answer active duration
   useEffect(() => {
     openedAt.current = performance.now();
-    timerStateRef.current = createActiveTimer(performance.now());
   }, [current?.id, session.data?.state]);
 
-  // Active monotonic heartbeat timer (2s interval, 5s gap limit, background auto-pause)
-  // Auto-paused when studying explanation in instant feedback mode
-  useEffect(() => {
-    if (session.data?.state !== "RUNNING" || isCurrentRevealed) return;
-    const interval = setInterval(() => {
-      const res = processHeartbeat(
-        timerStateRef.current,
-        performance.now(),
-        document.visibilityState === "visible"
-      );
-      timerStateRef.current = res.nextState;
-      if (res.gapDetected || res.shouldPause) {
-        setGapNotice(true);
-        if (id) {
-          void database.db.pauseSession(id).then(() => {
-            void cache.invalidateQueries({ queryKey: ["session", id] });
-          });
-        }
-      } else if (res.deltaMs > 0) {
-        setElapsedSeconds((prev) => prev + Math.round(res.deltaMs / 1000));
-      }
-    }, HEARTBEAT_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [cache, database.db, id, isCurrentRevealed, session.data?.state]);
 
   const options = useMemo(
     () =>
@@ -358,7 +327,6 @@ export function SessionPlayer() {
         await database.db.saveAnswer(id, current.id, optionId, confidence, elapsed, nextIndex);
         openedAt.current = performance.now();
         await cache.invalidateQueries({ queryKey: ["session", id] });
-        setElapsedSeconds(0);
         setSelectedIndex(nextIndex);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "پاسخ ذخیره نشد.");
@@ -391,7 +359,6 @@ export function SessionPlayer() {
     const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
     if (index < totalQuestions - 1) {
       setSelectedIndex(index + 1);
-      setElapsedSeconds(0);
       openedAt.current = performance.now();
       void database.db
         .recordQuestionVisit(id, current.id, elapsed, index + 1)
@@ -407,7 +374,6 @@ export function SessionPlayer() {
           await cache.invalidateQueries({ queryKey: ["session", id] });
           await session.refetch();
           setSelectedIndex(index + 1);
-          setElapsedSeconds(0);
         } else {
           setPoolExhausted(true);
         }
@@ -428,7 +394,6 @@ export function SessionPlayer() {
           .catch(() => undefined);
       }
       setSelectedIndex(targetIndex);
-      setElapsedSeconds(0);
       openedAt.current = performance.now();
       setShowNavSheet(false);
     },
@@ -440,7 +405,6 @@ export function SessionPlayer() {
     if (index > 0) {
       const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
       setSelectedIndex(index - 1);
-      setElapsedSeconds(0);
       openedAt.current = performance.now();
       void database.db
         .recordQuestionVisit(id, current.id, elapsed, index - 1)
@@ -495,9 +459,9 @@ export function SessionPlayer() {
       // SKIP_WAITING mid-exam (route was renamed to /sessions/run long ago).
       try { sessionStorage.setItem("testino_session_running", "true"); } catch { /* ignore */ }
       openedAt.current = performance.now();
-      timerStateRef.current = createActiveTimer(performance.now());
       setGapNotice(false);
       await session.refetch();
+
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "خطا در شروع آزمون.");
     } finally {
@@ -560,14 +524,6 @@ export function SessionPlayer() {
     }
   }
 
-  const formatTimer = (totalSec: number) => {
-    // H:MM:SS past one hour so a 90-minute exam never wraps around confusingly
-    const hrs = Math.floor(totalSec / 3600);
-    const mins = Math.floor((totalSec % 3600) / 60);
-    const secs = totalSec % 60;
-    const mmss = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-    return hrs > 0 ? `${hrs}:${mmss}` : mmss;
-  };
 
   if (!id || session.isLoading) {
     return (
@@ -1487,22 +1443,23 @@ export function SessionPlayer() {
           >
             {sData.state === "RUNNING" ? <Pause size={15} /> : <Play size={15} />}
           </button>
-          <div
-            className={cn(
-              "flex items-center gap-1 text-[11px] sm:text-xs font-black bg-[var(--surface)] px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl border-2 shadow-[2px_2px_0px_var(--neo-shadow)] transition-colors shrink-0",
-              isTimeLow
-                ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border-red-400"
-                : "text-[var(--ink)] bg-[var(--surface)] border-[var(--line-strong)]"
-            )}
-          >
-            <Clock size={13} className={isTimeLow ? "text-red-600" : "text-[var(--brand-orange)]"} />
-            <span>
-              {remainingSeconds !== null
-                ? `${formatTimer(remainingSeconds)}`
-                : formatTimer(persistedSeconds + elapsedSeconds)}
-            </span>
-          </div>
+          <ExamTimerChip
+            durationMinutes={durationMinutes}
+            persistedSeconds={persistedSeconds}
+            isRunning={sData.state === "RUNNING"}
+            isRevealed={isCurrentRevealed}
+            onGapDetected={() => setGapNotice(true)}
+            onAutoPause={() => {
+              if (id) {
+                void database.db.pauseSession(id).then(() => {
+                  void cache.invalidateQueries({ queryKey: ["session", id] });
+                });
+              }
+            }}
+            resetTrigger={index}
+          />
         </div>
+
 
         {/* Counter & Action Drawers */}
         <div className="flex items-center gap-1 sm:gap-2 min-w-0">
