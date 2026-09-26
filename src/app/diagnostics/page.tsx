@@ -7,21 +7,15 @@ import {
   AlertTriangle,
   ArrowRight,
   BarChart2,
-  CheckCircle2,
-  Clock,
   Copy,
   Cpu,
   Download,
   Flame,
-  HardDrive,
-  Layers,
   Play,
   RefreshCw,
-  Share2,
   ShieldCheck,
   Smartphone,
   Wifi,
-  XCircle,
 } from "lucide-react";
 import { useDatabase } from "@/providers/database-provider";
 import {
@@ -37,7 +31,7 @@ import {
   type NetworkLogEntry,
   type NetworkSummary,
 } from "@/lib/telemetry/network-monitor";
-import { getKatexCacheStats, clearKatexCache } from "@/components/rich-content/content-renderer";
+import { getKatexCacheStats } from "@/components/rich-content/content-renderer";
 import { cn } from "@/lib/utils";
 
 export default function DiagnosticsPage() {
@@ -77,6 +71,7 @@ export default function DiagnosticsPage() {
 
     return () => {
       clearInterval(timer);
+      fpsTracker.stop();
     };
   }, []);
 

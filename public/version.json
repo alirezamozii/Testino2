@@ -5,8 +5,7 @@
   "changelog": [
     "fix(sync): portal diagnostics modal, optimize batch chunking and eliminate redundant API polling",
     "fix(sync, analytics, ui, update): fix InvalidMutationBatch, FINISHED_TERMINAL tombstone, analytics mastery deduplication, mobile builder layout, and remote update feed",
-    "test(sync): verify bidirectional cross-device sync fidelity and tombstone deletion",
-    "fix(bank): make action buttons stacked on mobile to prevent text wrapping, add bottom padding for nav bar"
+    "test(sync): verify bidirectional cross-device sync fidelity and tombstone deletion"
   ],
   "downloadUrls": {
     "windows": "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Setup-x64.exe",

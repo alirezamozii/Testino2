@@ -26,7 +26,6 @@ import { useAuthAvatar } from "@/platform/auth/use-avatar";
 import { SplashScreen } from "./splash-screen";
 import { SyncDiagnosticsModal } from "./sync-diagnostics-modal";
 import { installNetworkMonitor } from "@/lib/telemetry/network-monitor";
-import { fpsTracker } from "@/lib/telemetry/fps-monitor";
 
 
 const navigation = [
@@ -268,10 +267,9 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   // Auto-hide bottom nav when any modal or dialog is open
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Initialize telemetry and performance tracking early
+  // Initialize network monitor telemetry early
   useEffect(() => {
     installNetworkMonitor();
-    fpsTracker.start();
   }, []);
 
   useEffect(() => {

@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, Check, Copy, RefreshCw, ShieldCheck, X } from "lucide-react";
 import type { SyncReport, SyncStatus } from "@/sync/ports";
+
+const emptySubscribe = () => () => {};
 
 interface SyncDiagnosticsModalProps {
   isOpen: boolean;
@@ -24,14 +26,14 @@ export function SyncDiagnosticsModal({
   onRetry,
   isSyncing,
 }: SyncDiagnosticsModalProps) {
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
   const [copied, setCopied] = useState(false);
   const [retrySuccess, setRetrySuccess] = useState(false);
   const preRef = useRef<HTMLPreElement | null>(null);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Lock body scroll and set modal-open class so bottom nav slides away
   useEffect(() => {

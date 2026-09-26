@@ -14,7 +14,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  Clock,
   Download,
   HelpCircle,
   Hourglass,
@@ -1444,6 +1443,7 @@ export function SessionPlayer() {
             {sData.state === "RUNNING" ? <Pause size={15} /> : <Play size={15} />}
           </button>
           <ExamTimerChip
+            sessionId={id}
             durationMinutes={durationMinutes}
             persistedSeconds={persistedSeconds}
             isRunning={sData.state === "RUNNING"}
@@ -1456,7 +1456,6 @@ export function SessionPlayer() {
                 });
               }
             }}
-            resetTrigger={index}
           />
         </div>
 

@@ -6,13 +6,13 @@ import { cn } from "@/lib/utils";
 import { createActiveTimer, processHeartbeat, HEARTBEAT_INTERVAL_MS } from "../domain/active-timer";
 
 export interface ExamTimerChipProps {
+  sessionId?: string;
   durationMinutes: number | null;
   persistedSeconds: number;
   isRunning: boolean;
   isRevealed: boolean;
   onGapDetected: () => void;
   onAutoPause: () => void;
-  resetTrigger?: unknown;
 }
 
 function formatTimer(totalSec: number): string {
@@ -23,24 +23,32 @@ function formatTimer(totalSec: number): string {
   return hrs > 0 ? `${hrs}:${mmss}` : mmss;
 }
 
-
 export const ExamTimerChip = memo(function ExamTimerChip({
+  sessionId,
   durationMinutes,
   persistedSeconds,
   isRunning,
   isRevealed,
   onGapDetected,
   onAutoPause,
-  resetTrigger,
 }: ExamTimerChipProps) {
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [totalSeconds, setTotalSeconds] = useState(persistedSeconds);
   const timerStateRef = useRef(createActiveTimer());
+  const prevSessionIdRef = useRef(sessionId);
 
-  // Reset elapsed seconds when resetTrigger (e.g. current question index) changes
+  // If sessionId changes, synchronize to new session
   useEffect(() => {
-    setElapsedSeconds(0);
-    timerStateRef.current = createActiveTimer();
-  }, [resetTrigger]);
+    if (sessionId !== prevSessionIdRef.current) {
+      prevSessionIdRef.current = sessionId;
+      setTotalSeconds(persistedSeconds);
+      timerStateRef.current = createActiveTimer();
+    }
+  }, [sessionId, persistedSeconds]);
+
+  // Keep totalSeconds smoothly ratcheting upward if database has higher persisted count
+  useEffect(() => {
+    setTotalSeconds((prev) => Math.max(prev, persistedSeconds));
+  }, [persistedSeconds]);
 
   useEffect(() => {
     if (!isRunning || isRevealed) return;
@@ -55,7 +63,7 @@ export const ExamTimerChip = memo(function ExamTimerChip({
         onGapDetected();
         onAutoPause();
       } else if (res.deltaMs > 0) {
-        setElapsedSeconds((prev) => prev + Math.round(res.deltaMs / 1000));
+        setTotalSeconds((prev) => prev + Math.round(res.deltaMs / 1000));
       }
     }, HEARTBEAT_INTERVAL_MS);
 
@@ -64,7 +72,7 @@ export const ExamTimerChip = memo(function ExamTimerChip({
 
   const remainingSeconds =
     durationMinutes && durationMinutes > 0
-      ? Math.max(0, durationMinutes * 60 - (persistedSeconds + elapsedSeconds))
+      ? Math.max(0, durationMinutes * 60 - totalSeconds)
       : null;
   const isTimeLow = remainingSeconds !== null && remainingSeconds <= 5 * 60;
 
@@ -81,7 +89,7 @@ export const ExamTimerChip = memo(function ExamTimerChip({
       <span>
         {remainingSeconds !== null
           ? formatTimer(remainingSeconds)
-          : formatTimer(persistedSeconds + elapsedSeconds)}
+          : formatTimer(totalSeconds)}
       </span>
     </div>
   );

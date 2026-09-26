@@ -127,7 +127,7 @@ describe("Analytics Aggregates & Target Percentage (TASK-023)", () => {
   });
 
   it("deduplicates repeated attempts on the same question taking the latest attempt for mastery", async () => {
-    const { memoryDb, appDb, profileId, q1, q2, q3 } = await setup();
+    const { memoryDb, appDb, profileId, q1 } = await setup();
     const now = Date.now();
 
     // Session 1: user takes an exam and gets Q1 wrong
