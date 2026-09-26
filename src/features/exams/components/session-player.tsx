@@ -538,19 +538,7 @@ export function SessionPlayer() {
 
       {/* Active Question Statement, Options, Feedback & Confidence Pills */}
       {current && (
-        <div
-          className={`relative transition-all duration-200 ${
-            (sData.state === "PAUSED" || gapNotice) ? "cursor-pointer group" : ""
-          }`}
-          onClick={
-            (sData.state === "PAUSED" || gapNotice)
-              ? () => {
-                  setGapNotice(false);
-                  void begin();
-                }
-              : undefined
-          }
-        >
+        <div className="relative">
           <ExamActiveQuestion
             current={current}
             index={index}
@@ -564,10 +552,30 @@ export function SessionPlayer() {
             onSaveAnswer={(optionId, confidence) => save(optionId, confidence, index)}
           />
           {(sData.state === "PAUSED" || gapNotice) && (
-            <div className="absolute inset-0 bg-black/10 backdrop-blur-[1px] rounded-3xl flex items-center justify-center pointer-events-none transition-all">
-              <div className="card-neo px-4 py-2 bg-[var(--surface)] text-center shadow-[3px_3px_0px_var(--neo-shadow)] flex items-center gap-2 group-hover:scale-105 transition-transform">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                <span className="text-xs font-black text-[var(--ink)]">
+            <div
+              data-testid="exam-paused-overlay"
+              role="button"
+              tabIndex={0}
+              aria-label="زمان‌سنج متوقف است. کلیک کنید تا آزمون ادامه یابد."
+              className="absolute inset-0 z-30 bg-black/25 dark:bg-black/45 backdrop-blur-[2px] rounded-3xl flex items-center justify-center pointer-events-auto cursor-pointer select-none transition-all"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setGapNotice(false);
+                void begin();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setGapNotice(false);
+                  void begin();
+                }
+              }}
+            >
+              <div className="card-neo px-5 py-3 bg-[var(--surface)] text-center shadow-[4px_4px_0px_var(--neo-shadow)] flex items-center gap-2.5 hover:scale-105 active:scale-95 transition-transform border-2 border-[var(--line-strong)]">
+                <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                <span className="text-xs sm:text-sm font-black text-[var(--ink)]">
                   زمان‌سنج متوقف است (کلیک برای ادامه آزمون)
                 </span>
               </div>

@@ -80,7 +80,26 @@ export const ExamTimerChip = memo(function ExamTimerChip({
       setTotalSeconds((prev) => prev + secDelta);
     }, 1000);
 
-    return () => clearInterval(interval);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && lastTickRef.current !== null) {
+        const now = performance.now();
+        const deltaMs = now - lastTickRef.current;
+        lastTickRef.current = now;
+        if (deltaMs > 90_000) {
+          onGapDetectedRef.current?.();
+          onAutoPauseRef.current?.();
+        } else if (deltaMs >= 1000) {
+          const secDelta = Math.round(deltaMs / 1000);
+          setTotalSeconds((prev) => prev + secDelta);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [isRunning]);
 
   const remainingSeconds =

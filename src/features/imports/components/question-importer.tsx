@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   FileUp,
@@ -25,6 +26,7 @@ import {
   Loader2,
   UploadCloud,
   FileText,
+  Play,
   X,
 } from "lucide-react";
 import { parseImportJson, splitMultipleJsonObjects } from "@/features/questions/domain/importer";
@@ -109,8 +111,10 @@ export function QuestionImporter() {
   const [loadingBatchId, setLoadingBatchId] = useState<string | null>(null);
   const [deletingBatch, setDeletingBatch] = useState<ImportBatch | null>(null);
   const [isDeletingBatch, setIsDeletingBatch] = useState(false);
+  const [startingBatchExamId, setStartingBatchExamId] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     void checkIsOwner().then(setIsOwner);
@@ -140,6 +144,33 @@ export function QuestionImporter() {
       }
     }
   };
+
+  async function handleStartBatchExam(batch: ImportBatch) {
+    if (startingBatchExamId) return;
+    setStartingBatchExamId(batch.id);
+    try {
+      const profiles = await db.listProfiles();
+      const profile = profiles[0];
+      if (!profile) {
+        alert("پروفایلی برای شروع آزمون یافت نشد.");
+        setStartingBatchExamId(null);
+        return;
+      }
+      const sessionId = await db.createSession(profile.id, {
+        batchId: batch.id,
+        count: batch.questionCount,
+        mode: "ordered",
+        shuffleQuestions: false,
+        shuffleOptions: false,
+        instantFeedback: true,
+      });
+      router.push(`/sessions/run/?id=${encodeURIComponent(sessionId)}`);
+    } catch (err) {
+      console.error("Failed to start batch exam:", err);
+      alert("خطا در ایجاد آزمون این دسته: " + (err instanceof Error ? err.message : String(err)));
+      setStartingBatchExamId(null);
+    }
+  }
 
   async function handleDeleteBatch(batch: ImportBatch) {
     setIsDeletingBatch(true);
@@ -918,6 +949,21 @@ export function QuestionImporter() {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                      <button
+                        type="button"
+                        disabled={startingBatchExamId === batch.id || batch.questionCount === 0}
+                        onClick={() => void handleStartBatchExam(batch)}
+                        className="px-3 py-1.5 rounded-xl border-2 border-[var(--line-strong)] bg-[var(--testino-orange)] hover:bg-[var(--testino-orange)]/90 text-white text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px] disabled:opacity-60"
+                        title="شروع آزمون فوری از تمام سؤالات این دسته"
+                      >
+                        {startingBatchExamId === batch.id ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Play size={13} fill="currentColor" />
+                        )}
+                        <span>آزمون این دسته</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => setDeletingBatch(batch)}

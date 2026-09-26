@@ -3,10 +3,10 @@
   "build": 77,
   "releaseDate": "2026-09-26",
   "changelog": [
+    "fix(timer,exams): guarantee smooth 1s monotonic tick, prevent render churn reset, eliminate false auto-pauses, and keep timer active in instant feedback",
     "fix(e2e,exams): align finish modal submit button, refine pause selectors, and handle wasm fallback in hygiene watchdog",
     "feat(review,pools): retain cumulative error log for lifelong mistake re-testing",
-    "fix(review,exams): unify leitner mastery, fix bank coverage, harmonize finish modals, and freeze timer on explanation",
-    "fix(sync,analytics): resolve foreign key pull constraint code 787, unify analytics calculations with dashboard, and remove diagnostics UI"
+    "fix(review,exams): unify leitner mastery, fix bank coverage, harmonize finish modals, and freeze timer on explanation"
   ],
   "downloadUrls": {
     "windows": "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Setup-x64.exe",

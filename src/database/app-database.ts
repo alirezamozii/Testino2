@@ -44,6 +44,7 @@ export interface SessionConfig {
   subjectFilters?: string[] | null;
   chapterFilters?: string[] | null;
   topicFilters?: string[] | null;
+  batchId?: string | null;
   requestedCount?: number | null;
   selectedCount?: number | null;
   isOpenEnded?: boolean;
@@ -78,6 +79,8 @@ export interface CreateSessionOptions {
   negativeMarking?: boolean;
   sessionId?: string | null;
   sessionIds?: string[] | null;
+  batchId?: string | null;
+  questionIds?: string[] | null;
   dateRange?: "all" | "7d" | "30d" | "90d" | null;
   sourceKinds?: Array<"EXAM" | "PERSONAL" | "AI">;
 }
@@ -1801,55 +1804,74 @@ export class AppDatabase {
       ? opts.topics
       : (opts.topic && opts.topic !== "all" ? [opts.topic] : null);
 
-    let questions = await this.listQuestions({ limit: 10_000, status: "published" });
-    const incompleteGroups = await this.client.query<{ id: string }>(
-      "SELECT id FROM question_groups WHERE status='incomplete'"
-    );
-    const incompleteGroupIds = new Set(incompleteGroups.map((g) => g.id));
-    questions = questions.filter((q) => !q.groupId || !incompleteGroupIds.has(q.groupId));
+    const isTargetedBatchOrQuestions = Boolean(opts.batchId || (opts.questionIds && opts.questionIds.length > 0));
 
-    // Exclude questions with missing required media (TASK-027.4)
-    try {
-      const missingMedia = await this.client.query<{ question_id: string }>(
-        `SELECT DISTINCT qm.question_id
-         FROM question_media qm
-         JOIN media_files mf ON qm.media_id = mf.id
-         WHERE qm.required = 1 AND mf.availability = 'missing' AND qm.question_id IS NOT NULL`
-      );
-      if (missingMedia.length > 0) {
-        const missingSet = new Set(missingMedia.map((m) => m.question_id));
-        questions = questions.filter((q) => !missingSet.has(q.id));
-      }
-    } catch {
-      // Table may not exist yet or query failed
-    }
-
-    if (subjects && subjects.length > 0) {
-      questions = questions.filter((q) => subjects.some((s) => isSameSubject(s, q.subject)));
-    }
-    if (chapterFilters && chapterFilters.length > 0 && topicFilters && topicFilters.length > 0) {
-      questions = questions.filter(
-        (q) => matchesChapterFilters(q, chapterFilters) && matchesTopicFilters(q, topicFilters)
-      );
-    } else if (chapterFilters && chapterFilters.length > 0) {
-      questions = questions.filter((q) => matchesChapterFilters(q, chapterFilters));
-    } else if (topicFilters && topicFilters.length > 0) {
-      questions = questions.filter((q) => matchesTopicFilters(q, topicFilters));
-    }
-
-    if (opts.sourceKinds && opts.sourceKinds.length > 0 && opts.sourceKinds.length < 3) {
-      const allowedSources = new Set(opts.sourceKinds);
-      questions = questions.filter((q) => {
-        const kind = q.source?.kind || "PERSONAL";
-        return allowedSources.has(kind);
+    let questions: StoredQuestion[];
+    if (opts.batchId) {
+      questions = await this.listQuestions({ batchId: opts.batchId, limit: 10_000 });
+      questions.sort((a, b) => {
+        const numA = parseInt(a.source?.number || a.externalKey.match(/(\d+)/)?.[1] || "0", 10);
+        const numB = parseInt(b.source?.number || b.externalKey.match(/(\d+)/)?.[1] || "0", 10);
+        if (numA !== numB && numA > 0 && numB > 0) return numA - numB;
+        return a.externalKey.localeCompare(b.externalKey, undefined, { numeric: true });
       });
+    } else if (opts.questionIds && opts.questionIds.length > 0) {
+      const allQs = await this.listQuestions({ limit: 10_000 });
+      const idMap = new Map(allQs.map((q) => [q.id, q]));
+      questions = opts.questionIds
+        .map((qid) => idMap.get(qid))
+        .filter((q): q is StoredQuestion => Boolean(q));
+    } else {
+      questions = await this.listQuestions({ limit: 10_000, status: "published" });
+      const incompleteGroups = await this.client.query<{ id: string }>(
+        "SELECT id FROM question_groups WHERE status='incomplete'"
+      );
+      const incompleteGroupIds = new Set(incompleteGroups.map((g) => g.id));
+      questions = questions.filter((q) => !q.groupId || !incompleteGroupIds.has(q.groupId));
+
+      // Exclude questions with missing required media (TASK-027.4)
+      try {
+        const missingMedia = await this.client.query<{ question_id: string }>(
+          `SELECT DISTINCT qm.question_id
+           FROM question_media qm
+           JOIN media_files mf ON qm.media_id = mf.id
+           WHERE qm.required = 1 AND mf.availability = 'missing' AND qm.question_id IS NOT NULL`
+        );
+        if (missingMedia.length > 0) {
+          const missingSet = new Set(missingMedia.map((m) => m.question_id));
+          questions = questions.filter((q) => !missingSet.has(q.id));
+        }
+      } catch {
+        // Table may not exist yet or query failed
+      }
+
+      if (subjects && subjects.length > 0) {
+        questions = questions.filter((q) => subjects.some((s) => isSameSubject(s, q.subject)));
+      }
+      if (chapterFilters && chapterFilters.length > 0 && topicFilters && topicFilters.length > 0) {
+        questions = questions.filter(
+          (q) => matchesChapterFilters(q, chapterFilters) && matchesTopicFilters(q, topicFilters)
+        );
+      } else if (chapterFilters && chapterFilters.length > 0) {
+        questions = questions.filter((q) => matchesChapterFilters(q, chapterFilters));
+      } else if (topicFilters && topicFilters.length > 0) {
+        questions = questions.filter((q) => matchesTopicFilters(q, topicFilters));
+      }
+
+      if (opts.sourceKinds && opts.sourceKinds.length > 0 && opts.sourceKinds.length < 3) {
+        const allowedSources = new Set(opts.sourceKinds);
+        questions = questions.filter((q) => {
+          const kind = q.source?.kind || "PERSONAL";
+          return allowedSources.has(kind);
+        });
+      }
     }
 
     const selectedModes: QuestionPoolMode[] = (opts.modes && opts.modes.length > 0)
       ? opts.modes
       : mode === "continuous" || mode === "ordered" ? ["random"] : [mode as QuestionPoolMode];
 
-    const isAllRandom = selectedModes.includes("random") || selectedModes.length === 0;
+    const isAllRandom = isTargetedBatchOrQuestions || selectedModes.includes("random") || selectedModes.length === 0;
 
     if (!isAllRandom) {
       const eligibleQuestionIds = new Set<string>();
@@ -1971,7 +1993,7 @@ export class AppDatabase {
 
     const units = groupQuestionsIntoUnits(questions);
     const seed = crypto.randomUUID();
-    const shouldShuffleQuestions = opts.shuffleQuestions ?? true;
+    const shouldShuffleQuestions = opts.shuffleQuestions ?? !isTargetedBatchOrQuestions;
     const shouldShuffleOptions = opts.shuffleOptions ?? true;
     const isReviewMode = mode === "due" || opts.instantFeedback === true || selectedModes.some((m) => ["wrong", "doubtful", "guess", "due", "skipped", "mastered"].includes(m));
 
@@ -1990,16 +2012,19 @@ export class AppDatabase {
 
     const [profilePolicy] = await this.client.query<{ penalty_numerator: number; penalty_denominator: number }>("SELECT penalty_numerator,penalty_denominator FROM profiles WHERE id=? LIMIT 1", [profileId]);
 
+    const targetCount = isTargetedBatchOrQuestions ? questions.length : (opts.count ?? 20);
+
     const sessionConfig: SessionConfig = {
       profileId,
       sessionType: opts.sessionType || (isReviewMode ? "review" : "exam"),
       mode,
       modes: selectedModes,
-      subjectFilter,
+      subjectFilter: isTargetedBatchOrQuestions ? (questions[0]?.subject || null) : subjectFilter,
       subjectFilters: subjects,
       chapterFilters,
       topicFilters,
-      requestedCount: isOpenEnded ? null : (opts.count ?? 20),
+      batchId: opts.batchId || null,
+      requestedCount: isOpenEnded ? null : targetCount,
       isOpenEnded,
       scorePolicy: {
         penaltyNumerator: opts.negativeMarking === false ? 0 : Number(profilePolicy?.penalty_numerator ?? 1),
@@ -2016,7 +2041,6 @@ export class AppDatabase {
       // In continuous/open-ended mode, start with ONLY the first unit!
       selected = [...orderedUnits[0]];
     } else {
-      const targetCount = opts.count ?? 20;
       for (const unit of orderedUnits) {
         if (selected.length >= targetCount) break;
         selected.push(...unit);
