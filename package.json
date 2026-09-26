@@ -1,6 +1,6 @@
 {
   "name": "testino",
-  "version": "2.0.1",
+  "version": "2.0.4",
   "description": "سامانه آزمون‌یار و مرور هوشمند تستینو",
   "author": "Testino",
   "type": "module",
@@ -10,7 +10,8 @@
     "dev": "node scripts/dev.mjs",
     "build": "npm run build:web",
     "build:web": "node scripts/bump-version.mjs --no-bump && node scripts/prepare-assets.mjs && next build --webpack && node scripts/build-sw.mjs",
-    "release": "node scripts/prepare-release.mjs",
+    "release": "node scripts/ship.mjs",
+    "ship": "node scripts/ship.mjs",
     "start": "node scripts/serve.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

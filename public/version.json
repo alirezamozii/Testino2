@@ -1,12 +1,12 @@
 {
-  "version": "2.0.1",
-  "build": 70,
+  "version": "2.0.4",
+  "build": 73,
   "releaseDate": "2026-09-26",
   "changelog": [
-    "رفع خطای InvalidMutationBatch و تکه‌بندی ایمن همگام‌سازی ابری",
-    "تثبیت حذف سوابق آزمون و جلوگیری قطعی از بازگشت داده‌های پاک‌شده",
-    "اصلاح آمار عملکرد دروس بر اساس آخرین وضعیت تسلط بر تست‌های یکتا",
-    "بهبود چیدمان مرحله ۲ ساخت آزمون و رفع تداخل نوار ناوبری در موبایل"
+    "fix(sync): portal diagnostics modal, optimize batch chunking and eliminate redundant API polling",
+    "fix(sync, analytics, ui, update): fix InvalidMutationBatch, FINISHED_TERMINAL tombstone, analytics mastery deduplication, mobile builder layout, and remote update feed",
+    "test(sync): verify bidirectional cross-device sync fidelity and tombstone deletion",
+    "fix(bank): make action buttons stacked on mobile to prevent text wrapping, add bottom padding for nav bar"
   ],
   "downloadUrls": {
     "windows": "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Setup-x64.exe",

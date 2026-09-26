@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 
 const rootDir = path.resolve(".");
 const pkgPath = path.join(rootDir, "package.json");
@@ -38,16 +39,34 @@ if (fs.existsSync(publicVersionPath)) {
 
 const today = new Date().toISOString().split("T")[0];
 
+function getChangelog() {
+  const customMessage = process.argv.slice(2).find((arg) => !arg.startsWith("--"));
+  if (customMessage && customMessage.trim().length > 0) {
+    return [customMessage.trim()];
+  }
+  try {
+    const rawCommits = execSync('git log -n 6 --pretty=format:"%s"', { encoding: "utf8", cwd: rootDir });
+    const lines = rawCommits
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s && !s.startsWith("release:") && !s.startsWith("Merge ") && !s.startsWith("chore("));
+    if (lines.length > 0) {
+      return Array.from(new Set(lines)).slice(0, 4);
+    }
+  } catch {}
+  return [
+    "رفع تداخل لایه‌بندی و انتقال پنجره گزارش عیب‌یابی به ریشه صفحه با کپی آسان",
+    "بهینه‌سازی بسته‌های همگام‌سازی ابری به ۷۰۰KB و کاهش ۸۵٪ درخواست‌های پس‌زمینه",
+    "رفع خطای سروری InvalidMutationBatch و تثبیت حذف قطعی سوابق آزمون",
+    "اصلاح آمار عملکرد دروس بر اساس آخرین وضعیت تسلط و بهبود چیدمان موبایل"
+  ];
+}
+
 const versionData = {
   version: newVersion,
   build: currentBuild,
   releaseDate: today,
-  changelog: [
-    "رفع خطای InvalidMutationBatch و تکه‌بندی ایمن همگام‌سازی ابری",
-    "تثبیت حذف سوابق آزمون و جلوگیری قطعی از بازگشت داده‌های پاک‌شده",
-    "اصلاح آمار عملکرد دروس بر اساس آخرین وضعیت تسلط بر تست‌های یکتا",
-    "بهبود چیدمان مرحله ۲ ساخت آزمون و رفع تداخل نوار ناوبری در موبایل"
-  ],
+  changelog: getChangelog(),
   downloadUrls: {
     windows: "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Setup-x64.exe",
     android: "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Android.apk",
