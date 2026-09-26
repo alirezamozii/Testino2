@@ -319,4 +319,104 @@ describe("aggregate cross-device sync and offline library", () => {
     await laptop.close();
     await phone.close();
   });
+
+  it("gracefully handles out-of-order pull items and missing foreign keys without throwing code 787", async () => {
+    const db = await createTestDatabase();
+    await new MigrationRunner().run(db);
+
+    const cloud = new MemoryCloudTransport();
+    // Simulate remote server having a sessionBundle with a non-existent profile and review items with non-existent attempts
+    cloud.changes.push({
+      changeSeq: "1",
+      entityType: "sessionBundle",
+      entityId: "session-orphan",
+      serverVersion: 1,
+      isTombstone: false,
+      payload: {
+        session: {
+          id: "session-orphan",
+          profile_id: "profile-non-existent-yet",
+          state: "FINISHED",
+          selection_seed: "seed-123",
+          created_at: Date.now(),
+        },
+        sessionQuestions: [
+          {
+            id: "sq-orphan-1",
+            session_id: "session-orphan",
+            question_id: "question-orphan-1",
+            ordinal: 0,
+            snapshot_json: JSON.stringify({ externalKey: "ext-q1", subject: "ریاضی" }),
+            option_order_json: "[]",
+          },
+        ],
+        attempts: [
+          {
+            id: "att-orphan-1",
+            session_question_id: "sq-orphan-1",
+            session_id: "session-orphan",
+            question_id: "question-orphan-1",
+            result: "correct",
+            visited: 1,
+          },
+        ],
+        reviews: [
+          {
+            question_id: "question-orphan-1",
+            due_at: Date.now() + 86400000,
+            priority: 1,
+            stable_streak: 1,
+            interval_days: 1,
+            last_attempt_id: "att-orphan-1",
+          },
+        ],
+      },
+      createdAt: new Date().toISOString(),
+    });
+
+    // Also push a question referencing non-existent group_id and source_id
+    cloud.changes.push({
+      changeSeq: "2",
+      entityType: "questionBundle",
+      entityId: "q-with-missing-group",
+      serverVersion: 1,
+      isTombstone: false,
+      payload: {
+        question: {
+          id: "q-with-missing-group",
+          external_key: "ext-missing-group",
+          subject: "اقتصاد",
+          group_id: "non-existent-group-id",
+          source_id: "non-existent-source-id",
+          content_json: "[]",
+          status: "published",
+        },
+        options: [],
+        revisions: [],
+        questionMedia: [
+          {
+            id: "qm-1",
+            question_id: "q-with-missing-group",
+            media_id: "non-existent-media-id",
+            role: "content",
+          },
+        ],
+      },
+      createdAt: new Date().toISOString(),
+    });
+
+    const outboxRepo = new OutboxRepository(db);
+    const pullResult = await executePull("owner-test", db, outboxRepo, cloud, { limit: 100 });
+
+    expect(pullResult.errors).toHaveLength(0);
+    expect(pullResult.pulledCount).toBe(2);
+
+    // Verify session and question were persisted cleanly
+    const sessions = await db.query<{ id: string }>("SELECT id FROM sessions WHERE id='session-orphan'");
+    expect(sessions).toHaveLength(1);
+    const questions = await db.query<{ id: string }>("SELECT id FROM questions WHERE id='q-with-missing-group'");
+    expect(questions).toHaveLength(1);
+
+    await db.close();
+  });
 });

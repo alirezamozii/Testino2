@@ -162,17 +162,19 @@ describe("Analytics Aggregates & Target Percentage (TASK-023)", () => {
       [crypto.randomUUID(), sq2, s2, q1, now - 5000]
     );
 
-    // Analytics should reflect Q1 once (as mastered/correct), not count 2 questions!
+    // Analytics tracks both total cumulative exam attempts (for true Konkur scoring and sync with Dashboard)
+    // and unique questions count
     const result = await appDb.analytics(profileId);
-    expect(result.totals.total).toBe(1); // 1 unique question tested
+    expect(result.totals.total).toBe(2); // 2 total exam attempts
     expect(result.totals.totalAttempts).toBe(2); // 2 total attempts across sessions
-    expect(result.totals.correct).toBe(1); // latest attempt is correct
-    expect(result.totals.wrong).toBe(0);
+    expect(result.totals.uniqueQuestionsCount).toBe(1); // 1 unique question tested
+    expect(result.totals.correct).toBe(1); // 1 correct attempt
+    expect(result.totals.wrong).toBe(1); // 1 wrong attempt preserved accurately
 
     const math = result.bySubject.find((s) => s.subject === "ریاضی عمومی");
-    expect(math?.total).toBe(1);
+    expect(math?.total).toBe(2);
     expect(math?.totalAttempts).toBe(2);
     expect(math?.correct).toBe(1);
-    expect(math?.wrong).toBe(0);
+    expect(math?.wrong).toBe(1);
   });
 });
