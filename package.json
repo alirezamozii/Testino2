@@ -15,7 +15,7 @@
     "start": "node scripts/serve.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && npm run benchmark",
     "test:e2e": "playwright test",
     "check": "npm run lint && npm run typecheck && npm test",
     "android:sync": "npm run build:web && cap sync android",
