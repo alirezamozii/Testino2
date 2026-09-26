@@ -16,6 +16,7 @@ import { registerSubject } from "@/platform/shared-subjects";
 import { syncCommunityQuestionsForSubjects } from "@/platform/community-questions";
 import { MediaService } from "@/features/media/domain/media-service";
 import { useAuthAvatar } from "@/platform/auth/use-avatar";
+import { APP_VERSION, APP_BUILD } from "@/config/version";
 import { checkAppUpdate, type UpdateCheckResult } from "@/features/update/domain/update-service";
 import { UpdateDialog } from "@/features/update/components/update-dialog";
 import { OfflineLibraryCard } from "@/features/offline/components/offline-library-card";
@@ -107,9 +108,10 @@ export default function SettingsPage() {
       const res = await checkAppUpdate();
       setUpdateResult(res);
       if (res.hasUpdate) {
+        setShowAbout(false);
         setShowManualUpdateDialog(true);
       } else {
-        setUpdateFeedback(res.message || "شما از آخرین نسخه استفاده می‌کنید");
+        setUpdateFeedback(res.message || `شما از آخرین نسخه استفاده می‌کنید (v${APP_VERSION} - بیلد ${APP_BUILD})`);
       }
     } catch {
       setUpdateFeedback("خطا در بررسی به‌روزرسانی یا عدم دسترسی به شبکه");

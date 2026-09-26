@@ -8,14 +8,10 @@ export function UpdateNotifier() {
   const [availableUpdate, setAvailableUpdate] = useState<UpdateCheckResult | null>(null);
 
   useEffect(() => {
-    // Only show automatic update pop-ups on native apps (Desktop/Android) where binaries must be updated.
-    // On the web, browsers seamlessly fetch the latest deployment on visit without disturbing the user.
     let isCancelled = false;
 
     async function initUpdateCheck() {
-      const { checkIsNative } = await import("@/platform/detection");
-      const isNative = await checkIsNative();
-      if (!isNative || isCancelled) return;
+      if (isCancelled) return;
 
       try {
         const result = await checkAppUpdate();
@@ -33,7 +29,7 @@ export function UpdateNotifier() {
 
     const timer = setTimeout(() => {
       initUpdateCheck();
-    }, 3000);
+    }, 2000);
 
     return () => {
       isCancelled = true;

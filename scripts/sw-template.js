@@ -26,7 +26,12 @@ self.addEventListener("message", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
-  if (url.pathname.endsWith(".pdf") || url.pathname.includes("/bank_pdfs/")) {
+  if (
+    url.pathname.endsWith(".pdf") ||
+    url.pathname.includes("/bank_pdfs/") ||
+    url.pathname.endsWith("/version.json") ||
+    url.pathname === "/version.json"
+  ) {
     return;
   }
   event.respondWith(

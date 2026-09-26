@@ -12,7 +12,7 @@ async function walk(directory) {
       await walk(absolute);
     } else {
       const ext = path.extname(entry.name).toLowerCase();
-      if ([".map", ".pdf", ".csv", ".txt"].includes(ext) || entry.name === "sw.js") {
+      if ([".map", ".pdf", ".csv", ".txt"].includes(ext) || entry.name === "sw.js" || entry.name === "version.json") {
         continue;
       }
       assets.push("/" + path.relative(root, absolute).replaceAll(path.sep, "/"));

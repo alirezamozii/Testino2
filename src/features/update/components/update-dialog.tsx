@@ -15,7 +15,10 @@ export function UpdateDialog({ update, onClose }: UpdateDialogProps) {
       if ((window as unknown as { testinoDesktop?: boolean }).testinoDesktop) {
         return "desktop";
       }
-      if (navigator.userAgent.includes("Android") && (window as unknown as { Capacitor?: unknown }).Capacitor) {
+      if (
+        navigator.userAgent.includes("Android") ||
+        Boolean((window as unknown as { Capacitor?: unknown }).Capacitor)
+      ) {
         return "android";
       }
     }
@@ -26,21 +29,30 @@ export function UpdateDialog({ update, onClose }: UpdateDialogProps) {
   const handleApplyWebUpdate = async () => {
     setIsUpdating(true);
     try {
-      if ("serviceWorker" in navigator) {
+      // 1. Purge all browser cache storage so stale assets are removed
+      if (typeof window !== "undefined" && "caches" in window) {
+        const keys = await window.caches.keys();
+        await Promise.all(keys.map((k) => window.caches.delete(k)));
+      }
+      // 2. Unregister and update service workers
+      if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
         for (const reg of registrations) {
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: "SKIP_WAITING" });
+          }
           await reg.update().catch(() => {});
+          await reg.unregister().catch(() => {});
         }
       }
     } catch {
-      // Even if the SW update probe fails, the reload below still picks up
-      // the newly deployed bundle (next navigation fetches fresh HTML).
+      // Even if the SW probe fails, the hard reload below fetches fresh bundle
     } finally {
-      // Always reload — the button must never stay disabled forever when
-      // getRegistrations() rejects (insecure context, denied storage …).
       setTimeout(() => {
-        window.location.reload();
-      }, 500);
+        const url = new URL(window.location.href);
+        url.searchParams.set("_upd", Date.now().toString());
+        window.location.href = url.toString();
+      }, 400);
     }
   };
 
@@ -143,16 +155,28 @@ export function UpdateDialog({ update, onClose }: UpdateDialogProps) {
             </a>
           )}
 
-          {platform === "android" && update.downloadUrls.android && (
-            <a
-              href={update.downloadUrls.android}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-3.5 px-4 rounded-2xl bg-[var(--accent)] text-white font-black text-sm flex items-center justify-center gap-2 border-2 border-[var(--line-strong)] shadow-[3px_3px_0px_var(--neo-shadow)] hover:brightness-105 active:translate-x-0.5 active:translate-y-0.5 transition-all text-center"
-            >
-              <Download className="w-4 h-4" />
-              دانلود فایل نصبی جدید اندروید (APK)
-            </a>
+          {platform === "android" && (
+            <>
+              <button
+                onClick={handleApplyWebUpdate}
+                disabled={isUpdating}
+                className="w-full py-3.5 px-4 rounded-2xl bg-[var(--accent)] text-white font-black text-sm flex items-center justify-center gap-2 border-2 border-[var(--line-strong)] shadow-[3px_3px_0px_var(--neo-shadow)] hover:brightness-105 active:translate-x-0.5 active:translate-y-0.5 transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${isUpdating ? "animate-spin" : ""}`} />
+                {isUpdating ? "در حال به‌روزرسانی و بارگذاری مجدد..." : "به‌روزرسانی فوری درون برنامه (PWA)"}
+              </button>
+              {update.downloadUrls.android && (
+                <a
+                  href={update.downloadUrls.android}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3 px-4 rounded-2xl bg-[var(--surface-2)] text-[var(--ink)] font-black text-xs sm:text-sm flex items-center justify-center gap-2 border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:bg-[var(--surface)] active:translate-x-0.5 active:translate-y-0.5 transition-all text-center"
+                >
+                  <Download className="w-4 h-4 text-[var(--accent)]" />
+                  دانلود فایل نصبی اندروید (فایل APK مستقیم)
+                </a>
+              )}
+            </>
           )}
 
           {/* Fallback download options if platform specific not detected */}
