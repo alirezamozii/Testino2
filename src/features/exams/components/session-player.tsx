@@ -461,7 +461,6 @@ export function SessionPlayer() {
         sessionId={id}
         durationMinutes={durationMinutes}
         persistedSeconds={persistedSeconds}
-        isCurrentRevealed={isCurrentRevealed}
         onGapDetected={() => setGapNotice(true)}
         onAutoPause={() => {
           if (id) {

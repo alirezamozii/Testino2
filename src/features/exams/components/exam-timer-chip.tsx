@@ -3,22 +3,21 @@
 import React, { memo, useEffect, useRef, useState } from "react";
 import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { createActiveTimer, processHeartbeat, HEARTBEAT_INTERVAL_MS } from "../domain/active-timer";
 
 export interface ExamTimerChipProps {
   sessionId?: string;
   durationMinutes: number | null;
   persistedSeconds: number;
   isRunning: boolean;
-  isRevealed: boolean;
-  onGapDetected: () => void;
-  onAutoPause: () => void;
+  onGapDetected?: () => void;
+  onAutoPause?: () => void;
 }
 
 function formatTimer(totalSec: number): string {
-  const hrs = Math.floor(totalSec / 3600);
-  const mins = Math.floor((totalSec % 3600) / 60);
-  const secs = totalSec % 60;
+  const safeSec = Math.max(0, Math.floor(totalSec));
+  const hrs = Math.floor(safeSec / 3600);
+  const mins = Math.floor((safeSec % 3600) / 60);
+  const secs = safeSec % 60;
   const mmss = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   return hrs > 0 ? `${hrs}:${mmss}` : mmss;
 }
@@ -28,20 +27,24 @@ export const ExamTimerChip = memo(function ExamTimerChip({
   durationMinutes,
   persistedSeconds,
   isRunning,
-  isRevealed,
   onGapDetected,
   onAutoPause,
 }: ExamTimerChipProps) {
   const [totalSeconds, setTotalSeconds] = useState(persistedSeconds);
-  const timerStateRef = useRef(createActiveTimer());
   const prevSessionIdRef = useRef(sessionId);
+  const onGapDetectedRef = useRef(onGapDetected);
+  const onAutoPauseRef = useRef(onAutoPause);
+  const lastTickRef = useRef<number | null>(null);
+
+  onGapDetectedRef.current = onGapDetected;
+  onAutoPauseRef.current = onAutoPause;
 
   // If sessionId changes, synchronize to new session
   useEffect(() => {
     if (sessionId !== prevSessionIdRef.current) {
       prevSessionIdRef.current = sessionId;
       setTotalSeconds(persistedSeconds);
-      timerStateRef.current = createActiveTimer();
+      lastTickRef.current = null;
     }
   }, [sessionId, persistedSeconds]);
 
@@ -50,25 +53,35 @@ export const ExamTimerChip = memo(function ExamTimerChip({
     setTotalSeconds((prev) => Math.max(prev, persistedSeconds));
   }, [persistedSeconds]);
 
+  // High-efficiency, stable 1-second monotonic tick (1 Hz, near-zero CPU)
   useEffect(() => {
-    if (!isRunning || isRevealed) return;
+    if (!isRunning) {
+      lastTickRef.current = null;
+      return;
+    }
+
+    lastTickRef.current = performance.now();
+
     const interval = setInterval(() => {
-      const res = processHeartbeat(
-        timerStateRef.current,
-        performance.now(),
-        document.visibilityState === "visible"
-      );
-      timerStateRef.current = res.nextState;
-      if (res.gapDetected || res.shouldPause) {
-        onGapDetected();
-        onAutoPause();
-      } else if (res.deltaMs > 0) {
-        setTotalSeconds((prev) => prev + Math.round(res.deltaMs / 1000));
+      const now = performance.now();
+      const last = lastTickRef.current ?? now;
+      const deltaMs = now - last;
+      lastTickRef.current = now;
+
+      // Only if device was suspended or in deep sleep for > 90 seconds
+      if (deltaMs > 90_000) {
+        onGapDetectedRef.current?.();
+        onAutoPauseRef.current?.();
+        return;
       }
-    }, HEARTBEAT_INTERVAL_MS);
+
+      // Normal tick: increment by elapsed seconds (typically 1s)
+      const secDelta = Math.max(1, Math.round(deltaMs / 1000));
+      setTotalSeconds((prev) => prev + secDelta);
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [isRunning, isRevealed, onGapDetected, onAutoPause]);
+  }, [isRunning]);
 
   const remainingSeconds =
     durationMinutes && durationMinutes > 0

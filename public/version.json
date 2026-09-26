@@ -3,10 +3,10 @@
   "build": 77,
   "releaseDate": "2026-09-26",
   "changelog": [
+    "fix(e2e,exams): align finish modal submit button, refine pause selectors, and handle wasm fallback in hygiene watchdog",
     "feat(review,pools): retain cumulative error log for lifelong mistake re-testing",
     "fix(review,exams): unify leitner mastery, fix bank coverage, harmonize finish modals, and freeze timer on explanation",
-    "fix(sync,analytics): resolve foreign key pull constraint code 787, unify analytics calculations with dashboard, and remove diagnostics UI",
-    "perf: optimize tree-shaking, add instant dashboard skeleton, and bump version to 2.0.7 (build 76)"
+    "fix(sync,analytics): resolve foreign key pull constraint code 787, unify analytics calculations with dashboard, and remove diagnostics UI"
   ],
   "downloadUrls": {
     "windows": "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Setup-x64.exe",

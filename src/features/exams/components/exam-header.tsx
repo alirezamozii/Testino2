@@ -14,7 +14,6 @@ export interface ExamHeaderProps {
   sessionId: string;
   durationMinutes: number | null;
   persistedSeconds: number;
-  isCurrentRevealed: boolean;
   onGapDetected: () => void;
   onAutoPause: () => void;
   onOpenSourceModal: () => void;
@@ -34,7 +33,6 @@ export function ExamHeader({
   sessionId,
   durationMinutes,
   persistedSeconds,
-  isCurrentRevealed,
   onGapDetected,
   onAutoPause,
   onOpenSourceModal,
@@ -75,7 +73,6 @@ export function ExamHeader({
             durationMinutes={durationMinutes}
             persistedSeconds={persistedSeconds}
             isRunning={isRunning}
-            isRevealed={isCurrentRevealed}
             onGapDetected={onGapDetected}
             onAutoPause={onAutoPause}
           />
