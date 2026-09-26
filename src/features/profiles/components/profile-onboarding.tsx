@@ -5,21 +5,9 @@ import { useRouter } from "next/navigation";
 import { searchSubjects, registerSubject, getPopularSubjects } from "@/platform/shared-subjects";
 import {
   ArrowLeft,
-  Check,
   ChevronRight,
-  Plus,
-  Target,
   Sparkles,
-  Trash2,
-  User,
   Loader2,
-  Mail,
-  Lock,
-  Eye,
-  EyeOff,
-  Link2,
-  GripVertical,
-  Unlink,
 } from "lucide-react";
 import { useDatabase } from "@/providers/database-provider";
 import { useSync } from "@/providers/sync-provider";
@@ -27,9 +15,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { withTimeout } from "@/lib/with-timeout";
 import { BrandLogo } from "@/components/ui/brand-logo";
+import { NeoButton } from "@/components/ui/neo-primitives";
 import { calculateWeightedTarget } from "@/features/profiles/domain/score-groups";
 import { canonicalizeSubject, isSameSubject } from "@/features/questions/domain/subject-registry";
-import { sanitizeIntegerInput } from "@/lib/number-utils";
 import {
   getSupabaseConfig,
   signInWithGoogle,
@@ -39,6 +27,11 @@ import {
   getCurrentAuthUser,
   exchangeOAuthCode,
 } from "@/platform/auth/supabase-client";
+import { OnboardingStepper } from "./onboarding-stepper";
+import { OnboardingStepIdentity } from "./onboarding-step-identity";
+import { OnboardingStepTrack } from "./onboarding-step-track";
+import { OnboardingStepSubjects } from "./onboarding-step-subjects";
+import { ExistingAccountModal } from "./existing-account-modal";
 
 /** Auth requests must never hang the onboarding spinner forever. */
 const AUTH_REQUEST_TIMEOUT_MS = 15_000;
@@ -86,9 +79,6 @@ export function ProfileOnboarding() {
   const [newSubjTarget, setNewSubjTarget] = useState(70);
   const [newSubjQuestions, setNewSubjQuestions] = useState(25);
   const [subjectError, setSubjectError] = useState("");
-  const [draggedSubjectIndex, setDraggedSubjectIndex] = useState<number | null>(null);
-  const [dragOverTargetIndex, setDragOverTargetIndex] = useState<number | null>(null);
-  const [mergePickerForIndex, setMergePickerForIndex] = useState<number | null>(null);
 
   // Autocomplete & Community Suggestions from Supabase shared subjects
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -96,7 +86,6 @@ export function ProfileOnboarding() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [popularSubjects, setPopularSubjects] = useState<string[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const suggestionsRef = useRef<HTMLDivElement>(null);
   const googlePollRef = useRef<number | null>(null);
 
   // Clear any running Google session polling when the page unmounts.
@@ -251,17 +240,6 @@ export function ProfileOnboarding() {
         .catch(() => {});
     }
   }, [step]);
-
-  // Dismiss suggestions dropdown when clicking outside
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   // Effective track name
   const effectiveTrack = trackName.trim() || "عمومی";
@@ -719,9 +697,6 @@ export function ProfileOnboarding() {
         return s;
       });
     });
-    setDraggedSubjectIndex(null);
-    setDragOverTargetIndex(null);
-    setMergePickerForIndex(null);
   }
 
   function handleUngroupOnboardingSubject(idx: number) {
@@ -825,12 +800,6 @@ export function ProfileOnboarding() {
     }
   }
 
-  const stepsHeader = [
-    { num: 1, label: "مشخصات و حساب" },
-    { num: 2, label: "آزمون و رشته" },
-    { num: 3, label: "درس‌ها و هدف" },
-  ];
-
   return (
     <div className="onboarding-page w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-6">
       {/* Top Brand Bar */}
@@ -842,53 +811,7 @@ export function ProfileOnboarding() {
       </div>
 
       {/* Stepper Header */}
-      <div className="card-neo p-4 sm:p-5 bg-[var(--surface)]">
-        <div className="flex items-center justify-between max-w-2xl mx-auto">
-          {stepsHeader.map((s, idx) => {
-            const isCurrent = step === s.num;
-            const isDone = step > s.num;
-            return (
-              <div key={s.num} className="flex items-center flex-1 last:flex-initial">
-                <div className="flex flex-col items-center flex-1">
-                  <div
-                    className={cn(
-                      "w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center font-black text-xs transition-all border-2",
-                      isCurrent
-                        ? "bg-[var(--testino-orange)] text-white border-[var(--line)] shadow-[2px_2px_0px_var(--line)] scale-110"
-                        : isDone
-                        ? "bg-[var(--brand-green)] text-[var(--ink-on-color)] border-[var(--line)]"
-                        : "bg-[var(--surface-2)] text-[var(--muted)] border-[var(--line-strong)]"
-                    )}
-                  >
-                    {isDone ? <Check size={16} strokeWidth={3} /> : s.num}
-                  </div>
-
-                  <span
-                    className={cn(
-                      "text-[10px] sm:text-xs font-black mt-1.5 transition-colors whitespace-nowrap",
-                      isCurrent
-                        ? "text-[var(--testino-orange)] font-black"
-                        : isDone
-                        ? "text-[var(--ink)]"
-                        : "text-[var(--muted)]"
-                    )}
-                  >
-                    {s.label}
-                  </span>
-                </div>
-                {idx < stepsHeader.length - 1 && (
-                  <div
-                    className={cn(
-                      "h-0.5 flex-1 mx-1.5 mb-5 transition-colors rounded-full",
-                      step > idx + 1 ? "bg-[var(--brand-green)]" : "bg-[var(--surface-3)]"
-                    )}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <OnboardingStepper currentStep={step} />
 
       {/* Main Responsive Two-Column Layout on Desktop */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -969,800 +892,97 @@ export function ProfileOnboarding() {
             {/* =================================================================== */}
             {/* STEP 1: هویت کاربر و احراز هویت تب‌دار */}
             {/* =================================================================== */}
+            {/* STEP 1: Identity & Auth */}
             {step === 1 && (
-              <div className="space-y-5 sm:space-y-6">
-                <div className="text-right space-y-1">
-                  <span className="inline-block text-[10px] sm:text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-2 border-[var(--line)]">
-                    گام ۱ از ۴ • هویت و حساب کاربری
-                  </span>
-                  <h2 className="text-lg sm:text-2xl font-black text-[var(--ink)] pt-1">
-                    نام خود را وارد کنید
-                  </h2>
-                  <p className="text-xs text-[var(--muted)] font-bold leading-relaxed">
-                    نام نمایشی شما در کارنامه‌ها و گزارش‌های مطالعه درج می‌شود. اتصال به حساب کاملاً اختیاری است.
-                  </p>
-                </div>
-
-                {/* Identity & Avatar Card */}
-                <div className="p-3.5 sm:p-5 rounded-2xl border-2 border-[var(--line)] bg-[var(--surface-2)] space-y-3 sm:space-y-4">
-                  <div className="flex items-center gap-3 sm:gap-4">
-                    {/* Avatar Preview */}
-                    <div className="relative shrink-0">
-                      {avatarUrl ? (
-                        <img
-                          src={avatarUrl}
-                          alt="Avatar"
-                          className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl border-2 border-[var(--line)] object-cover shadow-[2px_2px_0px_var(--line)]"
-                        />
-                      ) : (
-                        <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl bg-[var(--pastel-orange)]/30 border-2 border-[var(--line)] flex items-center justify-center font-black text-lg sm:text-xl text-[var(--testino-orange)] shadow-[2px_2px_0px_var(--line)]">
-                          {userName.trim() ? userName.trim().slice(0, 2) : <User size={24} className="text-[var(--ink)]" />}
-                        </div>
-                      )}
-                      {isAuthenticated && (
-                        <div
-                          className="absolute -bottom-1 -left-1 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-[var(--brand-green)] border-2 border-[var(--line)] flex items-center justify-center text-white"
-                          title="حساب متصل است"
-                        >
-                          <Check size={11} strokeWidth={3.5} />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex-1 space-y-1 min-w-0">
-                      <label className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5 truncate">
-                        <User size={13} className="text-[var(--testino-orange)] shrink-0" />
-                        <span>نام یا نام مستعار شما:</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={userName}
-                        onChange={(e) => {
-                          setUserName(e.target.value);
-                          if (error) setError("");
-                        }}
-                        placeholder="نام یا نام خانوادگی خود را بنویسید..."
-                        className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-3 py-2 text-xs sm:text-sm font-black text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--testino-orange)] shadow-[2px_2px_0px_var(--line)]"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Auth Connection Card — Tabbed */}
-                <div className="p-4 sm:p-5 rounded-2xl border-2 border-[var(--line)] bg-[var(--surface)] space-y-4 shadow-[2px_2px_0px_var(--line)]">
-                  <div className="flex items-center gap-3 pb-2">
-                    <div className="w-11 h-11 rounded-2xl bg-[var(--surface)] dark:bg-slate-900 border-2 border-[var(--line)] flex items-center justify-center shrink-0 shadow-[2px_2px_0px_var(--line)]">
-                      <Lock size={20} className="text-[var(--ink)]" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <strong className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                          اتصال به حساب کاربری
-                        </strong>
-                        <span className={cn(
-                          "text-[10px] font-black px-2 py-0.5 rounded-full border",
-                          isAuthenticated
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
-                            : "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
-                        )}>
-                          {isAuthenticated ? "متصل شده" : "اختیاری"}
-                        </span>
-                      </div>
-                      <span className="text-[11px] font-bold text-[var(--muted)] block mt-0.5">
-                        {isAuthenticated
-                          ? `حساب فعال: ${authEmail}`
-                          : "برای همگام‌سازی ابری بین دستگاه‌ها (اختیاری)"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {isAuthenticated ? (
-                    <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border-2 border-emerald-300 dark:border-emerald-800">
-                      <div className="flex items-center gap-2">
-                        <Check size={16} className="text-emerald-600" />
-                        <span className="text-xs font-black text-emerald-800 dark:text-emerald-300">{authEmail}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleDisconnectAuth}
-                        className="py-1.5 px-3 rounded-xl border border-red-300 text-red-600 bg-red-50 dark:bg-red-950/40 text-xs font-bold hover:bg-red-100 transition-colors"
-                      >
-                        قطع اتصال
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Auth Tabs */}
-                      <div className="flex gap-2 p-1 rounded-xl bg-[var(--surface-2)] border border-[var(--line-strong)]">
-                        <button
-                          type="button"
-                          onClick={() => setAuthTab("google")}
-                          className={cn(
-                            "flex-1 py-2.5 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer",
-                            authTab === "google"
-                              ? "bg-[var(--surface)] text-[var(--ink)] shadow-xs border border-[var(--line)]"
-                              : "text-[var(--muted)] hover:text-[var(--ink)]"
-                          )}
-                        >
-                          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                          </svg>
-                          <span>ورود با گوگل</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAuthTab("email")}
-                          className={cn(
-                            "flex-1 py-2.5 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer",
-                            authTab === "email"
-                              ? "bg-[var(--surface)] text-[var(--ink)] shadow-xs border border-[var(--line)]"
-                              : "text-[var(--muted)] hover:text-[var(--ink)]"
-                          )}
-                        >
-                          <Mail size={14} className="shrink-0" />
-                          <span>ایمیل و رمز عبور</span>
-                        </button>
-                      </div>
-
-                      {/* Email+Password Tab */}
-                      {authTab === "email" && (
-                        <form onSubmit={handleEmailAuth} className="space-y-3">
-                          <p className="text-[11px] font-bold text-[var(--muted)] leading-relaxed">
-                            ایمیل و رمز عبور وارد کنید. اگر حساب دارید وارد می‌شوید، در غیر این صورت حساب جدید ساخته می‌شود.
-                          </p>
-                          <div className="space-y-1">
-                            <label className="text-xs font-black text-[var(--ink)]">آدرس ایمیل</label>
-                            <input
-                              type="email"
-                              required
-                              value={emailInput}
-                              onChange={(e) => setEmailInput(e.target.value)}
-                              placeholder="name@example.com"
-                              className="w-full bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2.5 text-xs font-bold text-[var(--ink)] text-left dir-ltr focus:outline-none focus:ring-2 focus:ring-[var(--testino-orange)]"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-black text-[var(--ink)]">رمز عبور</label>
-                            <div className="relative">
-                              <input
-                                type={showPassword ? "text" : "password"}
-                                required
-                                value={passwordInput}
-                                onChange={(e) => setPasswordInput(e.target.value)}
-                                placeholder="••••••"
-                                className="w-full bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2.5 text-xs font-bold text-[var(--ink)] text-left dir-ltr focus:outline-none focus:ring-2 focus:ring-[var(--testino-orange)] pl-10"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--ink)]"
-                                title={showPassword ? "پنهان کردن رمز" : "نمایش رمز"}
-                              >
-                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                              </button>
-                            </div>
-                            <span className="block text-[10px] font-bold text-[var(--muted)]">حداقل ۶ کاراکتر</span>
-                          </div>
-                          <button
-                            type="submit"
-                            disabled={isAuthLoading}
-                            className="btn-neo-orange w-full py-3 text-xs sm:text-sm font-black shadow-[3px_3px_0px_var(--neo-shadow)] flex items-center justify-center gap-2 cursor-pointer"
-                          >
-                            {isAuthLoading ? (
-                              <>
-                                <Loader2 size={14} className="animate-spin" />
-                                <span>در حال ثبت اطلاعات…</span>
-                              </>
-                            ) : (
-                              <>
-                                <span>ادامه</span>
-                                <ArrowLeft size={16} />
-                              </>
-                            )}
-                          </button>
-                        </form>
-                      )}
-
-                      {/* Google Tab */}
-                      {authTab === "google" && (
-                        <div className="space-y-3">
-                          <p className="text-[11px] font-bold text-[var(--muted)] leading-relaxed">
-                            با حساب گوگل خود مستقیماً وارد شوید. اگر حساب جدیدی باشد، به‌طور خودکار ثبت‌نام انجام می‌شود.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={handleGoogleSignIn}
-                            disabled={isAuthLoading}
-                            className="py-2.5 px-4 w-full rounded-xl bg-[var(--surface)] dark:bg-slate-900 border-2 border-[var(--line)] text-xs font-black text-[var(--ink)] shadow-[2px_2px_0px_var(--line)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center justify-center gap-2"
-                          >
-                            {isAuthLoading ? (
-                              <>
-                                <Loader2 size={14} className="animate-spin text-[var(--testino-orange)]" />
-                                <span>در حال انتقال به گوگل…</span>
-                              </>
-                            ) : (
-                              <>
-                                <svg className="w-4 h-4" viewBox="0 0 24 24">
-                                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                                </svg>
-                                <span>ورود با حساب گوگل</span>
-                              </>
-                            )}
-                          </button>
-
-                          {showManualCodeInput && (
-                            <div className="p-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] space-y-2 mt-2">
-                              <label className="text-[11px] font-bold text-[var(--ink)] block">
-                                اگر مرورگر خودکار به برنامه بازنگشت، آدرس یا کد صفحه مرورگر را اینجا قرار دهید:
-                              </label>
-                              <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  value={manualOAuthCode}
-                                  onChange={(e) => setManualOAuthCode(e.target.value)}
-                                  placeholder="http://localhost:3000/?code=... یا کد"
-                                  className="flex-1 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-1.5 text-xs font-mono text-[var(--ink)]"
-                                  dir="ltr"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={handleManualOAuthSubmit}
-                                  disabled={isManualExchanging || !manualOAuthCode.trim()}
-                                  className="btn-neo-orange px-3 py-1.5 text-xs font-black rounded-xl disabled:opacity-50"
-                                >
-                                  {isManualExchanging ? "تأیید…" : "تأیید"}
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  <p className="text-[10px] text-[var(--muted)] font-bold pt-2 border-t border-[var(--line-strong)]/20">
-                    اتصال به حساب کاملاً اختیاری است. تستیونو به‌صورت ۱۰۰٪ آفلاین و مستقل روی دستگاه شما کار می‌کند.
-                  </p>
-                </div>
-              </div>
+              <OnboardingStepIdentity
+                userName={userName}
+                onUserNameChange={setUserName}
+                avatarUrl={avatarUrl}
+                isAuthenticated={isAuthenticated}
+                authEmail={authEmail}
+                isAuthLoading={isAuthLoading}
+                authTab={authTab}
+                onAuthTabChange={setAuthTab}
+                emailInput={emailInput}
+                onEmailInputChange={setEmailInput}
+                passwordInput={passwordInput}
+                onPasswordInputChange={setPasswordInput}
+                showPassword={showPassword}
+                onToggleShowPassword={() => setShowPassword((s) => !s)}
+                onEmailAuth={handleEmailAuth}
+                onGoogleSignIn={handleGoogleSignIn}
+                onDisconnectAuth={handleDisconnectAuth}
+                showManualCodeInput={showManualCodeInput}
+                manualOAuthCode={manualOAuthCode}
+                onManualOAuthCodeChange={setManualOAuthCode}
+                onManualOAuthSubmit={handleManualOAuthSubmit}
+                isManualExchanging={isManualExchanging}
+              />
             )}
 
-            {/* =================================================================== */}
-            {/* STEP 2: نوع آزمون و رشته — فقط ورودی دستی */}
-            {/* =================================================================== */}
+            {/* STEP 2: Exam & Track */}
             {step === 2 && (
-              <div className="space-y-5">
-                <div className="text-right space-y-1">
-                  <span className="inline-block text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[var(--pastel-blue)] text-[var(--ink-on-color)] border-2 border-[var(--line)]">
-                    مرحله ۲ از ۴
-                  </span>
-                  <h2 className="text-xl sm:text-2xl font-black text-[var(--ink)] pt-1">
-                    نوع آزمون و رشتهٔ شما چیست؟
-                  </h2>
-                  <p className="text-xs text-[var(--muted)] font-bold">
-                    نوع آزمون و رشتهٔ تحصیلی خود را دستی بنویسید.
-                  </p>
-                </div>
-
-                {/* Manual Exam Type Input */}
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-black text-[var(--ink)] block">
-                      نوع آزمون شما:
-                    </label>
-                    <input
-                      type="text"
-                      value={examType}
-                      onChange={(e) => setExamType(e.target.value)}
-                      placeholder="مثلاً: کنکور سراسری، کارشناسی ارشد، استخدامی، المپیاد..."
-                      className="w-full bg-[var(--surface-2)] border-2 border-[var(--line)] rounded-2xl px-4 py-3 text-xs font-black text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none focus:bg-[var(--surface)] focus:ring-2 focus:ring-[var(--testino-orange)] shadow-[2px_2px_0px_var(--line)]"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-black text-[var(--ink)] block">
-                      عنوان دقیق رشته یا گرایش شما:
-                    </label>
-                    <input
-                      type="text"
-                      value={trackName}
-                      onChange={(e) => setTrackName(e.target.value)}
-                      placeholder="مثلاً: علوم تجربی، مهندسی کامپیوتر، حقوق، پزشکی..."
-                      className="w-full bg-[var(--surface-2)] border-2 border-[var(--line)] rounded-2xl px-4 py-3 text-xs font-black text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none focus:bg-[var(--surface)] focus:ring-2 focus:ring-[var(--testino-orange)] shadow-[2px_2px_0px_var(--line)]"
-                    />
-                  </div>
-                </div>
-              </div>
+              <OnboardingStepTrack
+                examType={examType}
+                onExamTypeChange={setExamType}
+                trackName={trackName}
+                onTrackNameChange={setTrackName}
+              />
             )}
 
-            {/* =================================================================== */}
-            {/* STEP 3: تعریف درس‌ها — کاملاً دستی و خالی شروع */}
-            {/* =================================================================== */}
+            {/* STEP 3: Subjects & Target */}
             {step === 3 && (
-              <div className="space-y-4">
-                <div className="text-right space-y-1">
-                  <span className="inline-block text-[11px] font-black px-2.5 py-0.5 rounded-full bg-[#6CCB7F] text-[var(--ink)] border-2 border-[var(--line)]">
-                    مرحله ۳ از ۳ • درس‌ها و هدف
-                  </span>
-                  <h2 className="text-xl sm:text-2xl font-black text-[var(--ink)] pt-1">
-                    درس‌های فعال آزمون
-                  </h2>
-                  <p className="text-xs text-[var(--muted)] font-bold">
-                    درس‌های واقعی خود را همراه با ضریب و درصد هدف تعریف کنید.
-                  </p>
-                </div>
-
-                {/* Inline Add Subject Form with Autocomplete & Community Suggestions */}
-                <div className="p-4 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line)] space-y-3">
-                  <div className="flex items-center justify-between">
-                    <strong className="text-xs font-black text-[var(--ink)] block">
-                      + افزودن درس جدید:
-                    </strong>
-                    <span className="text-[10px] font-bold text-[var(--muted)]">
-                      جستجو در بانک دروس
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-                    {/* Autocomplete Input */}
-                    <div className="sm:col-span-4 relative" ref={suggestionsRef}>
-                      <input
-                        type="text"
-                        placeholder="نام درس (مثلاً: زیست، آمار...)"
-                        value={newSubjName}
-                        onChange={(e) => handleSubjectNameChange(e.target.value)}
-                        onFocus={() => {
-                          if (suggestions.length > 0) setShowSuggestions(true);
-                        }}
-                        className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-3 py-2 text-xs font-bold text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none focus:border-[var(--testino-orange)]"
-                      />
-                      {suggestionsLoading && (
-                        <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted)] pointer-events-none">
-                          <Loader2 size={13} className="animate-spin text-[var(--testino-orange)]" />
-                        </div>
-                      )}
-
-                      {/* Autocomplete Dropdown */}
-                      {showSuggestions && suggestions.length > 0 && (
-                        <div className="absolute top-full right-0 left-0 mt-1 z-30 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-xl shadow-[3px_3px_0px_var(--neo-shadow)] max-h-52 overflow-y-auto divide-y divide-[var(--line)]/15 neo-scrollbar">
-                          <div className="p-2 text-[10px] font-black text-[var(--muted)] bg-[var(--surface-2)] flex items-center justify-between sticky top-0 z-10">
-                            <span className="flex items-center gap-1">
-                              <Sparkles size={11} className="text-amber-500" />
-                              دروس موجود در بانک:
-                            </span>
-                            <span className="text-[9px] text-[var(--testino-orange)]">کلیک برای انتخاب</span>
-                          </div>
-                          {suggestions.map((item) => (
-                            <button
-                              key={item}
-                              type="button"
-                              onClick={() => selectSuggestion(item)}
-                              className="w-full text-right px-3 py-2 text-xs font-bold text-[var(--ink)] hover:bg-[var(--surface-cream)] hover:text-[var(--testino-orange)] transition-colors flex items-center justify-between cursor-pointer"
-                            >
-                              <span>{item}</span>
-                              <span className="text-[10px] text-[var(--muted)]">انتخاب ↵</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="sm:col-span-3 flex items-center gap-1.5">
-                      <span className="text-[11px] font-bold text-[var(--muted)] shrink-0">تعداد سؤال:</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        dir="ltr"
-                        value={newSubjQuestions || ""}
-                        onChange={(e) => {
-                          const s = sanitizeIntegerInput(e.target.value, { max: 200 });
-                          setNewSubjQuestions(s ? parseInt(s, 10) : 0);
-                        }}
-                        onBlur={() => {
-                          if (!newSubjQuestions) setNewSubjQuestions(25);
-                        }}
-                        className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
-                        title="تعداد سؤالات این درس در دفترچه کنکور"
-                      />
-                    </div>
-                    <div className="sm:col-span-2 flex items-center gap-1.5">
-                      <span className="text-[11px] font-bold text-[var(--muted)] shrink-0">ضریب:</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        dir="ltr"
-                        value={newSubjCoeff || ""}
-                        onChange={(e) => {
-                          const s = sanitizeIntegerInput(e.target.value, { max: 30 });
-                          setNewSubjCoeff(s ? parseInt(s, 10) : 0);
-                        }}
-                        onBlur={() => {
-                          if (!newSubjCoeff) setNewSubjCoeff(1);
-                        }}
-                        className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
-                      />
-                    </div>
-                    <div className="sm:col-span-3 flex items-center gap-1.5">
-                      <span className="text-[11px] font-bold text-[var(--muted)] shrink-0">هدف:</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        dir="ltr"
-                        value={newSubjTarget === 0 ? "0" : (newSubjTarget || "")}
-                        onChange={(e) => {
-                          const s = sanitizeIntegerInput(e.target.value, { max: 100 });
-                          setNewSubjTarget(s ? parseInt(s, 10) : 0);
-                        }}
-                        className="w-full bg-[var(--surface)] border-2 border-[var(--line)] rounded-xl px-2 py-2 text-xs font-black text-center text-[var(--ink)]"
-                      />
-                      <span className="text-[11px] font-bold text-[var(--muted)] shrink-0">٪</span>
-                    </div>
-                  </div>
-
-                  {/* Community / Popular Subjects Chips */}
-                  {popularSubjects.length > 0 && (
-                    <div className="space-y-2 pt-2 border-t border-[var(--line)]/15">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-[11px] font-black text-[var(--muted)]">
-                          <Sparkles size={12} className="text-amber-500" />
-                          <span>درس‌های پرکاربرد (برای درج کلیک کنید):</span>
-                        </div>
-                        <span className="text-[10px] text-[var(--muted)] font-bold">
-                          {popularSubjects.length} درس
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-1.5 rounded-xl bg-[var(--surface)] border border-[var(--line)]/40 neo-scrollbar">
-                        {popularSubjects.map((subName) => {
-                          const isAdded = selectedSubjects.some(
-                            (s) => s.name.toLowerCase() === subName.toLowerCase()
-                          );
-                          const isCurrentlyInInput = newSubjName.trim().toLowerCase() === subName.toLowerCase();
-                          return (
-                            <button
-                              key={subName}
-                              type="button"
-                              onClick={() => {
-                                selectSuggestion(subName);
-                              }}
-                              className={cn(
-                                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border-2 transition-all select-none cursor-pointer",
-                                isCurrentlyInInput
-                                  ? "bg-[var(--brand-orange)] text-white border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] scale-105"
-                                  : isAdded
-                                  ? "bg-[var(--surface-2)] text-[var(--muted)] border-[var(--line)] hover:border-[var(--line-strong)]"
-                                  : "bg-[var(--surface-2)] text-[var(--ink)] border-[var(--line)] hover:border-[var(--testino-orange)] hover:bg-[var(--surface-cream)] shadow-[1px_1px_0px_var(--neo-shadow)] active:translate-y-0.5"
-                              )}
-                              title={
-                                isCurrentlyInInput
-                                  ? "در فرم درج شده است (ضریب و هدف را تنظیم کنید)"
-                                  : isAdded
-                                  ? "قبلاً به لیست اضافه شده — کلیک برای ویرایش مجدد"
-                                  : "کلیک برای درج در فرم و تنظیم ضریب"
-                              }
-                            >
-                              <span>{subName}</span>
-                              {isCurrentlyInInput ? (
-                                <span className="text-[10px] bg-white/30 px-1 rounded">درج شد</span>
-                              ) : isAdded ? (
-                                <Check size={12} className="text-emerald-600" />
-                              ) : (
-                                <span className="text-[10px] text-[var(--muted)]">↵</span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handleAddCustomSubject}
-                    className="btn-neo-orange w-full py-2.5 text-xs font-black shadow-[2px_2px_0px_var(--line)] flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <Plus size={15} />
-                    <span>افزودن این درس به آزمون</span>
-                  </button>
-                  {subjectError && (
-                    <p className="text-[11px] text-red-600 font-bold">{subjectError}</p>
-                  )}
-                </div>
-
-                {/* List of Active Subjects */}
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
-                  {selectedSubjects.length === 0 ? (
-                    <div className="p-6 text-center rounded-2xl border-2 border-dashed border-[var(--line-strong)] text-xs text-[var(--muted)] font-bold">
-                      هنوز درسی اضافه نکرده‌اید. با فرم بالا اولین درس را اضافه کنید.
-                    </div>
-                  ) : (
-                    selectedSubjects.map((s, idx) => {
-                      const isDraggingThis = draggedSubjectIndex === idx;
-                      const isDragTarget = dragOverTargetIndex === idx;
-                      const otherSubjects = selectedSubjects
-                        .map((other, oIdx) => ({ ...other, originalIdx: oIdx }))
-                        .filter((other) => other.originalIdx !== idx);
-
-                      return (
-                        <div
-                          key={s.name}
-                          draggable={true}
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData("text/plain", String(idx));
-                            e.dataTransfer.effectAllowed = "move";
-                            setDraggedSubjectIndex(idx);
-                          }}
-                          onDragEnd={() => {
-                            setDraggedSubjectIndex(null);
-                            setDragOverTargetIndex(null);
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            if (draggedSubjectIndex !== null && draggedSubjectIndex !== idx) {
-                              setDragOverTargetIndex(idx);
-                            }
-                          }}
-                          onDragLeave={() => {
-                            if (dragOverTargetIndex === idx) {
-                              setDragOverTargetIndex(null);
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            if (draggedSubjectIndex !== null && draggedSubjectIndex !== idx) {
-                              handleMergeOnboardingSubjects(draggedSubjectIndex, idx);
-                            }
-                          }}
-                          onClick={() => toggleSubject(idx)}
-                          className={cn(
-                            "p-3 rounded-2xl border-2 text-right transition-all select-none cursor-pointer space-y-2",
-                            isDraggingThis && "opacity-40 border-dashed border-sky-400",
-                            isDragTarget
-                              ? "border-sky-500 bg-sky-500/10 shadow-[3px_3px_0px_#0284c7] scale-[1.01]"
-                              : s.selected
-                              ? "border-[var(--line-strong)] bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                              : "border-[var(--line-strong)]/30 bg-[var(--surface-2)] opacity-70 hover:opacity-100"
-                          )}
-                        >
-                          {isDragTarget && (
-                            <div className="py-1 px-2 rounded-lg bg-sky-500 text-white text-center text-[10px] font-black animate-pulse">
-                              رها کنید تا با «{s.name}» در یک گروه کنکوری ادغام شوند
-                            </div>
-                          )}
-
-                          <div className="flex items-center justify-between gap-2.5">
-                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                              {/* Drag Handle */}
-                              <div
-                                draggable={true}
-                                onDragStart={(e) => {
-                                  e.stopPropagation();
-                                  e.dataTransfer.setData("text/plain", String(idx));
-                                  e.dataTransfer.effectAllowed = "move";
-                                  setDraggedSubjectIndex(idx);
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="p-1 rounded-lg bg-[var(--surface-2)] hover:bg-sky-500 hover:text-white border border-[var(--line-strong)]/20 cursor-grab active:cursor-grabbing text-[var(--muted)] transition-colors shrink-0"
-                                title="این دستگیره را بکشید و روی درس دیگر رها کنید تا ادغام شوند"
-                              >
-                                <GripVertical size={14} />
-                              </div>
-
-                              {/* Custom Checkbox */}
-                              <div
-                                className={cn(
-                                  "w-5 h-5 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all shadow-sm",
-                                  s.selected
-                                    ? "bg-[#6CCB7F] border-[var(--line-strong)] text-white"
-                                    : "bg-[var(--surface)] border-[var(--line-strong)]/60 text-transparent"
-                                )}
-                              >
-                                <Check size={12} className={s.selected ? "stroke-[3]" : "opacity-0"} />
-                              </div>
-
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <strong className="text-xs sm:text-sm font-black text-[var(--ink)] truncate">
-                                    {s.name}
-                                  </strong>
-                                  {s.scoreGroup && (
-                                    <span className="text-[10px] font-black text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded-md bg-sky-100 dark:bg-sky-950/50 border border-sky-300 dark:border-sky-800 shrink-0">
-                                      گروه: {s.scoreGroup}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-[10px] font-bold text-[var(--muted)] flex flex-wrap items-center gap-1.5 mt-0.5">
-                                  <span className="text-[var(--ink)] font-black">ضریب: {s.coefficient}</span>
-                                  <span>•</span>
-                                  <span>{s.questionCount} سؤال</span>
-                                  <span>•</span>
-                                  <span>هدف: {s.targetPercentage}٪</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                              {s.scoreGroup && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleUngroupOnboardingSubject(idx)}
-                                  className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-[var(--surface-2)] text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800 hover:bg-amber-100 transition-colors shadow-sm"
-                                  title="خروج از گروه مشترک"
-                                >
-                                  <Unlink size={11} className="text-amber-500" />
-                                  <span className="hidden sm:inline">انفصال</span>
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveSubject(idx)}
-                                className="w-7 h-7 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors shadow-sm"
-                                title="حذف درس"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Quick merge toggle on card */}
-                          <div className="pt-1 border-t border-[var(--line-strong)]/10" onClick={(e) => e.stopPropagation()}>
-                            {mergePickerForIndex === idx ? (
-                              <div className="p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--line-strong)]/20 space-y-1.5 animate-in fade-in zoom-in-95 duration-150">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] font-black text-[var(--ink)]">
-                                    ادغام با:
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setMergePickerForIndex(null)}
-                                    className="text-[9px] font-bold text-[var(--muted)] hover:text-[var(--ink)]"
-                                  >
-                                    انصراف
-                                  </button>
-                                </div>
-                                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                                  {otherSubjects.map((other) => (
-                                    <button
-                                      key={other.name}
-                                      type="button"
-                                      onClick={() => handleMergeOnboardingSubjects(idx, other.originalIdx)}
-                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-[var(--surface)] hover:bg-sky-500 hover:text-white border border-[var(--line-strong)]/20 transition-colors"
-                                    >
-                                      <Link2 size={10} />
-                                      <span>{other.name}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-between text-[10px]">
-                                <button
-                                  type="button"
-                                  aria-label="گروه مشترک با درس دیگر"
-                                  onClick={() => setMergePickerForIndex(idx)}
-                                  className="inline-flex items-center gap-1 font-bold text-[var(--muted)] hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
-                                >
-                                  <Link2 size={11} className="text-sky-500 shrink-0" />
-                                  <span>ادغام با درس دیگر...</span>
-                                </button>
-                                <span className="text-[9px] text-[var(--muted)]">یا درگ روی درس دیگر</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                {/* Per-subject target adjustment (inline) */}
-                {activeSelectedSubjects.length > 0 && (
-                  <div className="space-y-3 pt-3 border-t-2 border-[var(--line-strong)]/20">
-                    {/* Overall Live Calculated Average Card */}
-                    <div className="p-4 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line)] shadow-[3px_3px_0px_var(--line)] flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-[var(--testino-orange)] text-white border-2 border-[var(--line)] flex items-center justify-center shrink-0">
-                          <Target size={20} />
-                        </div>
-                        <div>
-                          <strong className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                            میانگین هدف کل (محاسبه خودکار):
-                          </strong>
-                          <span className="text-[10px] text-[var(--muted)] font-bold">
-                            ابتدا اعضای گروه بر اساس تعداد سؤال ترکیب می‌شوند؛ سپس ضریب گروه یک‌بار اعمال می‌شود
-                          </span>
-                        </div>
-                      </div>
-                      <span className="text-lg sm:text-2xl font-black px-3 py-1 rounded-xl bg-[var(--testino-orange)] text-white border-2 border-[var(--line)] shadow-[2px_2px_0px_var(--line)]">
-                        {weightedAverage}٪
-                      </span>
-                    </div>
-
-                    {/* Subject sliders */}
-                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                      {selectedSubjects.map((s, idx) => {
-                        if (!s.selected) return null;
-                        return (
-                          <div
-                            key={s.name}
-                            className="p-3 rounded-2xl bg-[var(--surface)] border-2 border-[var(--line)] shadow-[2px_2px_0px_var(--line)] space-y-2"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-[var(--pastel-blue)]/40 text-[var(--ink-on-color)] border border-[var(--line)] shrink-0">
-                                  ضریب {s.coefficient}
-                                </span>
-                                <strong className="text-xs font-black text-[var(--ink)] truncate">
-                                  {s.name}
-                                </strong>
-                              </div>
-                              <span className="text-xs font-black px-2 py-0.5 rounded-lg bg-[var(--surface-2)] text-[var(--ink)] border border-[var(--line)] shrink-0">
-                                {s.targetPercentage}٪
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-3">
-                              <input
-                                type="range"
-                                min="10"
-                                max="100"
-                                step="5"
-                                value={s.targetPercentage}
-                                onChange={(e) => updateSubjectTarget(idx, Number(e.target.value))}
-                                className="flex-1 accent-[var(--testino-orange)] cursor-pointer h-2 bg-[var(--surface-3)] rounded-lg border border-[var(--line)]"
-                              />
-                              <div className="flex items-center gap-1 shrink-0">
-                                {[50, 70, 85].map((pct) => (
-                                  <button
-                                    key={pct}
-                                    type="button"
-                                    onClick={() => updateSubjectTarget(idx, pct)}
-                                    className={cn(
-                                      "px-2 py-0.5 text-[10px] font-black rounded-lg border transition-all",
-                                      s.targetPercentage === pct
-                                        ? "bg-[var(--testino-orange)] text-white border-[var(--line)]"
-                                        : "bg-[var(--surface-2)] text-[var(--muted)] border-[var(--line-strong)] hover:border-[var(--line)]"
-                                    )}
-                                  >
-                                    {pct}٪
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <OnboardingStepSubjects
+                newSubjName={newSubjName}
+                onNewSubjNameChange={handleSubjectNameChange}
+                newSubjCoeff={newSubjCoeff}
+                onNewSubjCoeffChange={setNewSubjCoeff}
+                newSubjTarget={newSubjTarget}
+                onNewSubjTargetChange={setNewSubjTarget}
+                newSubjQuestions={newSubjQuestions}
+                onNewSubjQuestionsChange={setNewSubjQuestions}
+                subjectError={subjectError}
+                suggestions={suggestions}
+                showSuggestions={showSuggestions}
+                suggestionsLoading={suggestionsLoading}
+                popularSubjects={popularSubjects}
+                onSelectSuggestion={selectSuggestion}
+                onAddCustomSubject={handleAddCustomSubject}
+                selectedSubjects={selectedSubjects}
+                onToggleSubject={toggleSubject}
+                onRemoveSubject={handleRemoveSubject}
+                onMergeSubjects={handleMergeOnboardingSubjects}
+                onUngroupSubject={handleUngroupOnboardingSubject}
+                onUpdateSubjectTarget={updateSubjectTarget}
+                weightedAverage={weightedAverage}
+                activeSelectedSubjects={activeSelectedSubjects}
+              />
             )}
 
             {/* Wizard Navigation Buttons */}
             <div className="flex items-center gap-3 pt-4 border-t border-[var(--line-strong)]/30">
               {step > 1 && (
-                <button
+                <NeoButton
                   type="button"
+                  variant="surface"
+                  size="md"
                   onClick={() => setStep((s) => s - 1)}
-                  className="py-3 px-5 rounded-2xl border-2 border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] text-xs font-black shadow-[2px_2px_0px_var(--line)] hover:translate-x-[1px] hover:translate-y-[1px] active:shadow-none transition-all flex items-center gap-1.5"
+                  className="flex items-center gap-1.5"
                 >
                   <ChevronRight size={16} />
                   <span>بازگشت</span>
-                </button>
+                </NeoButton>
               )}
 
               {step === 1 && isAuthenticated ? (
                 <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <button
+                  <NeoButton
                     type="button"
+                    variant="primary"
+                    size="md"
                     onClick={handleNextStep}
                     disabled={isAuthLoading}
-                    className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px]"
+                    className="flex-1 flex items-center justify-center gap-2"
                   >
                     {isAuthLoading ? (
                       <>
@@ -1775,7 +995,7 @@ export function ProfileOnboarding() {
                         <ArrowLeft size={16} />
                       </>
                     )}
-                  </button>
+                  </NeoButton>
                   <button
                     type="button"
                     onClick={() => setStep(2)}
@@ -1786,25 +1006,29 @@ export function ProfileOnboarding() {
                   </button>
                 </div>
               ) : step < 3 ? (
-                <button
+                <NeoButton
                   type="button"
+                  variant="primary"
+                  size="md"
                   onClick={handleNextStep}
                   disabled={isAuthLoading}
-                  className="btn-neo-orange flex-1 py-3.5 text-xs sm:text-sm font-black flex items-center justify-center gap-2 cursor-pointer"
+                  className="flex-1 flex items-center justify-center gap-2"
                 >
                   <span>ادامه</span>
                   <ArrowLeft size={16} />
-                </button>
+                </NeoButton>
               ) : (
-                <button
+                <NeoButton
                   type="button"
+                  variant="primary"
+                  size="md"
                   onClick={handleComplete}
                   disabled={saving || activeSelectedSubjects.length === 0}
-                  className="btn-neo-orange flex-1 py-4 text-xs sm:text-sm font-black flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span>{saving ? "در حال ثبت اطلاعات…" : "تکمیل و ورود به داشبورد"}</span>
                   <ArrowLeft size={18} />
-                </button>
+                </NeoButton>
               )}
             </div>
           </div>
@@ -1812,51 +1036,26 @@ export function ProfileOnboarding() {
       </div>
 
       {/* Existing Account Dialog */}
-      {showExistingAccountDialog && (
-        <div className="dialog-backdrop animate-in fade-in" onClick={() => setShowExistingAccountDialog(false)}>
-          <div
-            className="card-neo relative p-6 max-w-sm w-full space-y-4 bg-[var(--surface)] rounded-3xl border-3 border-[var(--line-strong)] shadow-[6px_6px_0px_var(--neo-shadow)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-sm font-black text-[var(--ink)] text-center">
-              حساب قبلی شناسایی شد
-            </h3>
-            <p className="text-xs font-bold text-[var(--muted)] text-center leading-relaxed">
-              حساب «{existingOwnerName}» از قبل روی این دستگاه وجود دارد.
-              می‌خواهید وارد همان شوید یا حساب جدید بسازید؟
-            </p>
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowExistingAccountDialog(false);
-                  setStep((s) => s + 1);
-                }}
-                className="btn-neo-orange w-full py-2.5 text-xs font-black"
-              >
-                وارد حساب «{existingOwnerName}» شو
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  setShowExistingAccountDialog(false);
-                  try {
-                    const finalName = userName.trim() || "کاربر جدید";
-                    await db.saveOwner(finalName, "local");
-                    await queryClient.invalidateQueries({ queryKey: ["owner"] });
-                  } catch {
-                    // ignore
-                  }
-                  setStep((s) => s + 1);
-                }}
-                className="w-full py-2.5 text-xs font-black rounded-2xl border-2 border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink)] shadow-[2px_2px_0px_var(--line)]"
-              >
-                حساب جدید بساز
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ExistingAccountModal
+        isOpen={showExistingAccountDialog}
+        onClose={() => setShowExistingAccountDialog(false)}
+        existingOwnerName={existingOwnerName}
+        onContinueExisting={() => {
+          setShowExistingAccountDialog(false);
+          setStep((s) => s + 1);
+        }}
+        onCreateNewLocal={async () => {
+          setShowExistingAccountDialog(false);
+          try {
+            const finalName = userName.trim() || "کاربر جدید";
+            await db.saveOwner(finalName, "local");
+            await queryClient.invalidateQueries({ queryKey: ["owner"] });
+          } catch {
+            // ignore
+          }
+          setStep((s) => s + 1);
+        }}
+      />
     </div>
   );
 }

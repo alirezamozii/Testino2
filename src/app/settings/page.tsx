@@ -1,60 +1,38 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  ChevronRight,
-  ChevronLeft,
-  ChevronDown,
-  ChevronUp,
-  Target,
-  Sun,
-  Moon,
-  RotateCcw,
-  CheckCircle2,
-  Link2,
-  HardDrive,
-  Calculator,
-  Download,
-  Plus,
-  Edit2,
-  Save,
-  Trash2,
-  Palette,
-  Check,
-  AlertTriangle,
-  Upload,
-  RefreshCw,
-  Layers,
-  Unlink,
-  GripVertical,
-  Activity,
-} from "lucide-react";
-
+import { AlertTriangle, CheckCircle2, ChevronRight } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+
 import { useDatabase } from "@/providers/database-provider";
-import { useTheme, ACCENT_OPTIONS } from "@/providers/theme-provider";
-import { cn } from "@/lib/utils";
+import { useTheme } from "@/providers/theme-provider";
 import { canonicalizeSubject, isSameSubject } from "@/features/questions/domain/subject-registry";
 import { partitionSubjectsForDisplay, normalizeScoreGroup } from "@/features/profiles/domain/score-groups";
-import { parseSafeInt, sanitizeIntegerInput } from "@/lib/number-utils";
 import { CloudSyncCard } from "@/features/account/components/cloud-sync-card";
 import { createBackup, restoreBackup } from "@/features/backup/domain/backup-service";
 import { registerSubject } from "@/platform/shared-subjects";
-import { SubjectAutocomplete } from "@/components/ui/subject-autocomplete";
 import { syncCommunityQuestionsForSubjects } from "@/platform/community-questions";
 import { MediaService } from "@/features/media/domain/media-service";
 import { useAuthAvatar } from "@/platform/auth/use-avatar";
-import { APP_VERSION, APP_BUILD } from "@/config/version";
 import { checkAppUpdate, type UpdateCheckResult } from "@/features/update/domain/update-service";
 import { UpdateDialog } from "@/features/update/components/update-dialog";
 import { OfflineLibraryCard } from "@/features/offline/components/offline-library-card";
 import { getSupabaseClient } from "@/platform/auth/supabase-client";
+import {
+  SettingsProfileCard,
+  SettingsAppearanceCard,
+  SettingsSubjectsCard,
+  SettingsBackupCard,
+  SettingsAboutModal,
+  SettingsDeleteDataModal,
+} from "@/features/settings";
 
 export default function SettingsPage() {
   const database = useDatabase();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { theme, setTheme, accent, setAccent } = useTheme();
 
   const [persisted, setPersisted] = useState<boolean | null>(null);
@@ -99,6 +77,12 @@ export default function SettingsPage() {
   const [groupEditorFor, setGroupEditorFor] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
+  // Update checking state
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [showManualUpdateDialog, setShowManualUpdateDialog] = useState(false);
+  const [updateFeedback, setUpdateFeedback] = useState("");
+
   const toggleGroup = (groupName: string) => {
     setExpandedGroups((prev) => ({
       ...prev,
@@ -116,15 +100,9 @@ export default function SettingsPage() {
     setTimeout(() => setActionError(""), 6000);
   }
 
-  // Update checking state
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
-  const [showManualUpdateDialog, setShowManualUpdateDialog] = useState(false);
-  const [updateFeedback, setUpdateFeedback] = useState<string | null>(null);
-
   async function handleManualCheckUpdate() {
     setCheckingUpdate(true);
-    setUpdateFeedback(null);
+    setUpdateFeedback("");
     try {
       const res = await checkAppUpdate();
       setUpdateResult(res);
@@ -139,8 +117,6 @@ export default function SettingsPage() {
       setCheckingUpdate(false);
     }
   }
-
-  const router = useRouter();
 
   async function handleDeleteAllData() {
     setIsDeleting(true);
@@ -272,7 +248,6 @@ export default function SettingsPage() {
       });
       await queryClient.invalidateQueries({ queryKey: ["profiles"] });
 
-      // Auto-register to community catalog and sync community questions
       void registerSubject(name, {
         recommendedCoefficient: newSubjCoefficient,
         recommendedQuestions: newSubjQuestions,
@@ -304,9 +279,8 @@ export default function SettingsPage() {
     subjectId: string,
     field: "targetPercentage" | "coefficient" | "questionCount",
     value: number,
-    previousValue: number,
+    previousValue: number
   ) {
-    // Tabbing through the input must not fire a spurious DB write + toast.
     if (!Number.isFinite(value) || value === previousValue) return;
     try {
       await database.db.updateProfileSubject(subjectId, { [field]: value });
@@ -323,7 +297,6 @@ export default function SettingsPage() {
     const target = activeProfile.subjects.find((s) => s.id === targetId);
     if (!source || !target) return;
 
-    // Use target's existing score group if any, or source's, or compose a combined name
     const groupName =
       normalizeScoreGroup(target.scoreGroup) ||
       normalizeScoreGroup(source.scoreGroup) ||
@@ -365,16 +338,23 @@ export default function SettingsPage() {
     }
   }
 
-  const username = ownerQuery.data?.displayName || "کاربر تستیونو";
-  const userTrack = activeProfile?.targetTrack || activeProfile?.name || "دانش‌آموز کنکور";
-
   async function toggleNegativeScore() {
     if (!activeProfile) return;
     const enabled = Boolean(activeProfile.penaltyNumerator);
-    await database.db.updateProfilePreferences(activeProfile.id, { penaltyNumerator: enabled ? 0 : 1, penaltyDenominator: 3 });
+    await database.db.updateProfilePreferences(activeProfile.id, {
+      penaltyNumerator: enabled ? 0 : 1,
+      penaltyDenominator: 3,
+    });
     await queryClient.invalidateQueries({ queryKey: ["profiles"] });
-    setSaveStatus(enabled ? "نمرهٔ منفی برای آزمون‌های بعدی خاموش شد." : "نمرهٔ منفی طبق فرمول رسمی سازمان سنجش فعال شد.");
+    setSaveStatus(
+      enabled
+        ? "نمرهٔ منفی برای آزمون‌های بعدی خاموش شد."
+        : "نمرهٔ منفی طبق فرمول رسمی سازمان سنجش فعال شد."
+    );
   }
+
+  const username = ownerQuery.data?.displayName || "کاربر تستیونو";
+  const userTrack = activeProfile?.targetTrack || activeProfile?.name || "دانش‌آموز کنکور";
 
   return (
     <div className="page settings-page max-w-6xl mx-auto space-y-6 pb-12">
@@ -387,8 +367,12 @@ export default function SettingsPage() {
           <ChevronRight size={20} />
         </Link>
         <div className="text-center">
-          <h1 className="text-xl sm:text-2xl font-black text-[var(--ink)] tracking-tight">تنظیمات و ترجیحات</h1>
-          <p className="text-xs font-bold text-[var(--muted)] mt-0.5">مدیریت هویت، دروس و ترجیحات آزمونی</p>
+          <h1 className="text-xl sm:text-2xl font-black text-[var(--ink)] tracking-tight">
+            تنظیمات و ترجیحات
+          </h1>
+          <p className="text-xs font-bold text-[var(--muted)] mt-0.5">
+            مدیریت هویت، دروس و ترجیحات آزمونی
+          </p>
         </div>
         <div className="w-11" />
       </div>
@@ -411,900 +395,104 @@ export default function SettingsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Main/Right Column (5 cols): Profile & Preferences */}
         <div className="lg:col-span-5 space-y-5">
-          {/* 1. Profile Header Card */}
-          <div className="card-neo p-5 rounded-3xl bg-[var(--surface)] flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-14 h-14 rounded-2xl bg-[var(--pastel-orange)] border-2 border-[var(--line-strong)] text-white flex items-center justify-center font-black text-2xl shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0 overflow-hidden">
-                {avatarUrl && !avatarError ? (
-                  <img
-                    src={avatarUrl}
-                    alt={username}
-                    referrerPolicy="no-referrer"
-                    onError={() => setAvatarError(true)}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  username.slice(0, 1)
-                )}
-              </div>
-              <div className="min-w-0">
-                <strong className="block text-base sm:text-lg font-black text-[var(--ink)] truncate">
-                  {username}
-                </strong>
-                <span className="text-xs text-[var(--muted)] font-bold mt-0.5 block truncate">
-                  {userTrack}
-                </span>
-              </div>
-            </div>
+          <SettingsProfileCard
+            username={username}
+            userTrack={userTrack}
+            avatarUrl={avatarUrl}
+            avatarError={avatarError}
+            onAvatarError={() => setAvatarError(true)}
+            editingName={editingName}
+            onToggleEditingName={() => {
+              if (!editingName) {
+                setUsernameInput(username);
+                setProfileTitleInput(activeProfile?.name || "");
+              }
+              setEditingName(!editingName);
+            }}
+            usernameInput={usernameInput}
+            onUsernameInputChange={setUsernameInput}
+            profileTitleInput={profileTitleInput}
+            onProfileTitleInputChange={setProfileTitleInput}
+            onSaveIdentity={handleSaveIdentity}
+          />
 
-            <button
-              type="button"
-              onClick={() => {
-                if (!editingName) {
-                  setUsernameInput(username);
-                  setProfileTitleInput(activeProfile?.name || "");
-                }
-                setEditingName(!editingName);
-              }}
-              className="w-10 h-10 rounded-xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink)] hover:bg-[var(--surface-3)] transition-colors shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0"
-              title="ویرایش نام"
-            >
-              <Edit2 size={16} />
-            </button>
-          </div>
-
-          {/* Name Edit Drawer */}
-          {editingName && (
-            <div className="card-neo p-5 space-y-3 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)]">
-              <div className="space-y-1">
-                <label className="text-xs font-black text-[var(--ink)]">نام نمایشی شما</label>
-                <input
-                  type="text"
-                  value={usernameInput}
-                  onChange={(e) => setUsernameInput(e.target.value)}
-                  className="w-full bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2.5 text-xs font-bold text-[var(--ink)] focus:outline-none"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-black text-[var(--ink)]">عنوان آزمون یا مقطع</label>
-                <input
-                  type="text"
-                  value={profileTitleInput}
-                  onChange={(e) => setProfileTitleInput(e.target.value)}
-                  className="w-full bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-xl px-3 py-2.5 text-xs font-bold text-[var(--ink)] focus:outline-none"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={handleSaveIdentity}
-                className="btn-neo-orange w-full py-2.5 text-xs font-black shadow-[3px_3px_0px_var(--neo-shadow)]"
-              >
-                <Save size={15} />
-                <span>ذخیره تغییرات</span>
-              </button>
-            </div>
-          )}
-
-          {/* Cloud Account & Supabase Sync */}
           <CloudSyncCard />
 
           {ownerQuery.data && activeProfile && activeProfile.subjects.length > 0 && (
             <OfflineLibraryCard
               ownerId={ownerQuery.data.id}
               profileId={activeProfile.id}
-              subjects={activeProfile.subjects.map((subject) => ({ id: subject.id, name: subject.name }))}
+              subjects={activeProfile.subjects.map((subject) => ({
+                id: subject.id,
+                name: subject.name,
+              }))}
             />
           )}
 
-          {/* 2. Preferences Card */}
-          <div className="card-neo p-4 sm:p-5 rounded-3xl bg-[var(--surface)] divide-y-2 divide-[var(--line-strong)]/15">
-            {/* Preference: Theme */}
-            <div className="py-3.5 first:pt-1 flex flex-col sm:flex-row sm:items-center justify-between text-right gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] text-[var(--ink)] flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
-                  {theme === "dark" ? <Moon size={18} /> : <Sun size={18} />}
-                </div>
-                <div>
-                  <span className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                    حالت نمایش رنگی
-                  </span>
-                  <span className="text-[11px] text-[var(--muted)] font-bold">
-                    {theme === "dark"
-                      ? "حالت شب نئوبروتال فعال است"
-                      : "حالت روز (روشن و کاغذی گرم) فعال است"}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 p-1 bg-[var(--surface-2)] rounded-2xl border-2 border-[var(--line-strong)] shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setTheme("light")}
-                  className={cn(
-                    "px-3.5 py-1.5 rounded-xl text-xs font-black transition-all border",
-                    theme === "light"
-                      ? "bg-[var(--surface)] text-[var(--ink)] border-[var(--line-strong)] shadow-[1.5px_1.5px_0px_var(--neo-shadow)]"
-                      : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
-                  )}
-                >
-                  روز (کاغذی)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTheme("dark")}
-                  className={cn(
-                    "px-3.5 py-1.5 rounded-xl text-xs font-black transition-all border",
-                    theme === "dark"
-                      ? "bg-[var(--surface)] text-[var(--ink)] border-[var(--line-strong)] shadow-[1.5px_1.5px_0px_var(--neo-shadow)]"
-                      : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
-                  )}
-                >
-                  شب (تیره)
-                </button>
-              </div>
-            </div>
-
-            {/* Preference: 10 Accent Colors */}
-            <div className="py-3.5 flex flex-col gap-3 text-right">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] text-[var(--ink)] flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
-                    <Palette size={18} />
-                  </div>
-                  <div>
-                    <span className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                      رنگ مکمل و تم برنامه (۱۰ رنگ)
-                    </span>
-                    <span className="text-[11px] text-[var(--muted)] font-bold">
-                      رنگ ناوبری فعال، دکمه‌های اصلی و نشانگرها
-                    </span>
-                  </div>
-                </div>
-                <span className="text-xs font-black px-2.5 py-1 rounded-xl bg-[var(--surface-2)] border border-[var(--line-strong)] text-[var(--ink)] shrink-0">
-                  {ACCENT_OPTIONS.find((a) => a.id === accent)?.name || "آبی کلاسیک"}
-                </span>
-              </div>
-
-              {/* 10 Color Swatches */}
-              <div className="grid grid-cols-5 sm:grid-cols-10 gap-2 pt-1">
-                {ACCENT_OPTIONS.map((opt) => {
-                  const isSelected = opt.id === accent;
-                  const displayColor = theme === "dark" ? opt.darkColor : opt.color;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setAccent(opt.id)}
-                      title={opt.name}
-                      className={cn(
-                        "group flex flex-col items-center gap-1.5 p-1.5 rounded-2xl border-2 transition-all cursor-pointer relative",
-                        isSelected
-                          ? "border-[var(--line-strong)] bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--neo-shadow)] scale-105"
-                          : "border-transparent hover:bg-[var(--surface-2)]/60"
-                      )}
-                    >
-                      <div
-                        className="w-7 h-7 rounded-xl border-2 border-[var(--line-strong)] flex items-center justify-center transition-transform group-hover:scale-110 shadow-xs"
-                        style={{ backgroundColor: displayColor }}
-                      >
-                        {isSelected && (
-                          <Check size={14} strokeWidth={3.5} className="text-white drop-shadow-xs" />
-                        )}
-                      </div>
-                      <span className="text-[10px] font-bold text-[var(--ink-soft)] truncate max-w-full text-center leading-tight">
-                        {opt.name.split(" ")[0]}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Preference: Negative Score */}
-            <div className="py-3.5 flex items-center justify-between text-right gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] text-[var(--ink-on-color)] flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
-                  <Calculator size={18} />
-                </div>
-                <div>
-                  <span className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                    نمرهٔ منفی آزمون (فرمول سازمان سنجش)
-                  </span>
-                  <span className="text-[11px] text-[var(--muted)] font-bold">
-                    {activeProfile?.penaltyNumerator
-                      ? "فعال (فرمول رسمی سازمان سنجش: ۳ پاسخ غلط = ابطال ۱ پاسخ درست)"
-                      : "غیرفعال (بدون کسر نمره منفی)"}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={toggleNegativeScore}
-                disabled={!activeProfile}
-                className={cn(
-                  "w-14 h-7 rounded-full border-2 border-[var(--line-strong)] transition-colors relative p-0.5 flex items-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0",
-                  activeProfile?.penaltyNumerator ? "bg-[var(--pastel-green)]" : "bg-[var(--surface-3)]"
-                )}
-                aria-pressed={Boolean(activeProfile?.penaltyNumerator)}
-              >
-                <div
-                  className={cn(
-                    "w-5 h-5 rounded-full bg-[var(--surface)] dark:bg-slate-200 border border-[var(--line-strong)] shadow-xs transition-transform transform",
-                    activeProfile?.penaltyNumerator ? "translate-x-[-26px]" : "translate-x-0"
-                  )}
-                />
-              </button>
-            </div>
-
-            {/* Preference: SQLite Permanence */}
-            <div className="py-3.5 flex items-center justify-between text-right gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-sky-100 dark:bg-sky-950/50 border-2 border-[var(--line-strong)] text-sky-700 dark:text-sky-300 flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
-                  <HardDrive size={18} />
-                </div>
-                <div>
-                  <span className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                    حافظهٔ دائمی روی دستگاه
-                  </span>
-                  <span className="text-[11px] text-[var(--muted)] font-bold">
-                    {persisted ? "مرورگر اجازهٔ پاک‌سازی خودکار داده‌ها را ندارد" : "ذخیرهٔ استاندارد روی دستگاه"}
-                  </span>
-                </div>
-              </div>
-
-              {persisted === false && (
-                <button
-                  type="button"
-                  onClick={requestPersistence}
-                  className="btn-neo-yellow py-1.5 px-3 text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0"
-                >
-                  ثبت دائم
-                </button>
-              )}
-            </div>
-
-            {/* Diagnostics & Benchmark Center */}
-            <Link
-              href="/diagnostics/"
-              className="py-3.5 flex items-center justify-between text-right hover:bg-[var(--surface-2)] rounded-2xl transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-950/50 border-2 border-[var(--line-strong)] text-purple-700 dark:text-purple-300 flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
-                  <Activity size={18} />
-                </div>
-                <div>
-                  <span className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                    پایش، عیب‌یابی و بنچمارک سرعت (FPS & DB)
-                  </span>
-                  <span className="text-[11px] text-[var(--muted)] font-bold">
-                    آزمون میلی‌ثانیه‌ای دیتابیس، نرخ فریم، مصرف رم و لاگ باگ‌ها
-                  </span>
-                </div>
-              </div>
-              <ChevronLeft size={18} className="text-[var(--muted)]" />
-            </Link>
-
-            {/* About Testino item */}
-            <button
-              type="button"
-              onClick={() => setShowAbout(true)}
-              className="py-3.5 last:pb-1 w-full flex items-center justify-between text-right hover:bg-[var(--surface-2)] rounded-2xl transition-colors cursor-pointer"
-            >
-
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/50 border-2 border-[var(--line-strong)] flex items-center justify-center p-1.5 shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
-                  <img src="/logo.png" alt="لوگو" className="w-full h-full object-contain" />
-                </div>
-                <div>
-                  <span className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                    درباره تستینو
-                  </span>
-                  <span className="text-[11px] text-[var(--muted)] font-bold">
-                    نسخه ۱.۰ • بانک هوشمند و موتور مرور آفلاین
-                  </span>
-                </div>
-              </div>
-              <ChevronLeft size={18} className="text-[var(--muted)]" />
-            </button>
-          </div>
-
-          {/* Action CTAs */}
-          <div className="space-y-3">
-            <Link
-              href="/onboarding/"
-              className="card-neo w-full p-4 rounded-3xl bg-amber-50 dark:bg-amber-950/30 border-2 border-[var(--line-strong)] text-amber-800 dark:text-amber-300 font-black text-xs sm:text-sm flex items-center justify-center gap-2 hover:bg-amber-100 transition-colors shadow-[3px_3px_0px_var(--neo-shadow)]"
-            >
-              <RotateCcw size={18} />
-              <span>راه‌اندازی مجدد پروفایل و درس‌ها</span>
-            </Link>
-
-            <button
-              type="button"
-              onClick={() => setShowDeleteConfirm(true)}
-              className="card-neo w-full p-4 rounded-3xl bg-red-50 dark:bg-red-950/30 border-2 border-red-400 text-red-700 dark:text-red-300 font-black text-xs sm:text-sm flex items-center justify-center gap-2 hover:bg-red-100 transition-colors shadow-[3px_3px_0px_#EF4444] cursor-pointer"
-            >
-              <Trash2 size={18} />
-              <span>حذف تمام داده‌ها (ریست کامل برنامه)</span>
-            </button>
-          </div>
+          <SettingsAppearanceCard
+            theme={theme}
+            onSetTheme={setTheme}
+            accent={accent}
+            onSetAccent={setAccent}
+            hasPenalty={Boolean(activeProfile?.penaltyNumerator)}
+            onToggleNegativeScore={toggleNegativeScore}
+            canTogglePenalty={Boolean(activeProfile)}
+            persisted={persisted}
+            onRequestPersistence={requestPersistence}
+            onOpenAbout={() => setShowAbout(true)}
+            onDeleteConfirm={() => setShowDeleteConfirm(true)}
+          />
         </div>
 
         {/* Side/Left Column (7 cols): Subject Management & Backup */}
         <div className="lg:col-span-7 space-y-5">
-          {/* Subject Manager Card */}
           {activeProfile && (
-            <div className="card-neo p-5 space-y-4 rounded-3xl bg-[var(--surface)]">
-              <div className="flex items-center justify-between border-b-2 border-[var(--line-strong)]/20 pb-3">
-                <div className="flex items-center gap-2">
-                  <Target size={18} className="text-[var(--testino-orange)]" />
-                  <h3 className="text-sm font-black text-[var(--ink)]">
-                    اهداف و دروس من ({activeProfile.subjects.length} درس)
-                  </h3>
-                </div>
-                <span className="text-[11px] font-bold text-[var(--muted)]">ضریب و هدف</span>
-              </div>
-
-              {/* Subject List with Sleek Collapsible Groups & Compact Rows */}
-              <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
-                {partitionSubjectsForDisplay(activeProfile.subjects).map((entry) => {
-                  if (entry.type === "group") {
-                    const isDragTarget = dragOverTargetId && entry.subjects.some((s) => s.id === dragOverTargetId);
-                    const isExpanded = Boolean(expandedGroups[entry.groupName]);
-
-                    return (
-                      <div
-                        key={entry.groupName}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          if (draggedSubjectId && !entry.subjects.some((s) => s.id === draggedSubjectId)) {
-                            setDragOverTargetId(entry.subjects[0].id);
-                          }
-                        }}
-                        onDragLeave={() => {
-                          if (entry.subjects.some((s) => s.id === dragOverTargetId)) {
-                            setDragOverTargetId(null);
-                          }
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          if (draggedSubjectId && !entry.subjects.some((s) => s.id === draggedSubjectId)) {
-                            handleMergeSubjects(draggedSubjectId, entry.subjects[0].id);
-                          }
-                        }}
-                        className={cn(
-                          "rounded-2xl border-2 transition-all overflow-hidden",
-                          isDragTarget
-                            ? "border-sky-500 bg-sky-500/10 shadow-[3px_3px_0px_#0284c7] scale-[1.01]"
-                            : "border-sky-600/30 dark:border-sky-500/25 bg-[var(--surface)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                        )}
-                      >
-                        {/* Group Header (Clickable Accordion) */}
-                        <div
-                          onClick={() => toggleGroup(entry.groupName)}
-                          className="flex items-center justify-between p-3 bg-sky-50/50 dark:bg-sky-950/20 hover:bg-sky-100/60 dark:hover:bg-sky-950/40 cursor-pointer transition-colors select-none"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-7 h-7 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
-                              <Layers size={14} />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[9px] font-black text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/40 border border-sky-300/40 shrink-0">
-                                  گروه کنکوری
-                                </span>
-                                <strong className="text-xs font-black text-[var(--ink)] truncate">
-                                  {entry.groupName}
-                                </strong>
-                              </div>
-                              <div className="text-[10px] font-bold text-[var(--muted)] flex items-center gap-2 mt-0.5">
-                                <span>{entry.subjects.length} زیردرس</span>
-                                <span>•</span>
-                                <span>مجموع {entry.totalQuestions} تست</span>
-                                <span>•</span>
-                                <span className="text-[var(--brand-green)] font-black">+{entry.correctValFormatted}٪</span>
-                                <span>•</span>
-                                <span className="text-sky-600 dark:text-sky-400 font-black">هدف: {entry.combinedTarget}٪</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Controls: Coefficient + Expand Arrow */}
-                          <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center gap-1 bg-[var(--surface)] px-2 py-1 rounded-xl border border-[var(--line-strong)]/20 shadow-sm">
-                              <span className="text-[10px] font-bold text-[var(--muted)]">ضریب:</span>
-                              <input
-                                aria-label={`ضریب گروه ${entry.groupName}`}
-                                type="text"
-                                inputMode="numeric"
-                                dir="ltr"
-                                defaultValue={entry.coefficient}
-                                onBlur={(event) => {
-                                  const val = parseSafeInt(event.currentTarget.value, entry.coefficient);
-                                  if (val !== entry.coefficient) {
-                                    handleUpdateSubject(entry.subjects[0].id, "coefficient", val, entry.coefficient);
-                                  }
-                                }}
-                                className="w-8 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => toggleGroup(entry.groupName)}
-                              className="w-7 h-7 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/20 flex items-center justify-center text-[var(--muted)] hover:text-[var(--ink)] transition-colors"
-                              title={isExpanded ? "بستن گروه" : "باز کردن و مشاهده درس‌ها"}
-                            >
-                              {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Collapsible Sub-subjects Container (Default Closed) */}
-                        {isExpanded && (
-                          <div className="p-3 border-t border-sky-500/20 bg-[var(--surface-2)]/40 space-y-2 animate-in fade-in slide-in-from-top-2 duration-150">
-                            {entry.subjects.map((sub) => {
-                              const sharePct = entry.totalQuestions > 0 ? Math.round(((sub.questionCount ?? 25) / entry.totalQuestions) * 100) : 0;
-                              return (
-                                <div
-                                  key={sub.id}
-                                  className="p-2.5 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)]/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-sm"
-                                >
-                                  {/* Left/Right: Name & Share */}
-                                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                                    <span className="w-2 h-2 rounded-full bg-sky-500 shrink-0" />
-                                    <span className="text-xs font-black text-[var(--ink)] break-words">
-                                      {sub.name}
-                                    </span>
-                                    <span className="text-[10px] font-bold text-sky-700 dark:text-sky-300 px-1.5 py-0.2 rounded bg-sky-50 dark:bg-sky-950/40 border border-sky-200/50 shrink-0">
-                                      {sharePct}٪ سهم ({sub.questionCount ?? 25} تست)
-                                    </span>
-                                  </div>
-
-                                  {/* Metrics & Actions */}
-                                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                                    <div className="flex items-center gap-1.5 bg-[var(--surface-2)] px-2 py-1 rounded-lg border border-[var(--line-strong)]/20">
-                                      <span className="text-[10px] text-[var(--muted)] font-bold">تست:</span>
-                                      <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        dir="ltr"
-                                        defaultValue={sub.questionCount ?? 25}
-                                        onBlur={(event) => handleUpdateSubject(sub.id, "questionCount", parseSafeInt(event.currentTarget.value, sub.questionCount ?? 25), sub.questionCount ?? 25)}
-                                        className="w-10 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
-                                      />
-                                      <span className="text-[10px] text-[var(--muted)] font-bold mr-1">هدف:</span>
-                                      <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        dir="ltr"
-                                        defaultValue={sub.targetPercentage}
-                                        onBlur={(event) => handleUpdateSubject(sub.id, "targetPercentage", parseSafeInt(event.currentTarget.value, sub.targetPercentage), sub.targetPercentage)}
-                                        className="w-9 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
-                                      />
-                                      <span className="text-[10px] font-black text-[var(--muted)]">٪</span>
-                                    </div>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => handleUngroupSubject(sub.id, sub.name)}
-                                      className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-[var(--surface-2)] text-[var(--muted)] hover:text-amber-600 border border-[var(--line-strong)]/20 transition-all"
-                                      title="انفصال از گروه و تبدیل به درس مستقل"
-                                    >
-                                      <Unlink size={11} className="text-amber-500" />
-                                      <span>انفصال</span>
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveSubject(sub.id, sub.name)}
-                                      className="w-6 h-6 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 text-red-600 flex items-center justify-center hover:bg-red-100 transition-colors"
-                                      title="حذف درس"
-                                    >
-                                      <Trash2 size={11} />
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  // Standalone Subject Entry (Compact Clean Card)
-                  const s = entry.subject;
-                  const isDraggingThis = draggedSubjectId === s.id;
-                  const isDragTarget = dragOverTargetId === s.id;
-                  const otherSubjects = activeProfile.subjects.filter((other) => other.id !== s.id);
-
-                  return (
-                    <div
-                      key={s.id}
-                      draggable={true}
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("text/plain", s.id);
-                        setDraggedSubjectId(s.id);
-                      }}
-                      onDragEnd={() => {
-                        setDraggedSubjectId(null);
-                        setDragOverTargetId(null);
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        if (draggedSubjectId && draggedSubjectId !== s.id) {
-                          setDragOverTargetId(s.id);
-                        }
-                      }}
-                      onDragLeave={() => {
-                        if (dragOverTargetId === s.id) {
-                          setDragOverTargetId(null);
-                        }
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (draggedSubjectId && draggedSubjectId !== s.id) {
-                          handleMergeSubjects(draggedSubjectId, s.id);
-                        }
-                      }}
-                      className={cn(
-                        "p-2.5 sm:p-3 rounded-2xl border-2 transition-all space-y-2",
-                        isDraggingThis && "opacity-40 border-dashed border-sky-400",
-                        isDragTarget
-                          ? "border-sky-500 bg-sky-500/10 shadow-[3px_3px_0px_#0284c7] scale-[1.01]"
-                          : "border-[var(--line-strong)] bg-[var(--surface-2)]/60 hover:bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--neo-shadow)]"
-                      )}
-                    >
-                      {/* Row 1: Subject Name + Drag Handle + Delete Button */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <div
-                            draggable={true}
-                            onDragStart={(e) => {
-                              e.stopPropagation();
-                              e.dataTransfer.setData("text/plain", s.id);
-                              e.dataTransfer.effectAllowed = "move";
-                              setDraggedSubjectId(s.id);
-                            }}
-                            className="p-1 rounded-lg bg-[var(--surface)] hover:bg-sky-500 hover:text-white border border-[var(--line-strong)]/20 cursor-grab active:cursor-grabbing text-[var(--muted)] transition-colors shrink-0 select-none"
-                            title="بکشید و روی درس دیگر رها کنید تا ادغام شوند"
-                          >
-                            <GripVertical size={14} />
-                          </div>
-                          <span className="w-2 h-2 rounded-full bg-[var(--testino-orange)] shrink-0" />
-                          <strong className="font-black text-sm text-[var(--ink)] break-words">
-                            {s.name}
-                          </strong>
-                        </div>
-
-                        {/* Actions: Delete */}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSubject(s.id, s.name)}
-                          className="w-7 h-7 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-600 flex items-center justify-center hover:bg-red-100 transition-colors shrink-0"
-                          title="حذف درس"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-
-                      {/* Row 2: Metrics Inputs + Sanjesh Formula Badges + Merge Link */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[var(--line-strong)]/15">
-                        {/* Compact Metrics Inputs */}
-                        <div className="flex items-center gap-1.5 bg-[var(--surface)] px-2.5 py-1 rounded-xl border border-[var(--line-strong)]/20 shadow-sm text-xs font-bold">
-                          <span className="text-[var(--muted)] text-[11px]">تست:</span>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            dir="ltr"
-                            defaultValue={entry.totalQuestions}
-                            onBlur={(event) => handleUpdateSubject(s.id, "questionCount", parseSafeInt(event.currentTarget.value, entry.totalQuestions), entry.totalQuestions)}
-                            className="w-9 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
-                            title="تعداد سؤال"
-                          />
-                          <span className="text-[var(--muted)] text-[11px] mr-1">ضریب:</span>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            dir="ltr"
-                            defaultValue={s.coefficient}
-                            onBlur={(event) => handleUpdateSubject(s.id, "coefficient", parseSafeInt(event.currentTarget.value, s.coefficient), s.coefficient)}
-                            className="w-8 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
-                            title="ضریب درس"
-                          />
-                          <span className="text-[var(--muted)] text-[11px] mr-1">هدف:</span>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            dir="ltr"
-                            defaultValue={s.targetPercentage}
-                            onBlur={(event) => handleUpdateSubject(s.id, "targetPercentage", parseSafeInt(event.currentTarget.value, s.targetPercentage), s.targetPercentage)}
-                            className="w-9 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
-                            title="درصد هدف"
-                          />
-                          <span className="text-[var(--muted)] font-black text-[11px]">٪</span>
-                        </div>
-
-                        {/* Formula values */}
-                        <div className="flex items-center gap-2 text-[10px] font-bold">
-                          <span className="text-[var(--brand-green)] font-black" dir="ltr">
-                            +{entry.correctValFormatted}٪
-                          </span>
-                          <span className="text-red-500 font-black" dir="ltr">
-                            -{entry.wrongValFormatted}٪
-                          </span>
-                        </div>
-
-                        {groupEditorFor === s.id ? (
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full pt-1.5 border-t border-[var(--line-strong)]/10">
-                            <label className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--muted)] flex-1">
-                              <span>گروه مشترک:</span>
-                              <input
-                                aria-label={`گروه مشترک ${s.name}`}
-                                type="text"
-                                defaultValue={s.scoreGroup ?? ""}
-                                onBlur={(event) => handleUpdateScoreGroup(s.id, event.currentTarget.value.trim(), s.scoreGroup ?? "")}
-                                placeholder="مثلاً: مدیریت یا اقتصاد"
-                                className="min-w-0 flex-1 bg-[var(--surface)] border-2 border-[var(--line-strong)] rounded-lg px-2 py-1 text-xs font-bold text-[var(--ink)]"
-                              />
-                            </label>
-                            {otherSubjects.length > 0 && (
-                              <div className="flex items-center gap-1 flex-wrap">
-                                <span className="text-[10px] font-bold text-[var(--muted)]">یا ادغام با:</span>
-                                {otherSubjects.slice(0, 3).map((other) => (
-                                  <button
-                                    key={other.id}
-                                    type="button"
-                                    onClick={() => {
-                                      handleMergeSubjects(s.id, other.id);
-                                      setGroupEditorFor(null);
-                                    }}
-                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border border-sky-300 hover:bg-sky-500 hover:text-white transition-colors"
-                                  >
-                                    {other.name}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setGroupEditorFor(null)}
-                              className="text-[10px] text-[var(--muted)] hover:text-[var(--ink)] self-end sm:self-auto cursor-pointer"
-                            >
-                              بستن
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setGroupEditorFor(s.id)}
-                            className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--muted)] hover:text-sky-600 transition-colors cursor-pointer"
-                            aria-label={`گروه مشترک با درس دیگر برای ${s.name}`}
-                          >
-                            <Link2 size={11} className="text-sky-500" />
-                            <span>گروه مشترک با درس دیگر (ادغام)</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Inline Add Subject — Clean Compact Form */}
-              <form onSubmit={handleAddSubject} className="space-y-2 pt-3 border-t-2 border-[var(--line-strong)]/20 bg-[var(--surface-2)] p-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-[var(--ink)] flex items-center gap-1.5">
-                    <Plus size={13} className="text-[var(--testino-orange)]" />
-                    <span>افزودن درس جدید به برنامه</span>
-                  </span>
-                </div>
-
-                {/* Autocomplete Input with Community Suggestions */}
-                <SubjectAutocomplete
-                  value={newSubjName}
-                  onChange={setNewSubjName}
-                  onSelectSuggestion={(suggestion) => {
-                    setNewSubjName(suggestion.name);
-                    if (suggestion.recommendedQuestions) {
-                      setNewSubjQuestions(suggestion.recommendedQuestions);
-                    }
-                    if (suggestion.recommendedCoefficient !== undefined) {
-                      setNewSubjCoefficient(suggestion.recommendedCoefficient);
-                    }
-                  }}
-                  placeholder="نام درس را بنویسید (مثلاً: ریاضی، ادبیات، زیست)..."
-                />
-
-                {/* Metrics + Submit in one tidy row */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1 bg-[var(--surface)] px-2 py-1 rounded-xl border border-[var(--line-strong)]/30 text-[10px] font-bold shadow-sm">
-                    <span className="text-[var(--muted)]">سؤال:</span>
-                    <input
-                      aria-label="تعداد سؤال درس جدید"
-                      type="text"
-                      inputMode="numeric"
-                      dir="ltr"
-                      value={newSubjQuestions || ""}
-                      onChange={(e) => {
-                        const s = sanitizeIntegerInput(e.target.value, { max: 200 });
-                        setNewSubjQuestions(s ? parseInt(s, 10) : 0);
-                      }}
-                      onBlur={() => {
-                        if (!newSubjQuestions) setNewSubjQuestions(25);
-                      }}
-                      className="w-9 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
-                    />
-                    <span className="text-[var(--muted)] mr-1">ضریب:</span>
-                    <input
-                      aria-label="ضریب درس جدید"
-                      type="text"
-                      inputMode="numeric"
-                      dir="ltr"
-                      value={newSubjCoefficient || ""}
-                      onChange={(e) => {
-                        const s = sanitizeIntegerInput(e.target.value, { max: 100 });
-                        setNewSubjCoefficient(s ? parseInt(s, 10) : 0);
-                      }}
-                      onBlur={() => {
-                        if (!newSubjCoefficient) setNewSubjCoefficient(1);
-                      }}
-                      className="w-8 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
-                    />
-                    <span className="text-[var(--muted)] mr-1">هدف:</span>
-                    <input
-                      aria-label="هدف درصدی درس جدید"
-                      type="text"
-                      inputMode="numeric"
-                      dir="ltr"
-                      value={newSubjTarget === 0 ? "0" : (newSubjTarget || "")}
-                      onChange={(e) => {
-                        const s = sanitizeIntegerInput(e.target.value, { max: 100 });
-                        setNewSubjTarget(s ? parseInt(s, 10) : 0);
-                      }}
-                      className="w-9 bg-transparent text-xs font-black text-center text-[var(--ink)] focus:outline-none"
-                    />
-                    <span className="text-[var(--muted)] font-black">٪</span>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="btn-neo-orange px-3 py-1.5 rounded-xl flex items-center gap-1 text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0"
-                    title="افزودن درس جدید"
-                  >
-                    <Plus size={14} />
-                    <span>افزودن</span>
-                  </button>
-                </div>
-              </form>
-              {subjectError && <p className="text-[10px] text-red-600 font-bold">{subjectError}</p>}
-            </div>
+            <SettingsSubjectsCard
+              activeProfile={activeProfile}
+              partitionedEntries={partitionSubjectsForDisplay(activeProfile.subjects)}
+              expandedGroups={expandedGroups}
+              onToggleGroup={toggleGroup}
+              draggedSubjectId={draggedSubjectId}
+              onSetDraggedSubjectId={setDraggedSubjectId}
+              dragOverTargetId={dragOverTargetId}
+              onSetDragOverTargetId={setDragOverTargetId}
+              groupEditorFor={groupEditorFor}
+              onSetGroupEditorFor={setGroupEditorFor}
+              onMergeSubjects={handleMergeSubjects}
+              onUpdateSubject={handleUpdateSubject}
+              onUngroupSubject={handleUngroupSubject}
+              onRemoveSubject={handleRemoveSubject}
+              onUpdateScoreGroup={handleUpdateScoreGroup}
+              newSubjName={newSubjName}
+              onNewSubjNameChange={setNewSubjName}
+              newSubjQuestions={newSubjQuestions}
+              onNewSubjQuestionsChange={setNewSubjQuestions}
+              newSubjCoefficient={newSubjCoefficient}
+              onNewSubjCoefficientChange={setNewSubjCoefficient}
+              newSubjTarget={newSubjTarget}
+              onNewSubjTargetChange={setNewSubjTarget}
+              onAddSubject={handleAddSubject}
+              subjectError={subjectError}
+            />
           )}
 
-          {/* Backup & Restore Card (TASK-029) */}
-          <div className="card-neo p-5 rounded-3xl bg-[var(--surface)] space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[var(--pastel-green)] border-2 border-[var(--line-strong)] text-[var(--ink-on-color)] flex items-center justify-center shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
-                <Download size={18} />
-              </div>
-              <div>
-                <strong className="text-xs sm:text-sm font-black text-[var(--ink)] block">
-                  پشتیبان‌گیری و بازیابی داده‌ها (ZIP)
-                </strong>
-                <span className="text-[11px] text-[var(--muted)] font-bold">
-                  بسته کامل پروفایل، سؤالات، آزمون‌ها و تصاویر
-                </span>
-              </div>
-            </div>
-
-            <p className="text-xs font-bold text-[var(--muted)] leading-relaxed">
-              فایل خروجی شامل کلیه اطلاعات پایگاه داده و تصاویر است که با رعایت کامل حریم خصوصی و بدون نشت توکن تهیه می‌شود.
-            </p>
-
-            <div className="space-y-2 pt-1">
-              <button
-                type="button"
-                onClick={exportAllData}
-                disabled={backingUp || restoring}
-                className="btn-neo-blue w-full py-2.5 text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-2"
-              >
-                <Download size={15} />
-                <span>{backingUp ? "در حال تهیه پشتیبان…" : "دانلود فایل پشتیبان کامل (.testino)"}</span>
-              </button>
-
-              <label className="btn-neo-yellow w-full py-2.5 text-xs font-black shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-2 cursor-pointer">
-                <Upload size={15} />
-                <span>{restoring ? "در حال بازیابی اطلاعات…" : "بازیابی از فایل پشتیبان"}</span>
-                <input
-                  type="file"
-                  accept=".testino,.zip,application/zip"
-                  className="hidden"
-                  disabled={backingUp || restoring}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) restoreData(file);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-            </div>
-          </div>
+          <SettingsBackupCard
+            backingUp={backingUp}
+            restoring={restoring}
+            onExportAllData={exportAllData}
+            onRestoreFile={restoreData}
+          />
         </div>
       </div>
 
-      {/* About Modal */}
-      {showAbout && (
-        <div className="dialog-backdrop animate-in fade-in" onClick={() => setShowAbout(false)}>
-          <div
-            className="card-neo relative p-6 max-w-sm w-full space-y-4 bg-[var(--surface)] rounded-3xl border-3 border-[var(--line-strong)] shadow-[6px_6px_0px_var(--neo-shadow)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex flex-col items-center text-center space-y-3">
-              <img
-                src="/logo.png"
-                alt="لوگوی تستینو"
-                className="w-20 h-20 object-contain drop-shadow-md"
-              />
-              <div className="flex items-center justify-center">
-                <img
-                  src="/name.png"
-                  alt="تستینو Testino"
-                  className="h-9 w-auto object-contain dark:hidden"
-                />
-                <img
-                  src="/name-dark.png"
-                  alt="تستینو Testino"
-                  className="h-9 w-auto object-contain hidden dark:block"
-                />
-              </div>
-              <p className="text-xs text-[var(--muted)] font-bold">
-                بانک هوشمند سؤال و موتور مرور آفلاین
-              </p>
-              <div className="w-full py-3 px-4 rounded-2xl bg-[var(--surface-2)] border-2 border-[var(--line-strong)] text-right space-y-2.5 text-xs font-bold shadow-[2px_2px_0px_var(--neo-shadow)]">
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--muted)]">نسخه:</span>
-                  <strong className="font-black text-[var(--ink)]">v{APP_VERSION} (بیلد {APP_BUILD})</strong>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--muted)]">موتور ذخیره‌سازی:</span>
-                  <strong className="font-black text-emerald-600 dark:text-emerald-400">SQLite WASM (OPFS)</strong>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--muted)]">شعار:</span>
-                  <strong className="font-black text-[var(--testino-orange)]">آزمون امروز، موفقیت فردا</strong>
-                </div>
-                
-                {/* Update Checker Button */}
-                <div className="pt-2 border-t border-[var(--line-strong)] space-y-2">
-                  <button
-                    type="button"
-                    onClick={handleManualCheckUpdate}
-                    disabled={checkingUpdate}
-                    className="w-full py-2 px-3 rounded-xl bg-[var(--surface)] text-[var(--ink)] border-2 border-[var(--line-strong)] font-black text-xs flex items-center justify-center gap-2 hover:bg-[var(--surface-2)] active:translate-x-0.5 active:translate-y-0.5 transition-all shadow-[2px_2px_0px_var(--neo-shadow)] disabled:opacity-60"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate ? "animate-spin text-[var(--accent)]" : ""}`} />
-                    {checkingUpdate ? "در حال بررسی سرور..." : "بررسی به‌روزرسانی"}
-                  </button>
+      <SettingsAboutModal
+        isOpen={showAbout}
+        onClose={() => setShowAbout(false)}
+        checkingUpdate={checkingUpdate}
+        onCheckUpdate={handleManualCheckUpdate}
+        updateFeedback={updateFeedback}
+      />
 
-                  {updateFeedback && (
-                    <div className="p-2 rounded-xl bg-[var(--surface)] border border-[var(--line-strong)] text-[11px] font-bold text-center text-[var(--ink)]">
-                      {updateFeedback}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowAbout(false)}
-              className="btn-neo-orange w-full py-2.5 text-xs font-black shadow-[3px_3px_0px_var(--neo-shadow)]"
-            >
-              بستن
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Manual Update Dialog */}
       {showManualUpdateDialog && updateResult && (
         <UpdateDialog
           update={updateResult}
@@ -1312,47 +500,12 @@ export default function SettingsPage() {
         />
       )}
 
-      {/* Delete All Data Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="dialog-backdrop animate-in fade-in" onClick={() => !isDeleting && setShowDeleteConfirm(false)}>
-          <div
-            className="card-neo relative p-6 max-w-sm w-full space-y-4 bg-[var(--surface)] rounded-3xl border-3 border-red-500 shadow-[6px_6px_0px_#EF4444]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex flex-col items-center text-center space-y-3">
-              <div className="w-14 h-14 rounded-2xl bg-red-100 dark:bg-red-950/60 border-2 border-red-500 flex items-center justify-center text-red-600 shadow-[2px_2px_0px_#EF4444]">
-                <AlertTriangle size={28} />
-              </div>
-              <h3 className="text-base font-black text-[var(--ink)]">
-                آیا از حذف تمام داده‌ها مطمئن هستید؟
-              </h3>
-              <p className="text-xs text-[var(--muted)] font-bold leading-relaxed">
-                تمام سؤالات، پاسخ‌ها، کارنامه‌ها، تاریخچه آزمون‌ها و پروفایل کاربری به‌طور دائم از این دستگاه پاک خواهند شد و این عملیات غیرقابل بازگشت است.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-2 pt-2">
-              <button
-                type="button"
-                onClick={handleDeleteAllData}
-                disabled={isDeleting}
-                className="w-full py-3 rounded-2xl border-2 border-[var(--line-strong)] bg-red-600 hover:bg-red-700 text-white font-black text-xs sm:text-sm shadow-[3px_3px_0px_var(--neo-shadow)] transition-all flex items-center justify-center gap-2"
-              >
-                <Trash2 size={16} />
-                <span>{isDeleting ? "در حال پاک‌سازی..." : "بله، همه داده‌ها را پاک کن"}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={isDeleting}
-                className="w-full py-2.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] font-black text-xs hover:bg-[var(--surface-3)] transition-colors"
-              >
-                انصراف
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SettingsDeleteDataModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        isDeleting={isDeleting}
+        onConfirmDelete={handleDeleteAllData}
+      />
     </div>
   );
 }
