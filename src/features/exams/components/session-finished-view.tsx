@@ -519,7 +519,7 @@ export function SessionFinishedView({ session: sData }: SessionFinishedViewProps
                                 );
                               })}
                               {q.snapshot.explanation.length > 0 && (
-                                <div className="p-3 rounded-2xl bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] text-xs font-bold text-[var(--ink)] space-y-1 mt-2">
+                                <div className="p-4 sm:p-5 rounded-2xl bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] text-xs sm:text-sm font-bold text-[var(--ink)] space-y-2 mt-3 sm:mt-4 shadow-[2px_2px_0px_var(--neo-shadow)]">
                                   <strong className="block font-black text-[var(--brand-orange)]">پاسخ تشریحی:</strong>
                                   <ContentRenderer blocks={remapExplanationForShuffle(q.snapshot.explanation, q.snapshot.options, orderedOptions)} />
                                 </div>

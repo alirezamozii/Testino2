@@ -34,7 +34,7 @@ export function ExamBottomBar({
   onOpenFinishConfirm,
 }: ExamBottomBarProps) {
   return (
-    <div className="flex items-center gap-2 sm:gap-3 pt-2">
+    <div className="flex items-center gap-2 sm:gap-3 pt-2 sm:pt-3">
       <button
         type="button"
         onClick={onPrev}

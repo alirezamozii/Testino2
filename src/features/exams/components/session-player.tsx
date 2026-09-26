@@ -450,7 +450,7 @@ export function SessionPlayer() {
   const isFlagged = flaggedIndices.has(index);
 
   return (
-    <div className="exam-player max-w-4xl mx-auto space-y-4 pb-10 transition-colors duration-200">
+    <div className="exam-player max-w-4xl mx-auto space-y-5 sm:space-y-6 pb-16 sm:pb-20 transition-colors duration-200">
       {/* Top Header & Inactivity Notice */}
       <ExamHeader
         isOpenEnded={isOpenEnded}

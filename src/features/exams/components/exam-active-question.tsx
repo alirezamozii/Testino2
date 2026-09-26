@@ -46,10 +46,10 @@ export function ExamActiveQuestion({
   onSaveAnswer,
 }: ExamActiveQuestionProps) {
   return (
-    <>
+    <div className="flex flex-col gap-4 sm:gap-5">
       {/* Question Statement Card (Wireframe 09 Phone 2 & 4) */}
       <div className="card-neo p-5 sm:p-6 space-y-4 bg-[var(--surface)]">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center justify-between gap-2.5 pb-3 sm:pb-3.5 border-b border-[var(--line)]/70 flex-wrap">
           <div className="flex items-center gap-2">
             <span className="inline-block text-[11px] font-black px-3 py-1 rounded-xl bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]">
               {current.snapshot.subject} {current.snapshot.chapter ? `• ${current.snapshot.chapter}` : ""}
@@ -100,7 +100,7 @@ export function ExamActiveQuestion({
 
         <div
           className={cn(
-            "font-bold leading-relaxed text-[var(--ink)] transition-all",
+            "pt-1 sm:pt-1.5 font-bold leading-relaxed text-[var(--ink)] transition-all",
             fontSize === "large"
               ? "text-base sm:text-lg"
               : fontSize === "xlarge"
@@ -113,7 +113,7 @@ export function ExamActiveQuestion({
       </div>
 
       {/* 4 Interactive Option Cards (الف, ب, ج, د) */}
-      <div className="space-y-2.5">
+      <div className="space-y-2.5 sm:space-y-3">
         {options.map((option, optIdx) => {
           if (!option) return null;
           const isSelected = current.selectedOptionId === option.id;
@@ -237,9 +237,9 @@ export function ExamActiveQuestion({
 
       {/* Instant Feedback: شناسنامه تست و پاسخ تشریحی ۳ گامی */}
       {isCurrentRevealed && (
-        <div className="card-neo p-5 space-y-4 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] shadow-[3px_3px_0px_var(--neo-shadow)]">
+        <div className="card-neo p-5 sm:p-6 space-y-4 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] shadow-[3px_3px_0px_var(--neo-shadow)]">
           {/* Header: شناسنامه تست */}
-          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-[var(--line)] flex-wrap">
+          <div className="flex items-center justify-between gap-2.5 pb-3 border-b border-[var(--line)] flex-wrap">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)]">
                 <BookOpen size={16} />
@@ -278,11 +278,11 @@ export function ExamActiveQuestion({
 
           {/* Explanation Content */}
           {current.snapshot.explanation && current.snapshot.explanation.length > 0 ? (
-            <div className="pt-1 text-right text-xs sm:text-sm font-bold leading-relaxed text-[var(--ink)] space-y-2">
+            <div className="pt-1.5 text-right text-xs sm:text-sm font-bold leading-relaxed text-[var(--ink)] space-y-2.5">
               <ContentRenderer blocks={displayExplanation || []} />
             </div>
           ) : (
-            <div className="p-3 rounded-xl bg-[var(--surface-2)] text-xs text-[var(--muted)] font-bold text-right">
+            <div className="p-3.5 rounded-xl bg-[var(--surface-2)] text-xs text-[var(--muted)] font-bold text-right">
               پاسخ تشریحی برای این سؤال ثبت نشده است.
             </div>
           )}
@@ -291,7 +291,7 @@ export function ExamActiveQuestion({
 
       {/* Confidence Action Pills & Clear Selection (only when not yet revealed): شک دارم | حدس زدم | پاک کردن */}
       {!isCurrentRevealed && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 pt-1 w-full">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3.5 w-full">
           {/* 1. شک دارم */}
           <button
             type="button"
@@ -359,6 +359,6 @@ export function ExamActiveQuestion({
           )}
         </div>
       )}
-    </>
+    </div>
   );
 }

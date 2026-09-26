@@ -49,7 +49,7 @@ export function ExamPassagePanel({
     <div
       className={cn(
         "card-neo p-4 sm:p-5 space-y-3 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] shadow-[3px_3px_0px_var(--neo-shadow)] transition-all",
-        isPassagePinned && "sticky top-3 z-20"
+        isPassagePinned && "sticky top-2 sm:top-3 z-20 shadow-[4px_6px_0px_var(--neo-shadow)] mb-4"
       )}
     >
       <div className="flex items-center justify-between pb-2 border-b border-[var(--line)] gap-2 flex-wrap">

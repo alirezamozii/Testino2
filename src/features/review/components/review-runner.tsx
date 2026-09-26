@@ -247,7 +247,7 @@ function StudyReviewRunner({ searchParams }: { searchParams: ReturnType<typeof u
   }
 
   return (
-    <div className="review-study-runner max-w-4xl mx-auto space-y-4 pb-12">
+    <div className="review-study-runner max-w-4xl mx-auto space-y-5 sm:space-y-6 pb-28 sm:pb-36">
       {/* Top Header */}
       <div className="flex items-center justify-between gap-2 px-1">
         <Link
@@ -328,7 +328,7 @@ function StudyReviewRunner({ searchParams }: { searchParams: ReturnType<typeof u
       </div>
 
       {/* 4 Options with Correct & Previous Selection Highlights */}
-      <div className="space-y-2.5">
+      <div className="space-y-2.5 sm:space-y-3">
         {q.options.map((opt, optIdx) => {
           const isCorrect = opt.id === q.correctOptionId;
           const isUserSelected = attempt?.selectedOptionId === opt.id;
@@ -397,19 +397,19 @@ function StudyReviewRunner({ searchParams }: { searchParams: ReturnType<typeof u
 
       {/* Explanation Card (Always Open in Study Mode) */}
       {q.explanation && q.explanation.length > 0 && (
-        <div className="card-neo p-4 sm:p-5 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] space-y-3 shadow-[3px_3px_0px_var(--neo-shadow)]">
-          <div className="flex items-center gap-2 border-b border-[var(--line)] pb-2 text-[var(--brand-orange)] font-black text-xs">
-            <Lightbulb size={16} />
+        <div className="card-neo p-5 sm:p-6 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] space-y-3.5 shadow-[3px_3px_0px_var(--neo-shadow)] mt-2 sm:mt-3">
+          <div className="flex items-center gap-2 border-b border-[var(--line)] pb-2.5 text-[var(--brand-orange)] font-black text-xs sm:text-sm">
+            <Lightbulb size={17} />
             <span>پاسخ تشریحی و نکته کلیدی:</span>
           </div>
-          <div className="text-xs sm:text-sm font-medium leading-relaxed text-[var(--ink)]">
+          <div className="text-xs sm:text-sm font-medium leading-relaxed text-[var(--ink)] pt-1">
             <ContentRenderer blocks={q.explanation} />
           </div>
         </div>
       )}
 
       {/* Sticky Bottom Action Controls */}
-      <footer className="sticky bottom-2 sm:bottom-3 z-30 flex items-center justify-between gap-1.5 sm:gap-2.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-2 sm:p-3 shadow-[4px_4px_0px_var(--neo-shadow)]">
+      <footer className="sticky bottom-3 sm:bottom-4 z-30 flex items-center justify-between gap-2 sm:gap-3 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface)] p-2.5 sm:p-3.5 shadow-[4px_4px_0px_var(--neo-shadow)]">
         {/* Prev Question */}
         <button
           type="button"
@@ -781,7 +781,7 @@ function TestReviewRunner({ searchParams }: { searchParams: ReturnType<typeof us
   const isOptionRevealed = Boolean(spoilerRevealed[current.id] || isCurrentRevealed);
 
   return (
-    <div className="review-runner max-w-4xl mx-auto space-y-4 pb-10">
+    <div className="review-runner max-w-4xl mx-auto space-y-5 sm:space-y-6 pb-20 sm:pb-24">
       {/* Top Header */}
       <div className="flex items-center justify-between gap-2 px-1">
         <Link
@@ -894,7 +894,7 @@ function TestReviewRunner({ searchParams }: { searchParams: ReturnType<typeof us
 
       {/* Telegram-Style Spoiler Masked Options Container */}
       <div className="telegram-spoiler relative">
-        <div className={cn("space-y-2.5 transition-all duration-300", !isOptionRevealed && "telegram-spoiler-masked")}>
+        <div className={cn("space-y-2.5 sm:space-y-3 transition-all duration-300", !isOptionRevealed && "telegram-spoiler-masked")}>
           {options.map((option, optIdx) => {
             if (!option) return null;
             const letter = PERSIAN_LETTERS[optIdx] || String(optIdx + 1);
@@ -1005,11 +1005,11 @@ function TestReviewRunner({ searchParams }: { searchParams: ReturnType<typeof us
 
       {/* Answer Explanation & Immediate Feedback */}
       {isCurrentRevealed && (
-        <div className="space-y-3 pt-2">
+        <div className="space-y-4 sm:space-y-5 pt-2 sm:pt-3">
           {/* Result Alert */}
           <div
             className={cn(
-              "p-4 rounded-2xl border-2 shadow-[3px_3px_0px_var(--neo-shadow)] flex items-center gap-3",
+              "p-4 sm:p-5 rounded-2xl border-2 shadow-[3px_3px_0px_var(--neo-shadow)] flex items-center gap-3.5",
               isCorrect
                 ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-900 dark:text-emerald-200"
                 : "bg-red-50 dark:bg-red-950/40 border-red-500 text-red-900 dark:text-red-200"
@@ -1036,7 +1036,7 @@ function TestReviewRunner({ searchParams }: { searchParams: ReturnType<typeof us
           </div>
 
           {/* Confidence Action Pills */}
-          <div className="flex items-center gap-2.5 pt-1">
+          <div className="flex items-center gap-2.5 sm:gap-3.5 pt-1">
             <button
               type="button"
               onClick={() => {
@@ -1045,7 +1045,7 @@ function TestReviewRunner({ searchParams }: { searchParams: ReturnType<typeof us
               }}
               disabled={pending}
               className={cn(
-                "py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-1.5 text-xs font-black transition-all cursor-pointer",
+                "py-2.5 sm:py-3 px-3.5 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-1.5 text-xs font-black transition-all cursor-pointer",
                 current.confidence === "doubtful"
                   ? "bg-amber-100 dark:bg-amber-950/70 text-amber-950 dark:text-amber-200 border-amber-500 shadow-[2px_2px_0px_#f59e0b]"
                   : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
@@ -1063,7 +1063,7 @@ function TestReviewRunner({ searchParams }: { searchParams: ReturnType<typeof us
               }}
               disabled={pending}
               className={cn(
-                "py-2.5 px-3 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-1.5 text-xs font-black transition-all cursor-pointer",
+                "py-2.5 sm:py-3 px-3.5 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] flex-1 flex items-center justify-center gap-1.5 text-xs font-black transition-all cursor-pointer",
                 current.confidence === "guess"
                   ? "bg-purple-100 dark:bg-purple-950/70 text-purple-950 dark:text-purple-200 border-purple-500 shadow-[2px_2px_0px_#8b5cf6]"
                   : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
@@ -1076,10 +1076,10 @@ function TestReviewRunner({ searchParams }: { searchParams: ReturnType<typeof us
 
           {/* Explanation Card */}
           {current.snapshot.explanation && current.snapshot.explanation.length > 0 && (
-            <div className="card-neo p-5 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] space-y-3">
-              <div className="flex items-center justify-between gap-2 flex-wrap border-b border-[var(--line)] pb-2">
-                <div className="flex items-center gap-2 text-[var(--brand-orange)] font-black text-xs">
-                  <Lightbulb size={16} />
+            <div className="card-neo p-5 sm:p-6 bg-[var(--surface-cream)] border-2 border-[var(--line-strong)] space-y-3.5 shadow-[3px_3px_0px_var(--neo-shadow)]">
+              <div className="flex items-center justify-between gap-2.5 flex-wrap border-b border-[var(--line)] pb-2.5">
+                <div className="flex items-center gap-2 text-[var(--brand-orange)] font-black text-xs sm:text-sm">
+                  <Lightbulb size={17} />
                   <span>پاسخ تشریحی و نکته کلیدی:</span>
                 </div>
                 {(() => {
@@ -1096,14 +1096,14 @@ function TestReviewRunner({ searchParams }: { searchParams: ReturnType<typeof us
                   );
                 })()}
               </div>
-              <div className="text-xs sm:text-sm font-medium leading-relaxed text-[var(--ink)]">
+              <div className="text-xs sm:text-sm font-medium leading-relaxed text-[var(--ink)] pt-1">
                 <ContentRenderer blocks={displayExplanation} />
               </div>
             </div>
           )}
 
           {/* Actions: Next, Retry, Finish */}
-          <div className="flex items-center gap-2.5 pt-2">
+          <div className="flex items-center gap-2.5 sm:gap-3 pt-2 sm:pt-3">
             <button
               type="button"
               onClick={handleRetry}
