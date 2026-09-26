@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Hourglass } from "lucide-react";
+import { AlertCircle, Hourglass, Play } from "lucide-react";
 import { SessionReadyView } from "./session-ready-view";
 import { SessionFinishedView } from "./session-finished-view";
 import { ExamNavSheet } from "./exam-nav-sheet";
@@ -227,7 +227,8 @@ export function SessionPlayer() {
 
   const handleNext = useCallback(async () => {
     if (!id || !current) return;
-    const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
+    // When reading explanation in instant feedback mode, do not bill explanation time to question active solving time
+    const elapsed = isCurrentRevealed || openedAt.current === null ? 0 : performance.now() - openedAt.current;
     if (index < totalQuestions - 1) {
       setSelectedIndex(index + 1);
       openedAt.current = performance.now();
@@ -254,12 +255,12 @@ export function SessionPlayer() {
         setPending(false);
       }
     }
-  }, [cache, current, database.db, id, index, isOpenEnded, session, totalQuestions]);
+  }, [cache, current, database.db, id, index, isCurrentRevealed, isOpenEnded, session, totalQuestions]);
 
   const handleNavSelectQuestion = useCallback(
     (targetIndex: number) => {
       if (id && current) {
-        const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
+        const elapsed = isCurrentRevealed || openedAt.current === null ? 0 : performance.now() - openedAt.current;
         void database.db
           .recordQuestionVisit(id, current.id, elapsed, targetIndex)
           .catch(() => undefined);
@@ -268,20 +269,20 @@ export function SessionPlayer() {
       openedAt.current = performance.now();
       setShowNavSheet(false);
     },
-    [current, database.db, id]
+    [current, database.db, id, isCurrentRevealed]
   );
 
   const handlePrev = useCallback(async () => {
     if (!id || !current) return;
     if (index > 0) {
-      const elapsed = openedAt.current === null ? 0 : performance.now() - openedAt.current;
+      const elapsed = isCurrentRevealed || openedAt.current === null ? 0 : performance.now() - openedAt.current;
       setSelectedIndex(index - 1);
       openedAt.current = performance.now();
       void database.db
         .recordQuestionVisit(id, current.id, elapsed, index - 1)
         .catch(() => undefined);
     }
-  }, [current, database.db, id, index]);
+  }, [current, database.db, id, index, isCurrentRevealed]);
 
   // Auto-pause & flush checkpoint on visibilitychange, blur, pagehide, beforeunload
   useEffect(() => {
@@ -611,6 +612,47 @@ export function SessionPlayer() {
         error={error ?? undefined}
         onConfirmAbandon={() => void abandon()}
       />
+
+      {/* Click-to-resume overlay when exam is paused */}
+      {(sData.state === "PAUSED" || gapNotice) && !showFinishConfirm && !showAbandonConfirm && (
+        <div
+          onClick={() => {
+            setGapNotice(false);
+            void begin();
+          }}
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4 cursor-pointer select-none"
+          title="برای ادامه آزمون هر جای صفحه کلیک کنید"
+        >
+          <div
+            className="card-neo p-6 max-w-sm w-full bg-[var(--surface)] text-center space-y-3.5 shadow-[4px_4px_0px_var(--neo-shadow)] animate-in fade-in zoom-in-95"
+            onClick={(e) => {
+              e.stopPropagation();
+              setGapNotice(false);
+              void begin();
+            }}
+          >
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)]">
+              <Play size={28} className="translate-x-[-1px]" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm sm:text-base font-black text-[var(--ink)]">آزمون متوقف شده است</h3>
+              <p className="text-xs text-[var(--muted)] font-medium leading-relaxed">
+                زمان‌سنج متوقف است. برای ادامه، <span className="font-bold text-[var(--brand-orange)]">روی هر جای صفحه کلیک کنید</span> یا دکمه زیر را بزنید.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn-neo-orange w-full py-2.5 text-xs font-black cursor-pointer shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px]"
+              onClick={() => {
+                setGapNotice(false);
+                void begin();
+              }}
+            >
+              ادامه آزمون
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

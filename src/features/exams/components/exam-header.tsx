@@ -121,13 +121,17 @@ export function ExamHeader({
 
       {/* Paused / Inactivity Notice */}
       {(isPaused || gapNotice) && (
-        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border-2 border-amber-400 text-amber-900 dark:text-amber-200 text-xs font-bold flex flex-col sm:flex-row items-center justify-between gap-3.5 shadow-[2px_2px_0px_var(--neo-shadow)]">
+        <div
+          onClick={onResumeFromGap}
+          className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border-2 border-amber-400 text-amber-900 dark:text-amber-200 text-xs font-bold flex flex-col sm:flex-row items-center justify-between gap-3.5 shadow-[2px_2px_0px_var(--neo-shadow)] cursor-pointer hover:bg-amber-100/60 dark:hover:bg-amber-900/40 transition-colors"
+          title="برای ادامه آزمون کلیک کنید"
+        >
           <div className="flex items-center gap-2.5 text-center sm:text-right justify-center sm:justify-start">
             <AlertCircle size={18} className="text-amber-600 flex-shrink-0" />
             <span>
               {gapNotice
-                ? "به‌خاطر ترک صفحه، آزمون موقتاً متوقف شد تا زمانی ثبت نشود."
-                : "آزمون در وضعیت توقف موقت قرار دارد. زمان‌سنج متوقف شده است."}
+                ? "به‌خاطر ترک صفحه، آزمون موقتاً متوقف شد تا زمانی ثبت نشود. (برای ادامه کلیک کنید)"
+                : "آزمون در وضعیت توقف موقت قرار دارد. زمان‌سنج متوقف شده است. (برای ادامه کلیک کنید)"}
             </span>
           </div>
           <div className="w-full sm:w-auto flex items-center justify-center">
@@ -135,8 +139,11 @@ export function ExamHeader({
               variant="primary"
               size="sm"
               icon={Play}
-              onClick={onResumeFromGap}
-              className="text-xs sm:text-sm font-black w-full sm:w-auto"
+              onClick={(e) => {
+                e.stopPropagation();
+                onResumeFromGap();
+              }}
+              className="text-xs sm:text-sm font-black w-full sm:w-auto cursor-pointer"
             >
               ادامه آزمون
             </NeoButton>

@@ -55,16 +55,16 @@ export function FinishConfirmModal({
           </div>
         )}
 
-        <div className="space-y-2.5 pt-1 text-right">
+        <div className="space-y-3 pt-1 text-right">
           {/* Option 1: Pause and Resume Later */}
           <button
             type="button"
-            className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-cream)] text-[var(--ink)] shadow-[2px_2px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
+            className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-cream)] text-[var(--ink)] shadow-[2.5px_2.5px_0px_var(--neo-shadow)] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
             disabled={isFinishing}
             onClick={onPauseAndExit}
           >
-            <div className="w-8 h-8 rounded-xl bg-[var(--pastel-blue)] border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0">
-              <Pause size={16} />
+            <div className="w-10 h-10 rounded-xl bg-[var(--pastel-blue)] border-2 border-[var(--line-strong)] flex items-center justify-center shrink-0 shadow-[1px_1px_0px_var(--neo-shadow)]">
+              <Pause size={18} className="text-[var(--ink)]" />
             </div>
             <div className="flex-1 min-w-0">
               <strong className="block text-xs font-black text-[var(--ink)]">
@@ -79,12 +79,12 @@ export function FinishConfirmModal({
           {/* Option 2: Final submit */}
           <button
             type="button"
-            className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-orange)] text-white shadow-[2px_2px_0px_var(--neo-shadow)] hover:brightness-105 active:translate-x-[1px] active:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
+            className="w-full p-3.5 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--brand-orange)] text-white shadow-[2.5px_2.5px_0px_var(--neo-shadow)] hover:brightness-105 active:translate-x-[1px] active:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
             disabled={isFinishing}
             onClick={onFinalFinish}
           >
-            <div className="w-8 h-8 rounded-xl bg-white/20 border-2 border-white/60 flex items-center justify-center shrink-0 text-white">
-              {isFinishing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+            <div className="w-10 h-10 rounded-xl bg-white/20 border-2 border-white/60 flex items-center justify-center shrink-0 text-white shadow-[1px_1px_0px_rgba(0,0,0,0.15)]">
+              {isFinishing ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
             </div>
             <div className="flex-1 min-w-0">
               <strong className="block text-xs font-black text-white">
@@ -99,11 +99,21 @@ export function FinishConfirmModal({
           {/* Option 3: Abandon without saving */}
           <button
             type="button"
-            className="w-full p-2.5 rounded-xl border border-rose-300 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 hover:bg-rose-100/70 transition-colors flex items-center gap-2 cursor-pointer text-xs font-black"
+            className="w-full p-3.5 rounded-2xl border-2 border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 shadow-[2.5px_2.5px_0px_#f43f5e] hover:translate-x-[1px] hover:translate-y-[1px] transition-all flex items-center gap-3 cursor-pointer disabled:opacity-60"
+            disabled={isFinishing}
             onClick={onSwitchToAbandon}
           >
-            <Trash2 size={14} className="shrink-0" />
-            <span className="truncate">انصراف و حذف کامل بدون محاسبه در آمار</span>
+            <div className="w-10 h-10 rounded-xl bg-rose-200 dark:bg-rose-900/60 border-2 border-rose-400 text-rose-700 dark:text-rose-300 flex items-center justify-center shrink-0 shadow-[1px_1px_0px_#f43f5e]">
+              <Trash2 size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <strong className="block text-xs font-black text-rose-700 dark:text-rose-300">
+                انصراف و حذف کامل آزمون
+              </strong>
+              <span className="text-[11px] text-rose-600/90 dark:text-rose-400/90 font-medium leading-relaxed block mt-0.5 text-pretty">
+                این جلسه لغو می‌شود و در آمار و کارنامه‌ها محاسبه نخواهد شد.
+              </span>
+            </div>
           </button>
         </div>
 

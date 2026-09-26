@@ -153,7 +153,8 @@ export function QuestionBank() {
   }, [query.data, selectedSources, selectedReviewFilter, dueQuestionIds]);
 
   const totalBankQuestions = catalogQuery.data?.length ?? 0;
-  const solvedCount = analyticsQuery.data?.totals?.total ?? 0;
+  const solvedCount = analyticsQuery.data?.totals?.uniqueAnsweredQuestionsCount ?? analyticsQuery.data?.totals?.uniqueQuestionsCount ?? 0;
+  const totalAttempts = analyticsQuery.data?.totals?.total ?? 0;
   const solvedPercentage = totalBankQuestions > 0 ? Math.min(100, Math.round((solvedCount / totalBankQuestions) * 100)) : 0;
 
   return (
@@ -203,7 +204,9 @@ export function QuestionBank() {
         <div className="card-neo p-3.5 sm:p-4 bg-[var(--surface)] text-center">
           <span className="block text-[11px] font-black text-[var(--muted)]">حل شده</span>
           <strong className="text-xl sm:text-2xl font-black text-[var(--brand-green)] my-0.5 block">{solvedCount}</strong>
-          <span className="text-[10px] text-[var(--muted)] font-bold">پاسخ ثبت‌شده</span>
+          <span className="text-[10px] text-[var(--muted)] font-bold">
+            سؤال یکتا {totalAttempts > 0 ? `(${totalAttempts} پاسخ)` : ""}
+          </span>
         </div>
         <div className="card-neo p-3.5 sm:p-4 bg-[var(--surface)] text-center">
           <span className="block text-[11px] font-black text-[var(--muted)]">پیشرفت</span>

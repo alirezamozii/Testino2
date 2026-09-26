@@ -3,10 +3,10 @@
   "build": 76,
   "releaseDate": "2026-09-26",
   "changelog": [
+    "fix(sync,analytics): resolve foreign key pull constraint code 787, unify analytics calculations with dashboard, and remove diagnostics UI",
     "perf: optimize tree-shaking, add instant dashboard skeleton, and bump version to 2.0.7 (build 76)",
     "perf: optimize brand assets, streamline font loading, enable gzip caching, and add lighthouse audit suite",
-    "test: add cloze transformer tests and clean lint warnings",
-    "refactor: modularize session player, session builder, onboarding, and settings into clean atomic subcomponents"
+    "test: add cloze transformer tests and clean lint warnings"
   ],
   "downloadUrls": {
     "windows": "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Setup-x64.exe",

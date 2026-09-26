@@ -463,28 +463,36 @@ export function Dashboard() {
               </div>
             ) : (
               <div className="space-y-2.5">
-                {completedSessions.slice(0, 4).map((session) => (
-                  <Link
-                    key={session.id}
-                    href={`/sessions/run/?id=${session.id}`}
-                    className="bg-[var(--surface)] hover:bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-2xl p-3.5 flex items-center justify-between transition-all shadow-[2.5px_2.5px_0px_var(--neo-shadow)] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[3.5px_3.5px_0px_var(--neo-shadow)]"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-xl bg-[var(--brand-green)] border-2 border-[var(--line-strong)] text-[var(--ink-on-color)] flex items-center justify-center font-black text-xs shadow-[1px_1px_0px_var(--neo-shadow)] shrink-0">
-                        {session.total ? Math.round(((session.answered || 0) / session.total) * 100) : 0}٪
+                {completedSessions.slice(0, 4).map((session) => {
+                  const isReview = session.config?.sessionType === "review" || session.config?.mode === "due";
+                  const titlePrefix = isReview ? "مرور" : "آزمون";
+                  const badgeColorClass = isReview
+                    ? "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)]"
+                    : "bg-[var(--brand-green)] text-[var(--ink-on-color)]";
+
+                  return (
+                    <Link
+                      key={session.id}
+                      href={`/sessions/run/?id=${session.id}`}
+                      className="bg-[var(--surface)] hover:bg-[var(--surface-2)] border-2 border-[var(--line-strong)] rounded-2xl p-3.5 flex items-center justify-between transition-all shadow-[2.5px_2.5px_0px_var(--neo-shadow)] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[3.5px_3.5px_0px_var(--neo-shadow)]"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-9 h-9 rounded-xl ${badgeColorClass} border-2 border-[var(--line-strong)] flex items-center justify-center font-black text-xs shadow-[1px_1px_0px_var(--neo-shadow)] shrink-0`}>
+                          {session.total ? Math.round(((session.answered || 0) / session.total) * 100) : 0}٪
+                        </div>
+                        <div className="min-w-0">
+                          <strong className="text-xs sm:text-sm font-black text-[var(--ink)] block truncate">
+                            {titlePrefix} {session.answered} از {session.total} سؤال
+                          </strong>
+                          <span className="text-[10px] font-bold text-[var(--muted)]">
+                            {isReview ? "مشاهده کارنامه مرور" : "مشاهده کارنامه"}
+                          </span>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <strong className="text-xs sm:text-sm font-black text-[var(--ink)] block truncate">
-                          آزمون {session.answered} از {session.total} سؤال
-                        </strong>
-                        <span className="text-[10px] font-bold text-[var(--muted)]">
-                          مشاهده کارنامه
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronLeft size={16} className="text-[var(--muted)]" />
-                  </Link>
-                ))}
+                      <ChevronLeft size={16} className="text-[var(--muted)]" />
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </section>

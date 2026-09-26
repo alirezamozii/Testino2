@@ -1907,24 +1907,24 @@ export class AppDatabase {
         }
       }
 
-      // 2. Wrong answers
+      // 2. Wrong answers (questions where latest attempt was incorrect)
       if (selectedModes.includes("wrong")) {
         for (const [qId, att] of latestAttemptMap.entries()) {
-          if (att.result === "wrong" || allEverWrong.has(qId)) eligibleQuestionIds.add(qId);
+          if (att.result === "wrong") eligibleQuestionIds.add(qId);
         }
       }
 
-      // 3. Doubtful
+      // 3. Doubtful (questions where latest attempt was doubtful)
       if (selectedModes.includes("doubtful")) {
         for (const [qId, att] of latestAttemptMap.entries()) {
-          if (att.confidence === "doubtful" || allEverDoubtful.has(qId)) eligibleQuestionIds.add(qId);
+          if (att.confidence === "doubtful") eligibleQuestionIds.add(qId);
         }
       }
 
-      // 4. Guess
+      // 4. Guess (questions where latest attempt was a guess)
       if (selectedModes.includes("guess")) {
         for (const [qId, att] of latestAttemptMap.entries()) {
-          if (att.confidence === "guess" || allEverGuess.has(qId)) eligibleQuestionIds.add(qId);
+          if (att.confidence === "guess") eligibleQuestionIds.add(qId);
         }
       }
 
@@ -2119,20 +2119,17 @@ export class AppDatabase {
     for (const [qId, att] of latestAttemptByQ.entries()) {
       if (att.result === "unanswered") {
         skippedIds.add(qId);
+      } else if (att.result === "wrong") {
+        wrongIds.add(qId);
+      } else if (att.result === "correct") {
+        if (att.confidence === "doubtful") {
+          doubtfulIds.add(qId);
+        } else if (att.confidence === "guess") {
+          guessIds.add(qId);
+        } else {
+          masteredIds.add(qId);
+        }
       }
-      if (att.result === "correct" && att.confidence !== "doubtful" && att.confidence !== "guess") {
-        masteredIds.add(qId);
-      }
-    }
-
-    for (const qId of allEverWrongIds) {
-      wrongIds.add(qId);
-    }
-    for (const qId of allEverDoubtfulIds) {
-      doubtfulIds.add(qId);
-    }
-    for (const qId of allEverGuessIds) {
-      guessIds.add(qId);
     }
 
     return {
@@ -3133,15 +3130,20 @@ export class AppDatabase {
     const penaltyNum = profileRow?.penalty_numerator ?? 1;
     const penaltyDen = profileRow?.penalty_denominator ?? 3;
 
-    // Track unique question count for telemetry/overview, but evaluate all actual
+    // Track unique question counts for telemetry/overview, but evaluate all actual
     // attempts across finished exams so analytics matches Home and Konkur reality (no fake 100%).
     const latestAttemptByQuestion = new Map<string, typeof rows[0]>();
+    const answeredUniqueQuestions = new Set<string>();
     for (const row of rows) {
       if (!latestAttemptByQuestion.has(row.question_id)) {
         latestAttemptByQuestion.set(row.question_id, row);
       }
+      if (row.result === "correct" || row.result === "wrong") {
+        answeredUniqueQuestions.add(row.question_id);
+      }
     }
     const uniqueQuestionsCount = latestAttemptByQuestion.size;
+    const uniqueAnsweredQuestionsCount = answeredUniqueQuestions.size;
 
     const totals = {
       correct: 0,
@@ -3151,6 +3153,7 @@ export class AppDatabase {
       total: rows.length,
       totalAttempts: rows.length,
       uniqueQuestionsCount,
+      uniqueAnsweredQuestionsCount,
     };
     let totalActiveMs = 0;
     let groupActiveMs = 0;
