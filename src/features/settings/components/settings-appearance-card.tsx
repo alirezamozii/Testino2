@@ -241,7 +241,6 @@ export function SettingsAppearanceCard({
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/50 border-2 border-[var(--line-strong)] flex items-center justify-center p-1.5 shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/logo.png" alt="لوگو" className="w-full h-full object-contain" />
             </div>
             <div>

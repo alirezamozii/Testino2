@@ -39,7 +39,6 @@ export function SettingsProfileCard({
         <div className="flex items-center gap-3.5 min-w-0">
           <div className="w-14 h-14 rounded-2xl bg-[var(--pastel-orange)] border-2 border-[var(--line-strong)] text-white flex items-center justify-center font-black text-2xl shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0 overflow-hidden">
             {avatarUrl && !avatarError ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={avatarUrl}
                 alt={username}

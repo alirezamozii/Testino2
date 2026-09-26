@@ -29,20 +29,17 @@ export function SettingsAboutModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-col items-center text-center space-y-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo.png"
             alt="لوگوی تستینو"
             className="w-20 h-20 object-contain drop-shadow-md"
           />
           <div className="flex items-center justify-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/name.png"
               alt="تستینو Testino"
               className="h-9 w-auto object-contain dark:hidden"
             />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/name-dark.png"
               alt="تستینو Testino"

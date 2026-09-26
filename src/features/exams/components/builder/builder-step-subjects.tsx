@@ -3,7 +3,6 @@
 import React from "react";
 import { BookOpen, Check, CheckSquare, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isSameSubject } from "@/features/questions/domain/subject-registry";
 import { NeoInput } from "@/components/ui/neo-primitives";
 
 export interface BuilderStepSubjectsProps {
