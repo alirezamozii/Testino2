@@ -1,12 +1,12 @@
 {
-  "version": "2.0.10",
-  "build": 78,
+  "version": "2.0.11",
+  "build": 79,
   "releaseDate": "2026-09-26",
   "changelog": [
+    "fix(update): enable mobile update popups, bypass SW version cache, and add Iran CDN fallback",
     "fix(ui,spacing): prevent card collisions and breathing room in exam and review players",
     "fix(exams): precision 1s monotonic timer, lock option buttons during pause, and bust SW cache",
-    "fix(exams,timer,import): shield options during pause, enhance live 1s timer, and add direct exam button for import batches",
-    "fix(timer,exams): guarantee smooth 1s monotonic tick, prevent render churn reset, eliminate false auto-pauses, and keep timer active in instant feedback"
+    "fix(exams,timer,import): shield options during pause, enhance live 1s timer, and add direct exam button for import batches"
   ],
   "downloadUrls": {
     "windows": "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Setup-x64.exe",

@@ -187,7 +187,7 @@ if (!zipped) {
 
 console.log("5️⃣ ساخت فایل نصبی حرفه‌ای ویندوز (NSIS Installer)...");
 try {
-  execSync("npx electron-builder --win nsis --x64", { stdio: "inherit" });
+  execSync("npx electron-builder --win nsis --x64", { stdio: ["ignore", "inherit", "inherit"] });
   const setupExe = path.join(distDir, "Testino-Setup-x64.exe");
   if (fs.existsSync(setupExe)) {
     console.log(`📦 فایل نصبی Installer آماده شد: ${setupExe}`);
