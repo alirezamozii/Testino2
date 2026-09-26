@@ -10,9 +10,9 @@ export interface AppVersionInfo {
   };
 }
 
-export const APP_VERSION = "2.0.0";
-export const APP_BUILD = 69;
-export const APP_RELEASE_DATE = "2026-09-25";
+export const APP_VERSION = "2.0.1";
+export const APP_BUILD = 70;
+export const APP_RELEASE_DATE = "2026-09-26";
 
 /**
  * Returns:

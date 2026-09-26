@@ -2676,7 +2676,7 @@ export class AppDatabase {
           payload: {
             id,
             is_tombstone: true,
-            session: { id, state: "DELETED", is_tombstone: true },
+            session: { id, state: "FINISHED", is_tombstone: true, deleted_at: Date.now() },
           },
         });
       } catch {
@@ -3103,12 +3103,15 @@ export class AppDatabase {
       topic: string | null;
       active_ms: number;
       group_id: string | null;
+      question_id: string;
+      finalized_at: number;
     }>(
-      `SELECT a.result, a.visited, a.confidence, q.subject, q.topic, a.active_ms, q.group_id 
+      `SELECT a.result, a.visited, a.confidence, q.subject, q.topic, a.active_ms, q.group_id, q.id AS question_id, a.finalized_at 
        FROM attempts a 
        JOIN sessions s ON s.id=a.session_id 
        JOIN questions q ON q.id=a.question_id 
-       ${whereClause}`,
+       ${whereClause}
+       ORDER BY a.finalized_at DESC`,
       params
     );
 
@@ -3130,11 +3133,22 @@ export class AppDatabase {
     const penaltyNum = profileRow?.penalty_numerator ?? 1;
     const penaltyDen = profileRow?.penalty_denominator ?? 3;
 
-    const totals = { correct: 0, wrong: 0, unanswered: 0, unvisited: 0, total: rows.length };
+    // Deduplicate repeated attempts by question_id:
+    // Take the latest attempt for each unique question (since ordered by finalized_at DESC)
+    // so repeated practice doesn't corrupt subject accuracy or multiply question counts.
+    const latestAttemptByQuestion = new Map<string, typeof rows[0]>();
+    for (const row of rows) {
+      if (!latestAttemptByQuestion.has(row.question_id)) {
+        latestAttemptByQuestion.set(row.question_id, row);
+      }
+    }
+    const uniqueRows = Array.from(latestAttemptByQuestion.values());
+
+    const totals = { correct: 0, wrong: 0, unanswered: 0, unvisited: 0, total: uniqueRows.length, totalAttempts: rows.length };
     let totalActiveMs = 0;
     let groupActiveMs = 0;
 
-    for (const row of rows) {
+    for (const row of uniqueRows) {
       totals[row.result] += 1;
       if (!row.visited) totals.unvisited += 1;
       totalActiveMs += Number(row.active_ms || 0);
@@ -3144,7 +3158,7 @@ export class AppDatabase {
     }
 
     const confidenceSimulation = simulateOverallConfidence(
-      rows.map((row) => ({
+      uniqueRows.map((row) => ({
         subject: canonicalizeSubject(row.subject),
         result: row.result,
         confidence: row.confidence,
@@ -3158,11 +3172,13 @@ export class AppDatabase {
       }))
     );
 
-    const bySubject = [...new Set(rows.map((row) => canonicalizeSubject(row.subject)))].map((subject) => {
-      const items = rows.filter((row) => isSameSubject(row.subject, subject));
+    const bySubject = [...new Set(uniqueRows.map((row) => canonicalizeSubject(row.subject)))].map((subject) => {
+      const items = uniqueRows.filter((row) => isSameSubject(row.subject, subject));
+      const allAttempts = rows.filter((row) => isSameSubject(row.subject, subject));
       const correct = items.filter((row) => row.result === "correct").length;
       const wrong = items.filter((row) => row.result === "wrong").length;
       const total = items.length;
+      const totalAttempts = allAttempts.length;
       const rawPct = total > 0 ? (correct / total) * 100 : null;
       const penalizedPct = total > 0 && penaltyNum > 0
         ? ((correct - (wrong * penaltyNum) / penaltyDen) / total) * 100
@@ -3177,6 +3193,7 @@ export class AppDatabase {
       return {
         subject,
         total,
+        totalAttempts,
         correct,
         wrong,
         percentage: penalizedPct !== null ? Math.round(penalizedPct * 10) / 10 : null,

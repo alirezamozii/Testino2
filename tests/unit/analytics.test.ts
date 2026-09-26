@@ -125,4 +125,54 @@ describe("Analytics Aggregates & Target Percentage (TASK-023)", () => {
     const randomResult = await appDb.analytics(profileId, { mode: "random" });
     expect(randomResult.totals.total).toBe(3);
   });
+
+  it("deduplicates repeated attempts on the same question taking the latest attempt for mastery", async () => {
+    const { memoryDb, appDb, profileId, q1, q2, q3 } = await setup();
+    const now = Date.now();
+
+    // Session 1: user takes an exam and gets Q1 wrong
+    const s1 = crypto.randomUUID();
+    await memoryDb.execute(
+      "INSERT INTO sessions(id, profile_id, state, selection_seed, created_at, config_json) VALUES(?, ?, 'FINISHED', 'seed', ?, '{}')",
+      [s1, profileId, now - 10000]
+    );
+    const sq1 = crypto.randomUUID();
+    await memoryDb.execute(
+      "INSERT INTO session_questions(id, session_id, question_id, ordinal, snapshot_json, option_order_json) VALUES(?,?,?,0,'{}','[]')",
+      [sq1, s1, q1]
+    );
+    await memoryDb.execute(
+      "INSERT INTO attempts(id, session_question_id, session_id, question_id, result, visited, active_ms, finalized_at) VALUES (?,?,?,?,'wrong',1,2000,?)",
+      [crypto.randomUUID(), sq1, s1, q1, now - 10000]
+    );
+
+    // Session 2: user studies and retakes Q1 and gets it correct!
+    const s2 = crypto.randomUUID();
+    await memoryDb.execute(
+      "INSERT INTO sessions(id, profile_id, state, selection_seed, created_at, config_json) VALUES(?, ?, 'FINISHED', 'seed', ?, '{}')",
+      [s2, profileId, now - 5000]
+    );
+    const sq2 = crypto.randomUUID();
+    await memoryDb.execute(
+      "INSERT INTO session_questions(id, session_id, question_id, ordinal, snapshot_json, option_order_json) VALUES(?,?,?,0,'{}','[]')",
+      [sq2, s2, q1]
+    );
+    await memoryDb.execute(
+      "INSERT INTO attempts(id, session_question_id, session_id, question_id, result, visited, active_ms, finalized_at) VALUES (?,?,?,?,'correct',1,2000,?)",
+      [crypto.randomUUID(), sq2, s2, q1, now - 5000]
+    );
+
+    // Analytics should reflect Q1 once (as mastered/correct), not count 2 questions!
+    const result = await appDb.analytics(profileId);
+    expect(result.totals.total).toBe(1); // 1 unique question tested
+    expect(result.totals.totalAttempts).toBe(2); // 2 total attempts across sessions
+    expect(result.totals.correct).toBe(1); // latest attempt is correct
+    expect(result.totals.wrong).toBe(0);
+
+    const math = result.bySubject.find((s) => s.subject === "ریاضی عمومی");
+    expect(math?.total).toBe(1);
+    expect(math?.totalAttempts).toBe(2);
+    expect(math?.correct).toBe(1);
+    expect(math?.wrong).toBe(0);
+  });
 });

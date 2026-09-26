@@ -373,7 +373,14 @@ export function AnalyticsPage() {
                           </div>
 
                           <div className="flex justify-between items-center text-[10px] text-[var(--muted-foreground)] font-bold px-0.5">
-                            <span>کل سؤالات این درس: {item.total}</span>
+                            <span>
+                              کل سؤالات سنجیده‌شده: {item.total}
+                              {Boolean(item.totalAttempts && item.totalAttempts > item.total) && (
+                                <span className="opacity-75 mr-1 font-normal">
+                                  ({item.totalAttempts} نوبت پاسخ)
+                                </span>
+                              )}
+                            </span>
                             <span
                               className={
                                 item.targetGap !== null && item.targetGap >= 0

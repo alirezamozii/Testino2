@@ -541,7 +541,7 @@ export function SessionBuilder() {
   }
 
   return (
-    <div className="page session-builder-page max-w-4xl mx-auto space-y-5 pb-8">
+    <div className="page session-builder-page max-w-4xl mx-auto space-y-5 pb-32 sm:pb-16">
       {/* 1. Stepper Header */}
       <div className="card-neo p-4 bg-[var(--surface)]">
         <div className="flex items-center justify-between px-1">
@@ -722,18 +722,18 @@ export function SessionBuilder() {
             </div>
 
             {/* Mode Switcher: All vs Custom */}
-            <div className="flex items-center gap-2 p-1.5 bg-[var(--surface-cream)] rounded-2xl border-2 border-[var(--line-strong)]">
+            <div className="flex flex-col sm:flex-row items-stretch gap-2 p-1.5 bg-[var(--surface-cream)] rounded-2xl border-2 border-[var(--line-strong)]">
               <button
                 type="button"
                 onClick={() => setScopeMode("all")}
                 className={cn(
-                  "flex-1 py-2 text-xs font-black rounded-xl transition-all border-2 flex items-center justify-center gap-1.5",
+                  "flex-1 py-2.5 px-3 text-xs font-black rounded-xl transition-all border-2 flex items-center justify-center gap-1.5 text-center",
                   scopeMode === "all"
                     ? "bg-[var(--brand-orange)] text-white border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
                     : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
                 )}
               >
-                <Layers size={14} />
+                <Layers size={15} className="shrink-0" />
                 <span>کل مباحث تمام درس‌های انتخابی ({availableCount} سؤال)</span>
               </button>
 
@@ -741,13 +741,13 @@ export function SessionBuilder() {
                 type="button"
                 onClick={() => setScopeMode("custom")}
                 className={cn(
-                  "flex-1 py-2 text-xs font-black rounded-xl transition-all border-2 flex items-center justify-center gap-1.5",
+                  "flex-1 py-2.5 px-3 text-xs font-black rounded-xl transition-all border-2 flex items-center justify-center gap-1.5 text-center",
                   scopeMode === "custom"
                     ? "bg-[var(--brand-orange)] text-white border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
                     : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
                 )}
               >
-                <FolderTree size={14} />
+                <FolderTree size={15} className="shrink-0" />
                 <span>انتخاب سفارشی فصول و مباحث</span>
               </button>
             </div>
@@ -793,18 +793,18 @@ export function SessionBuilder() {
                       <button
                         type="button"
                         onClick={() => setExpandedSubject(isExpanded ? null : subjName)}
-                        className="w-full p-3.5 bg-[var(--surface-cream)] border-b-2 border-[var(--line-strong)] flex items-center justify-between text-right"
+                        className="w-full p-3.5 bg-[var(--surface-cream)] border-b-2 border-[var(--line-strong)] flex items-center justify-between text-right gap-2"
                       >
-                        <div className="flex items-center gap-2">
-                          <BookOpen size={16} className="text-[var(--brand-orange)]" />
-                          <strong className="text-xs sm:text-sm font-black text-[var(--ink)]">{subjName}</strong>
-                          <span className="text-[10px] font-bold text-[var(--muted)]">({sTax.total} سؤال)</span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <BookOpen size={16} className="text-[var(--brand-orange)] shrink-0" />
+                          <strong className="text-xs sm:text-sm font-black text-[var(--ink)] truncate">{subjName}</strong>
+                          <span className="text-[10px] font-bold text-[var(--muted)] shrink-0">({sTax.total} سؤال)</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black text-[var(--muted)]">
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[10px] font-black text-[var(--muted)] whitespace-nowrap">
                             {sTax.chapters.size} فصل
                           </span>
-                          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          {isExpanded ? <ChevronUp size={16} className="shrink-0" /> : <ChevronDown size={16} className="shrink-0" />}
                         </div>
                       </button>
 
@@ -832,26 +832,26 @@ export function SessionBuilder() {
                                 )}
                               >
                                 {/* Main Chapter Row */}
-                                <div className="flex items-center justify-between gap-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                                   {/* Checkbox & Chapter Name */}
                                   <button
                                     type="button"
                                     onClick={() => toggleChapter(chName)}
-                                    className="flex items-center gap-2.5 text-right flex-1 min-w-0 cursor-pointer"
+                                    className="flex items-start sm:items-center gap-2.5 text-right flex-1 min-w-0 cursor-pointer"
                                   >
                                     <div
                                       className={cn(
-                                        "w-5 h-5 rounded-lg border-2 border-[var(--line-strong)] flex items-center justify-center transition-all shrink-0",
+                                        "w-5 h-5 rounded-lg border-2 border-[var(--line-strong)] flex items-center justify-center transition-all shrink-0 mt-0.5 sm:mt-0",
                                         isChSelected ? "bg-[var(--brand-orange)] text-white shadow-[1px_1px_0px_var(--neo-shadow)]" : "bg-[var(--surface)]"
                                       )}
                                     >
                                       {isChSelected && <Check size={13} className="stroke-[3]" />}
                                     </div>
-                                    <div className="min-w-0">
-                                      <span className="text-xs sm:text-sm font-black text-[var(--ink)] block truncate">
-                                        {chName}
+                                    <div className="min-w-0 flex-1">
+                                      <span className="text-xs sm:text-sm font-black text-[var(--ink)] block">
+                                        {chName || "فصل بدون نام"}
                                       </span>
-                                      <span className="text-[10px] text-[var(--muted)] font-bold">
+                                      <span className="text-[10px] text-[var(--muted)] font-bold block pt-0.5">
                                         {isChSelected ? (
                                           <strong className="text-[var(--brand-orange)] font-black">کل فصل انتخاب شد</strong>
                                         ) : (
@@ -863,8 +863,8 @@ export function SessionBuilder() {
                                   </button>
 
                                   {/* Right side controls: question count + dropdown button */}
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)]">
+                                  <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-dashed border-[var(--line)]/50">
+                                    <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-[var(--surface)] border border-[var(--line)] text-[var(--ink)] whitespace-nowrap">
                                       {chData.total} سؤال
                                     </span>
 
@@ -950,9 +950,11 @@ export function SessionBuilder() {
                                               >
                                                 {isTopSelected && <Check size={10} className="stroke-[3]" />}
                                               </div>
-                                              <span className="truncate">{topName}</span>
+                                              <span className="text-xs font-bold text-[var(--ink)] leading-snug break-words flex-1">
+                                                {topName}
+                                              </span>
                                             </div>
-                                            <span className="text-[10px] text-[var(--muted)] font-black shrink-0">
+                                            <span className="text-[10px] text-[var(--muted)] font-black shrink-0 whitespace-nowrap">
                                               {topCount} سؤال
                                             </span>
                                           </button>

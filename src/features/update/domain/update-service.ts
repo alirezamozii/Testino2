@@ -33,12 +33,18 @@ export async function checkAppUpdate(feedUrl?: string): Promise<UpdateCheckResul
   const currentVersion = APP_VERSION;
   const currentBuild = APP_BUILD;
 
-  // Smart fallback target url: custom feed -> env var -> local version.json
-  const targetUrl =
+  // Smart fallback target url: custom feed -> env var -> remote GitHub raw -> local version.json
+  const defaultRemoteFeed =
+    "https://raw.githubusercontent.com/alirezamozii/Testino2/main/public/version.json";
+  const rawTargetUrl =
     feedUrl ||
     (typeof localStorage !== "undefined" ? localStorage.getItem("testino_custom_update_feed") : null) ||
     process.env.NEXT_PUBLIC_UPDATE_FEED_URL ||
-    "/version.json";
+    defaultRemoteFeed;
+
+  const targetUrl = rawTargetUrl.startsWith("http")
+    ? (rawTargetUrl.includes("?") ? `${rawTargetUrl}&_t=${Date.now()}` : `${rawTargetUrl}?_t=${Date.now()}`)
+    : rawTargetUrl;
 
   try {
     const controller = new AbortController();

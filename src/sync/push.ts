@@ -7,6 +7,9 @@ export interface PushResult {
   errors: string[];
 }
 
+const MAX_BATCH_BYTES = 350_000;
+const DEFAULT_BATCH_COUNT = 15;
+
 export async function executePush(
   ownerId: string,
   deviceId: string,
@@ -14,11 +17,23 @@ export async function executePush(
   transport: SyncTransport,
   options?: { batchSize?: number }
 ): Promise<PushResult> {
-  const batchSize = Math.min(options?.batchSize || 50, 100);
-  const pendingRows = await outboxRepo.listPending(ownerId, batchSize);
+  const maxCount = Math.min(options?.batchSize || DEFAULT_BATCH_COUNT, 30);
+  const candidateRows = await outboxRepo.listPending(ownerId, maxCount);
 
-  if (!pendingRows.length) {
+  if (!candidateRows.length) {
     return { pushedCount: 0, conflictCount: 0, errors: [] };
+  }
+
+  // Slice candidates so total JSON byte length stays strictly under server limits (1MB)
+  const pendingRows: typeof candidateRows = [];
+  let accumulatedBytes = 0;
+  for (const row of candidateRows) {
+    const rowBytes = (row.payload_json ? row.payload_json.length : 0) + 200;
+    if (pendingRows.length > 0 && accumulatedBytes + rowBytes > MAX_BATCH_BYTES) {
+      break;
+    }
+    pendingRows.push(row);
+    accumulatedBytes += rowBytes;
   }
 
   const mutationIds = pendingRows.map((r) => r.mutation_id);
@@ -38,11 +53,22 @@ export async function executePush(
 
   try {
     const results = await transport.push(deviceId, mutationItems);
+    const pendingMap = new Map(pendingRows.map((r) => [r.mutation_id, r]));
 
     for (const res of results) {
+      const pendingRow = pendingMap.get(res.mutationId);
+      const isTombstone =
+        pendingRow?.mutation_id.startsWith("tombstone:") ||
+        (pendingRow?.payload_json && pendingRow.payload_json.includes('"is_tombstone":true'));
+
       if (res.status === "accepted" || res.status === "duplicate") {
         await outboxRepo.markAcked(ownerId, res.mutationId);
         await outboxRepo.recordAppliedMutation(ownerId, res.mutationId, { status: res.status, changeSeq: res.changeSeq });
+        pushedCount++;
+      } else if (res.errorCode === "FINISHED_TERMINAL" && isTombstone) {
+        // If server reported FINISHED_TERMINAL on a tombstone, the session is already terminated on server.
+        await outboxRepo.markAcked(ownerId, res.mutationId);
+        await outboxRepo.recordAppliedMutation(ownerId, res.mutationId, { status: "accepted", changeSeq: res.changeSeq });
         pushedCount++;
       } else {
         const errorMsg = res.errorCode || `Mutation ${res.mutationId} rejected by server with status: ${res.status}`;
