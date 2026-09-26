@@ -14,10 +14,11 @@ function run(command, args = [], options = {}) {
     shell: process.platform === "win32",
     ...options,
   });
-  if (res.status !== 0) {
+  if (res.status !== 0 && !options.ignoreError) {
     console.error(`\n❌ خطا در مرحله: ${command} ${args.join(" ")}`);
     process.exit(res.status ?? 1);
   }
+  return res;
 }
 
 // 1. Parse arguments (commit message, flags)
@@ -57,21 +58,26 @@ run(process.execPath, ["scripts/package-desktop.mjs"]);
 console.log("\n📦 ثبت تغییرات و ارسال خودکار به گیت‌هاب...");
 run("git", ["add", "."]);
 
-const commitMsg = customMessage
-  ? `release: v${versionInfo.version} (Build ${versionInfo.build}) - ${customMessage}`
-  : `release: v${versionInfo.version} (Build ${versionInfo.build})`;
+const statusRes = spawnSync("git", ["status", "--porcelain"], { cwd: rootDir, encoding: "utf8" });
+const hasChanges = statusRes.stdout && statusRes.stdout.trim().length > 0;
 
-// Safe commit using temporary file to avoid shell argument escaping issues with Persian text and special characters
-const commitMsgPath = path.join(rootDir, ".git", "SHIP_COMMIT_MSG");
-fs.writeFileSync(commitMsgPath, commitMsg, "utf8");
-try {
-  run("git", ["commit", "-F", commitMsgPath]);
-} catch {
-  console.log("تغییرات جدیدی برای کامیت وجود نداشت.");
-} finally {
+if (hasChanges) {
+  const commitMsg = customMessage
+    ? `release: v${versionInfo.version} (Build ${versionInfo.build}) - ${customMessage}`
+    : `release: v${versionInfo.version} (Build ${versionInfo.build})`;
+
+  // Safe commit using temporary file to avoid shell argument escaping issues with Persian text and special characters
+  const commitMsgPath = path.join(rootDir, ".git", "SHIP_COMMIT_MSG");
+  fs.writeFileSync(commitMsgPath, commitMsg, "utf8");
   try {
-    if (fs.existsSync(commitMsgPath)) fs.unlinkSync(commitMsgPath);
-  } catch {}
+    run("git", ["commit", "-F", commitMsgPath]);
+  } finally {
+    try {
+      if (fs.existsSync(commitMsgPath)) fs.unlinkSync(commitMsgPath);
+    } catch {}
+  }
+} else {
+  console.log("تغییرات جدیدی برای کامیت وجود نداشت.");
 }
 
 // Push to GitHub repository
