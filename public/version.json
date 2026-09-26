@@ -1,12 +1,12 @@
 {
-  "version": "2.0.9",
-  "build": 77,
+  "version": "2.0.10",
+  "build": 78,
   "releaseDate": "2026-09-26",
   "changelog": [
+    "fix(ui,spacing): prevent card collisions and breathing room in exam and review players",
+    "fix(exams): precision 1s monotonic timer, lock option buttons during pause, and bust SW cache",
     "fix(exams,timer,import): shield options during pause, enhance live 1s timer, and add direct exam button for import batches",
-    "fix(timer,exams): guarantee smooth 1s monotonic tick, prevent render churn reset, eliminate false auto-pauses, and keep timer active in instant feedback",
-    "fix(e2e,exams): align finish modal submit button, refine pause selectors, and handle wasm fallback in hygiene watchdog",
-    "feat(review,pools): retain cumulative error log for lifelong mistake re-testing"
+    "fix(timer,exams): guarantee smooth 1s monotonic tick, prevent render churn reset, eliminate false auto-pauses, and keep timer active in instant feedback"
   ],
   "downloadUrls": {
     "windows": "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Setup-x64.exe",
