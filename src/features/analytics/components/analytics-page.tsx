@@ -78,8 +78,8 @@ export function AnalyticsPage() {
   // Canonical headline number: Sanjesh net percentage (weighted with negative marking).
   // Falls back to the raw percentage when no scored simulation exists yet.
   const netPercentage = confidenceSimulation?.totals
-    ? Math.round(confidenceSimulation.totals.overallActualPercentage)
-    : percentage;
+    ? Math.round(confidenceSimulation.totals.overallActualPercentage * 10) / 10
+    : percentage !== null ? Math.round(percentage * 10) / 10 : null;
 
   const hasAnyDoubtOrGuess = Boolean(
     confidenceSimulation &&
@@ -207,7 +207,15 @@ export function AnalyticsPage() {
                     نمای کلی دقت و زمان
                   </h2>
                   <p className="text-xs text-[var(--muted-foreground)] font-medium">
-                    بر پایهٔ {new Intl.NumberFormat("fa-IR").format(totals.total)} پاسخ ثبت‌شده در آزمون‌های تو
+                    بر پایهٔ{" "}
+                    {totals.uniqueAnsweredQuestionsCount && totals.uniqueAnsweredQuestionsCount < totals.total ? (
+                      <>
+                        <strong className="text-[var(--foreground)]">{new Intl.NumberFormat("fa-IR").format(totals.uniqueAnsweredQuestionsCount)} سؤال یکتا</strong>{" "}
+                        ({new Intl.NumberFormat("fa-IR").format(totals.total)} نوبت پاسخ در آزمون‌ها)
+                      </>
+                    ) : (
+                      `${new Intl.NumberFormat("fa-IR").format(totals.total)} پاسخ ثبت‌شده در آزمون‌های تو`
+                    )}
                   </p>
                 </div>
               </div>
@@ -285,11 +293,11 @@ export function AnalyticsPage() {
                 <div className="space-y-4">
                   {bySubject.map((item) => {
                     const subjectTarget = item.targetPercentage ?? 70;
-                    const pct = item.percentage !== null ? Math.round(item.percentage) : 0;
+                    const pct = item.percentage !== null ? Math.round(item.percentage * 10) / 10 : 0;
                     const rawPct = item.rawPercentage !== null
-                      ? Math.round(item.rawPercentage)
+                      ? Math.round(item.rawPercentage * 10) / 10
                       : item.total > 0
-                      ? Math.round((item.correct / item.total) * 100)
+                      ? Math.round((item.correct / item.total) * 100 * 10) / 10
                       : 0;
                     const unanswered = Math.max(0, item.total - item.correct - item.wrong);
                     const isAboveTarget = pct >= subjectTarget;
@@ -374,11 +382,15 @@ export function AnalyticsPage() {
 
                           <div className="flex justify-between items-center text-[10px] text-[var(--muted-foreground)] font-bold px-0.5">
                             <span>
-                              کل سؤالات سنجیده‌شده: {item.total}
-                              {Boolean(item.totalAttempts && item.totalAttempts > item.total) && (
-                                <span className="opacity-75 mr-1 font-normal">
-                                  ({item.totalAttempts} نوبت پاسخ)
-                                </span>
+                              {item.uniqueQuestions && item.uniqueQuestions < (item.totalAttempts ?? item.total) ? (
+                                <>
+                                  سؤالات یکتا: <strong>{new Intl.NumberFormat("fa-IR").format(item.uniqueQuestions)}</strong>
+                                  <span className="opacity-75 mr-1 font-normal">
+                                    ({new Intl.NumberFormat("fa-IR").format(item.totalAttempts ?? item.total)} نوبت پاسخ در آزمون‌ها)
+                                  </span>
+                                </>
+                              ) : (
+                                `کل سؤالات سنجیده‌شده: ${new Intl.NumberFormat("fa-IR").format(item.total)}`
                               )}
                             </span>
                             <span

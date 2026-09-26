@@ -163,10 +163,7 @@ export async function applyRemoteChange(
     case "subject": {
       const s = payload as { profileId?: string; name?: string; coefficient?: number; targetPercentage?: number; questionCount?: number; scoreGroup?: string | null };
       if (!s.profileId || !s.name) return;
-      await trx.execute(
-        "INSERT OR IGNORE INTO profiles(id, name, created_at) VALUES(?, 'پروفایل همگام‌سازی‌شده', ?)",
-        [s.profileId, Date.now()]
-      );
+      const safeProfileId = await ensureProfile(trx, s.profileId);
       await trx.execute(
         `INSERT INTO subjects(id, profile_id, name, coefficient, target_percentage, question_count, score_group, created_at)
          VALUES(?, ?, ?, ?, ?, ?, ?, ?)
@@ -178,7 +175,7 @@ export async function applyRemoteChange(
            score_group=excluded.score_group`,
         [
           entityId,
-          String(s.profileId),
+          safeProfileId,
           String(s.name),
           Number(s.coefficient ?? 1),
           Number(s.targetPercentage ?? 70),
@@ -192,13 +189,7 @@ export async function applyRemoteChange(
 
     case "session": {
       const s = payload as { profileId?: string; state?: string; selectionSeed?: string; configJson?: unknown };
-      const safeProfileId = String(s.profileId || "").trim();
-      if (safeProfileId) {
-        await trx.execute(
-          "INSERT OR IGNORE INTO profiles(id, name, created_at) VALUES(?, 'پروفایل همگام‌سازی‌شده', ?)",
-          [safeProfileId, Date.now()]
-        );
-      }
+      const safeProfileId = await ensureProfile(trx, s.profileId);
       // Conflict check for terminal states and concurrent divergent edits
       const existing = await trx.query<{ state: string }>("SELECT state FROM sessions WHERE id=? LIMIT 1", [entityId]);
       const localState = existing[0]?.state;
@@ -253,7 +244,7 @@ export async function applyRemoteChange(
              state=excluded.state`,
           [
             entityId,
-            safeProfileId || (await trx.query<{ id: string }>("SELECT id FROM profiles LIMIT 1"))[0]?.id || "default",
+            safeProfileId,
             String(s.state || "CREATED"),
             String(s.selectionSeed || crypto.randomUUID()),
             Date.now(),
@@ -276,24 +267,17 @@ export async function applyRemoteChange(
       };
       if (!a.sessionQuestionId || !a.sessionId || !a.questionId) return;
 
-      // Ensure parent session and question exist before inserting attempt
-      const defaultProf = (await trx.query<{ id: string }>("SELECT id FROM profiles LIMIT 1"))[0]?.id || "default";
-      await trx.execute(
-        "INSERT OR IGNORE INTO sessions(id, profile_id, state, selection_seed, created_at) VALUES(?, ?, 'FINISHED', ?, ?)",
-        [a.sessionId, defaultProf, crypto.randomUUID(), Date.now()]
-      );
-      await trx.execute(
-        "INSERT OR IGNORE INTO questions(id, external_key, subject, content_json, status) VALUES(?, ?, 'عمومی', '[]', 'published')",
-        [a.questionId, `ext-${a.questionId}`]
-      );
-      await trx.execute(
-        "INSERT OR IGNORE INTO session_questions(id, session_id, question_id, ordinal, snapshot_json, option_order_json) VALUES(?, ?, ?, 0, '{}', '[]')",
-        [a.sessionQuestionId, a.sessionId, a.questionId]
-      );
+      await ensureSessionQuestion(trx, a.sessionQuestionId, a.sessionId, a.questionId);
 
       await trx.execute(
-        `INSERT OR IGNORE INTO attempts(id, session_question_id, session_id, question_id, result, visited, confidence, active_ms, finalized_at)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO attempts(id, session_question_id, session_id, question_id, result, visited, confidence, active_ms, finalized_at)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           result=excluded.result,
+           visited=excluded.visited,
+           confidence=excluded.confidence,
+           active_ms=excluded.active_ms,
+           finalized_at=excluded.finalized_at`,
         [
           entityId,
           String(a.sessionQuestionId),
@@ -391,6 +375,126 @@ const SUBJECT_COLUMNS = ["id", "profile_id", "name", "coefficient", "target_perc
 const CHAPTER_COLUMNS = ["id", "subject_id", "name", "normalized_name", "position", "created_at", "updated_at", "revision", "inactive_at"];
 const TOPIC_COLUMNS = ["id", "chapter_id", "name", "normalized_name", "position", "target_seconds", "created_at", "updated_at", "revision", "inactive_at"];
 
+async function ensureProfile(trx: DatabasePort, profileId?: string | null): Promise<string> {
+  const id = profileId?.trim() || "default";
+  await trx.execute(
+    "INSERT OR IGNORE INTO profiles(id, name, created_at) VALUES(?, 'پروفایل همگام‌سازی‌شده', ?)",
+    [id, Date.now()]
+  );
+  return id;
+}
+
+async function ensureSubject(trx: DatabasePort, subjectId: string, profileId?: string | null): Promise<string> {
+  const safeProfileId = await ensureProfile(trx, profileId);
+  await trx.execute(
+    "INSERT OR IGNORE INTO subjects(id, profile_id, name, coefficient, target_percentage, created_at) VALUES(?, ?, 'درس همگام‌سازی‌شده', 1, 70, ?)",
+    [subjectId, safeProfileId, Date.now()]
+  );
+  return subjectId;
+}
+
+async function ensureChapter(
+  trx: DatabasePort,
+  chapterId: string,
+  subjectId?: string | null,
+  profileId?: string | null
+): Promise<string> {
+  let safeSubjectId = subjectId?.trim();
+  if (!safeSubjectId) {
+    const [existing] = await trx.query<{ id: string }>("SELECT id FROM subjects LIMIT 1");
+    safeSubjectId = existing ? existing.id : await ensureSubject(trx, "default-subject", profileId);
+  } else {
+    await ensureSubject(trx, safeSubjectId, profileId);
+  }
+  await trx.execute(
+    "INSERT OR IGNORE INTO chapters(id, subject_id, name, normalized_name, created_at, updated_at) VALUES(?, ?, 'فصل همگام‌سازی‌شده', 'فصل همگام سازی شده', ?, ?)",
+    [chapterId, safeSubjectId, Date.now(), Date.now()]
+  );
+  return chapterId;
+}
+
+async function ensureQuestion(trx: DatabasePort, questionId: string, externalKey?: string): Promise<string> {
+  const key = externalKey?.trim() || `ext-${questionId}`;
+  await trx.execute(
+    `INSERT INTO questions(id, external_key, subject, content_json, explanation_json, status, shuffle_safe, created_at)
+     VALUES(?, ?, 'عمومی', '[]', '[]', 'published', 1, ?)
+     ON CONFLICT(id) DO NOTHING`,
+    [questionId, key, Date.now()]
+  );
+  return questionId;
+}
+
+async function ensureSession(trx: DatabasePort, sessionId: string, profileId?: string | null): Promise<string> {
+  const safeProfileId = await ensureProfile(trx, profileId);
+  await trx.execute(
+    `INSERT INTO sessions(id, profile_id, state, selection_seed, created_at)
+     VALUES(?, ?, 'FINISHED', ?, ?)
+     ON CONFLICT(id) DO NOTHING`,
+    [sessionId, safeProfileId, crypto.randomUUID(), Date.now()]
+  );
+  return sessionId;
+}
+
+async function ensureSessionQuestion(
+  trx: DatabasePort,
+  sessionQuestionId: string,
+  sessionId: string,
+  questionId: string,
+  profileId?: string | null
+): Promise<string> {
+  await ensureSession(trx, sessionId, profileId);
+  await ensureQuestion(trx, questionId);
+
+  const [existing] = await trx.query<{ id: string }>(
+    "SELECT id FROM session_questions WHERE id=? LIMIT 1",
+    [sessionQuestionId]
+  );
+  if (existing) return existing.id;
+
+  const [maxOrd] = await trx.query<{ max_ordinal: number | null }>(
+    "SELECT MAX(ordinal) as max_ordinal FROM session_questions WHERE session_id=?",
+    [sessionId]
+  );
+  const nextOrdinal =
+    maxOrd?.max_ordinal !== null && maxOrd?.max_ordinal !== undefined
+      ? Number(maxOrd.max_ordinal) + 1
+      : 0;
+
+  await trx.execute(
+    `INSERT INTO session_questions(id, session_id, question_id, ordinal, snapshot_json, option_order_json)
+     VALUES(?, ?, ?, ?, '{}', '[]')
+     ON CONFLICT(id) DO NOTHING`,
+    [sessionQuestionId, sessionId, questionId, nextOrdinal]
+  );
+  return sessionQuestionId;
+}
+
+async function ensureAttempt(
+  trx: DatabasePort,
+  attemptId: string,
+  sessionId: string,
+  questionId: string,
+  sessionQuestionId?: string,
+  profileId?: string | null
+): Promise<string> {
+  const [existing] = await trx.query<{ id: string }>(
+    "SELECT id FROM attempts WHERE id=? LIMIT 1",
+    [attemptId]
+  );
+  if (existing) return existing.id;
+
+  const sqId = sessionQuestionId || `sq_${attemptId}`;
+  await ensureSessionQuestion(trx, sqId, sessionId, questionId, profileId);
+
+  await trx.execute(
+    `INSERT INTO attempts(id, session_question_id, session_id, question_id, result, visited, active_ms, finalized_at)
+     VALUES(?, ?, ?, ?, 'answered', 1, 0, ?)
+     ON CONFLICT(id) DO NOTHING`,
+    [attemptId, sqId, sessionId, questionId, Date.now()]
+  );
+  return attemptId;
+}
+
 async function applyProfileBundle(trx: DatabasePort, payload: Record<string, unknown>): Promise<void> {
   const profile = record(payload.profile);
   if (!profile) throw new Error("بستهٔ پروفایل ابری ناقص است.");
@@ -400,28 +504,21 @@ async function applyProfileBundle(trx: DatabasePort, payload: Record<string, unk
   const topics = records(payload.topics);
   for (const subject of subjects) {
     if (subject.profile_id) {
-      await trx.execute(
-        "INSERT OR IGNORE INTO profiles(id, name, created_at) VALUES(?, 'پروفایل همگام‌سازی‌شده', ?)",
-        [subject.profile_id, Date.now()]
-      );
+      await ensureProfile(trx, String(subject.profile_id));
+    } else {
+      subject.profile_id = profile.id;
     }
     await upsertRaw(trx, "subjects", subject, SUBJECT_COLUMNS);
   }
   for (const chapter of chapters) {
     if (chapter.subject_id) {
-      await trx.execute(
-        "INSERT OR IGNORE INTO subjects(id, profile_id, name, created_at) VALUES(?, (SELECT id FROM profiles LIMIT 1), 'درس همگام‌سازی‌شده', ?)",
-        [chapter.subject_id, Date.now()]
-      );
+      await ensureSubject(trx, String(chapter.subject_id), String(profile.id));
     }
     await upsertRaw(trx, "chapters", chapter, CHAPTER_COLUMNS);
   }
   for (const topic of topics) {
     if (topic.chapter_id) {
-      await trx.execute(
-        "INSERT OR IGNORE INTO chapters(id, subject_id, name, created_at) VALUES(?, (SELECT id FROM subjects LIMIT 1), 'فصل همگام‌سازی‌شده', ?)",
-        [topic.chapter_id, Date.now()]
-      );
+      await ensureChapter(trx, String(topic.chapter_id), topic.subject_id ? String(topic.subject_id) : undefined, String(profile.id));
     }
     await upsertRaw(trx, "topics", topic, TOPIC_COLUMNS);
   }
@@ -545,45 +642,62 @@ async function applyQuestionBundle(trx: DatabasePort, payload: Record<string, un
       throw err;
     }
   }
-  await trx.execute("DELETE FROM question_options WHERE question_id=?", [question.id]);
-  for (const option of records(payload.options)) await upsertRaw(trx, "question_options", option, OPTION_COLUMNS);
+  await trx.execute("DELETE FROM question_options WHERE question_id=?", [safeQuestion.id]);
+  for (const option of records(payload.options)) {
+    await upsertRaw(trx, "question_options", { ...option, question_id: safeQuestion.id }, OPTION_COLUMNS);
+  }
   for (const revision of records(payload.revisions)) {
     const collision = await trx.query<{ id: string }>(
       "SELECT id FROM question_revisions WHERE question_id=? AND version=? LIMIT 1",
-      [revision.question_id, revision.version]
+      [safeQuestion.id, revision.version]
     );
     if (collision.length && collision[0].id !== revision.id) {
       const [latest] = await trx.query<{ version: number }>(
         "SELECT COALESCE(MAX(version),0) AS version FROM question_revisions WHERE question_id=?",
-        [revision.question_id]
+        [safeQuestion.id]
       );
       await upsertRaw(
         trx,
         "question_revisions",
-        { ...revision, version: Number(latest?.version ?? 0) + 1 },
+        { ...revision, question_id: safeQuestion.id, version: Number(latest?.version ?? 0) + 1 },
         REVISION_COLUMNS
       );
     } else {
-      await upsertRaw(trx, "question_revisions", revision, REVISION_COLUMNS);
+      await upsertRaw(trx, "question_revisions", { ...revision, question_id: safeQuestion.id }, REVISION_COLUMNS);
     }
   }
   if (group?.id) {
-    await trx.execute("DELETE FROM question_media WHERE question_id=? OR group_id=?", [question.id, group.id]);
+    await trx.execute("DELETE FROM question_media WHERE question_id=? OR group_id=?", [safeQuestion.id, group.id]);
   } else {
-    await trx.execute("DELETE FROM question_media WHERE question_id=?", [question.id]);
+    await trx.execute("DELETE FROM question_media WHERE question_id=?", [safeQuestion.id]);
   }
   for (const relation of records(payload.questionMedia)) {
     const targetMediaId = mediaIdMap.get(String(relation.media_id)) ?? relation.media_id;
     if (targetMediaId) {
       await trx.execute(
-        "INSERT OR IGNORE INTO media_files(id, sha256, mime, bytes, width, height, availability, variant, created_at) VALUES(?, 'sync-pending', 'image/png', 1, 100, 100, 'missing', 'raw', ?)",
+        "INSERT OR IGNORE INTO media_files(id, sha256, mime, bytes, width, height, availability, variant, created_at) VALUES(?, 'sync-pending', 'image/png', 1, 100, 100, 'missing', 'optimized', ?)",
         [targetMediaId, Date.now()]
       );
+
+      let safeGroupId = relation.group_id ? String(relation.group_id) : null;
+      if (safeGroupId) {
+        const [grp] = await trx.query<{ id: string }>("SELECT id FROM question_groups WHERE id=? LIMIT 1", [safeGroupId]);
+        if (!grp) safeGroupId = null;
+      }
+
+      let safeQuestionId = relation.question_id ? String(relation.question_id) : null;
+      if (safeQuestionId && safeQuestionId !== safeQuestion.id) {
+        const [qExists] = await trx.query<{ id: string }>("SELECT id FROM questions WHERE id=? LIMIT 1", [safeQuestionId]);
+        if (!qExists) safeQuestionId = String(safeQuestion.id);
+      }
+
       const safeRelation = {
         required: 1,
         created_at: Date.now(),
         ...relation,
         media_id: targetMediaId,
+        group_id: safeGroupId,
+        question_id: safeQuestionId || safeQuestion.id,
       };
       await upsertRaw(
         trx,
@@ -717,63 +831,61 @@ async function applySessionBundle(
     }
   }
   const profileId = String(session.profile_id || "").trim();
-  if (profileId) {
-    await trx.execute(
-      "INSERT OR IGNORE INTO profiles(id, name, created_at) VALUES(?, 'پروفایل همگام‌سازی‌شده', ?)",
-      [profileId, Date.now()]
-    );
-  } else {
-    const [defProfile] = await trx.query<{ id: string }>("SELECT id FROM profiles ORDER BY created_at ASC LIMIT 1");
-    if (defProfile) {
-      session.profile_id = defProfile.id;
-    }
-  }
+  const safeProfileId = await ensureProfile(trx, profileId);
+  session.profile_id = safeProfileId;
 
   await upsertRaw(trx, "sessions", session, SESSION_COLUMNS);
   for (const sessionQuestion of records(payload.sessionQuestions)) {
+    sessionQuestion.session_id = session.id;
     await ensureSnapshotQuestion(trx, sessionQuestion);
     await upsertRaw(trx, "session_questions", sessionQuestion, SESSION_QUESTION_COLUMNS);
   }
   for (const attempt of records(payload.attempts)) {
+    const sqId = String(attempt.session_question_id || "");
+    const qId = String(attempt.question_id || "");
+    const sId = String(attempt.session_id || session.id);
+    if (sqId && qId) {
+      await ensureSessionQuestion(trx, sqId, sId, qId, safeProfileId);
+    }
     const safeAttempt: Record<string, unknown> = {
       active_ms: 0,
       finalized_at: Date.now(),
       ...attempt,
+      session_id: sId,
+      session_question_id: sqId,
+      question_id: qId,
     };
-    if (safeAttempt.session_question_id) {
-      await trx.execute(
-        "INSERT OR IGNORE INTO session_questions(id, session_id, question_id, ordinal, snapshot_json, option_order_json) VALUES(?, ?, ?, 0, '{}', '[]')",
-        [safeAttempt.session_question_id, safeAttempt.session_id || session.id, safeAttempt.question_id || ""]
-      );
-    }
     await upsertRaw(trx, "attempts", safeAttempt, ATTEMPT_COLUMNS);
   }
-  for (const event of records(payload.attemptEvents)) await upsertRaw(trx, "attempt_events", event, EVENT_COLUMNS);
+  for (const event of records(payload.attemptEvents)) {
+    const safeEvent = { ...event, session_id: session.id };
+    await upsertRaw(trx, "attempt_events", safeEvent, EVENT_COLUMNS);
+  }
   for (const review of records(payload.reviews)) {
     if (review.question_id) {
-      await trx.execute(
-        "INSERT OR IGNORE INTO questions(id, external_key, subject, content_json, status) VALUES(?, ?, 'عمومی', '[]', 'published')",
-        [review.question_id, `rev-${review.question_id}`]
-      );
+      await ensureQuestion(trx, String(review.question_id));
     }
     if (review.last_attempt_id) {
-      const [attExists] = await trx.query<{ id: string }>("SELECT id FROM attempts WHERE id=? LIMIT 1", [review.last_attempt_id]);
-      if (!attExists) {
-        const [anyAtt] = await trx.query<{ id: string }>("SELECT id FROM attempts LIMIT 1");
-        if (anyAtt) {
-          review.last_attempt_id = anyAtt.id;
-        } else {
-          const dummySqId = crypto.randomUUID();
-          await trx.execute(
-            "INSERT OR IGNORE INTO session_questions(id, session_id, question_id, ordinal, snapshot_json, option_order_json) VALUES(?, ?, ?, 0, '{}', '[]')",
-            [dummySqId, session.id, review.question_id]
-          );
-          await trx.execute(
-            "INSERT OR IGNORE INTO attempts(id, session_question_id, session_id, question_id, result, visited, active_ms, finalized_at) VALUES(?, ?, ?, ?, 'answered', 1, 0, ?)",
-            [review.last_attempt_id, dummySqId, session.id, review.question_id, Date.now()]
-          );
-        }
-      }
+      const attId = await ensureAttempt(
+        trx,
+        String(review.last_attempt_id),
+        String(session.id),
+        String(review.question_id),
+        undefined,
+        safeProfileId
+      );
+      review.last_attempt_id = attId;
+    } else {
+      const dummyAttId = `att_rev_${String(review.question_id)}`;
+      const attId = await ensureAttempt(
+        trx,
+        dummyAttId,
+        String(session.id),
+        String(review.question_id),
+        undefined,
+        safeProfileId
+      );
+      review.last_attempt_id = attId;
     }
     await upsertRaw(trx, "review_items", review, REVIEW_COLUMNS, "question_id");
   }

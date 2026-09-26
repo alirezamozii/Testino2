@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Hourglass, Play } from "lucide-react";
+import { AlertCircle, Hourglass } from "lucide-react";
 import { SessionReadyView } from "./session-ready-view";
 import { SessionFinishedView } from "./session-finished-view";
 import { ExamNavSheet } from "./exam-nav-sheet";
@@ -539,18 +539,42 @@ export function SessionPlayer() {
 
       {/* Active Question Statement, Options, Feedback & Confidence Pills */}
       {current && (
-        <ExamActiveQuestion
-          current={current}
-          index={index}
-          fontSize={fontSize}
-          isFlagged={isFlagged}
-          onToggleFlag={toggleFlag}
-          displayQuestionContent={displayQuestionContent}
-          options={options}
-          isCurrentRevealed={isCurrentRevealed}
-          displayExplanation={displayExplanation}
-          onSaveAnswer={(optionId, confidence) => save(optionId, confidence, index)}
-        />
+        <div
+          className={`relative transition-all duration-200 ${
+            (sData.state === "PAUSED" || gapNotice) ? "cursor-pointer group" : ""
+          }`}
+          onClick={
+            (sData.state === "PAUSED" || gapNotice)
+              ? () => {
+                  setGapNotice(false);
+                  void begin();
+                }
+              : undefined
+          }
+        >
+          <ExamActiveQuestion
+            current={current}
+            index={index}
+            fontSize={fontSize}
+            isFlagged={isFlagged}
+            onToggleFlag={toggleFlag}
+            displayQuestionContent={displayQuestionContent}
+            options={options}
+            isCurrentRevealed={isCurrentRevealed}
+            displayExplanation={displayExplanation}
+            onSaveAnswer={(optionId, confidence) => save(optionId, confidence, index)}
+          />
+          {(sData.state === "PAUSED" || gapNotice) && (
+            <div className="absolute inset-0 bg-black/10 backdrop-blur-[1px] rounded-3xl flex items-center justify-center pointer-events-none transition-all">
+              <div className="card-neo px-4 py-2 bg-[var(--surface)] text-center shadow-[3px_3px_0px_var(--neo-shadow)] flex items-center gap-2 group-hover:scale-105 transition-transform">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                <span className="text-xs font-black text-[var(--ink)]">
+                  زمان‌سنج متوقف است (کلیک برای ادامه آزمون)
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {poolExhausted && (
@@ -612,48 +636,6 @@ export function SessionPlayer() {
         error={error ?? undefined}
         onConfirmAbandon={() => void abandon()}
       />
-
-      {/* Click-to-resume overlay when exam is paused */}
-      {(sData.state === "PAUSED" || gapNotice) && !showFinishConfirm && !showAbandonConfirm && (
-        <div
-          onClick={() => {
-            setGapNotice(false);
-            void begin();
-          }}
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4 cursor-pointer select-none"
-          title="برای ادامه آزمون هر جای صفحه کلیک کنید"
-        >
-          <div
-            className="card-neo p-6 max-w-sm w-full bg-[var(--surface)] text-center space-y-3.5 shadow-[4px_4px_0px_var(--neo-shadow)] animate-in fade-in zoom-in-95"
-            onClick={(e) => {
-              e.stopPropagation();
-              setGapNotice(false);
-              void begin();
-            }}
-          >
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-[var(--pastel-yellow)] border-2 border-[var(--line-strong)] flex items-center justify-center text-[var(--ink-on-color)] shadow-[2px_2px_0px_var(--neo-shadow)]">
-              <Play size={28} className="translate-x-[-1px]" />
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-sm sm:text-base font-black text-[var(--ink)]">آزمون متوقف شده است</h3>
-              <p className="text-xs text-[var(--muted)] font-medium leading-relaxed">
-                زمان‌سنج متوقف است. برای ادامه، <span className="font-bold text-[var(--brand-orange)]">روی هر جای صفحه کلیک کنید</span> یا دکمه زیر را بزنید.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="btn-neo-orange w-full py-2.5 text-xs font-black cursor-pointer shadow-[2px_2px_0px_var(--neo-shadow)] active:translate-x-[1px] active:translate-y-[1px]"
-              onClick={() => {
-                setGapNotice(false);
-                void begin();
-              }}
-            >
-              ادامه آزمون
-            </button>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

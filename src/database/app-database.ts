@@ -3193,6 +3193,7 @@ export class AppDatabase {
       const wrong = items.filter((row) => row.result === "wrong").length;
       const total = items.length;
       const totalAttempts = total;
+      const uniqueQuestions = new Set(items.map((i) => i.question_id)).size;
       const rawPct = total > 0 ? (correct / total) * 100 : null;
       const penalizedPct = total > 0 && penaltyNum > 0
         ? ((correct - (wrong * penaltyNum) / penaltyDen) / total) * 100
@@ -3208,6 +3209,7 @@ export class AppDatabase {
         subject,
         total,
         totalAttempts,
+        uniqueQuestions,
         correct,
         wrong,
         percentage: penalizedPct !== null ? Math.round(penalizedPct * 10) / 10 : null,

@@ -50,9 +50,9 @@ test.describe("exam lifecycle journey", () => {
     await expectPageResponsive(page);
 
     await page.getByTitle("توقف موقت").click();
-    await expect(page.getByTitle("ادامه")).toBeVisible();
+    await expect(page.getByTitle("ادامه", { exact: true })).toBeVisible();
     await page.reload();
-    await page.getByTitle("ادامه").click();
+    await page.getByTitle("ادامه", { exact: true }).click();
     await expectPageResponsive(page);
 
     // ── Answer through ALL questions until the finish dialog appears ───
@@ -117,7 +117,7 @@ test.describe("exam lifecycle journey", () => {
 
     // Session must resume — paused notice or running state — never data loss.
     await expect(
-      page.getByTitle("ادامه").or(page.getByRole("button", { name: /^الف/ }).first())
+      page.getByTitle("ادامه", { exact: true }).or(page.getByRole("button", { name: /^الف/ }).first())
     ).toBeVisible({ timeout: 30_000 });
     await expectPageResponsive(page);
   });

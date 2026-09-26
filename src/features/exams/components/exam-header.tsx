@@ -124,7 +124,6 @@ export function ExamHeader({
         <div
           onClick={onResumeFromGap}
           className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border-2 border-amber-400 text-amber-900 dark:text-amber-200 text-xs font-bold flex flex-col sm:flex-row items-center justify-between gap-3.5 shadow-[2px_2px_0px_var(--neo-shadow)] cursor-pointer hover:bg-amber-100/60 dark:hover:bg-amber-900/40 transition-colors"
-          title="برای ادامه آزمون کلیک کنید"
         >
           <div className="flex items-center gap-2.5 text-center sm:text-right justify-center sm:justify-start">
             <AlertCircle size={18} className="text-amber-600 flex-shrink-0" />
