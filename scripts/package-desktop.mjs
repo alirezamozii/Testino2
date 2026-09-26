@@ -77,6 +77,34 @@ if (fs.existsSync(defaultAppAsar)) {
   fs.unlinkSync(defaultAppAsar);
 }
 
+// Remove bloated 20.5MB LICENSES.chromium.html to save massive disk & package space
+const uselessLicense = path.join(outputAppDir, "LICENSES.chromium.html");
+if (fs.existsSync(uselessLicense)) {
+  try {
+    fs.unlinkSync(uselessLicense);
+    console.log("🗑️ فایل غیرضروری LICENSES.chromium.html (۲۰.۵ مگابایت) با موفقیت حذف شد.");
+  } catch {}
+}
+
+// Purge 52 unused language packs (keeping only fa.pak and en-US.pak) to save ~46MB
+const outputLocalesDir = path.join(outputAppDir, "locales");
+if (fs.existsSync(outputLocalesDir)) {
+  const kept = new Set(["fa.pak", "en-US.pak", "en-GB.pak"]);
+  const files = fs.readdirSync(outputLocalesDir);
+  let pruned = 0;
+  for (const f of files) {
+    if (!kept.has(f) && f.endsWith(".pak")) {
+      try {
+        fs.unlinkSync(path.join(outputLocalesDir, f));
+        pruned++;
+      } catch {}
+    }
+  }
+  if (pruned > 0) {
+    console.log(`🌍 پاکسازی ${pruned} زبان غیرضروری از بسته دسکتاپ (صرفه‌جویی ۴۶ مگابایت).`);
+  }
+}
+
 // Inject official icon and metadata into Testino.exe
 const rceditExe = path.join(rootDir, "node_modules", "electron-winstaller", "vendor", "rcedit.exe");
 const icoPath = path.join(rootDir, "public", "app-icon.ico");

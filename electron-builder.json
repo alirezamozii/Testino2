@@ -4,6 +4,7 @@
   "directories": {
     "output": "dist"
   },
+  "afterPack": "scripts/clean-electron-pack.cjs",
   "protocols": [
     {
       "name": "Testino",

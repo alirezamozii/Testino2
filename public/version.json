@@ -1,6 +1,6 @@
 {
-  "version": "2.0.4",
-  "build": 73,
+  "version": "2.0.5",
+  "build": 74,
   "releaseDate": "2026-09-26",
   "changelog": [
     "fix(sync): portal diagnostics modal, optimize batch chunking and eliminate redundant API polling",
