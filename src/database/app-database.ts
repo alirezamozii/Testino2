@@ -1907,24 +1907,24 @@ export class AppDatabase {
         }
       }
 
-      // 2. Wrong answers (questions where latest attempt was incorrect)
+      // 2. Wrong answers (cumulative mistake archive: includes all questions ever answered wrong in history)
       if (selectedModes.includes("wrong")) {
-        for (const [qId, att] of latestAttemptMap.entries()) {
-          if (att.result === "wrong") eligibleQuestionIds.add(qId);
+        for (const qId of allEverWrong) {
+          eligibleQuestionIds.add(qId);
         }
       }
 
-      // 3. Doubtful (questions where latest attempt was doubtful)
+      // 3. Doubtful (cumulative archive: all questions ever marked doubtful)
       if (selectedModes.includes("doubtful")) {
-        for (const [qId, att] of latestAttemptMap.entries()) {
-          if (att.confidence === "doubtful") eligibleQuestionIds.add(qId);
+        for (const qId of allEverDoubtful) {
+          eligibleQuestionIds.add(qId);
         }
       }
 
-      // 4. Guess (questions where latest attempt was a guess)
+      // 4. Guess (cumulative archive: all questions ever guessed)
       if (selectedModes.includes("guess")) {
-        for (const [qId, att] of latestAttemptMap.entries()) {
-          if (att.confidence === "guess") eligibleQuestionIds.add(qId);
+        for (const qId of allEverGuess) {
+          eligibleQuestionIds.add(qId);
         }
       }
 
@@ -2119,17 +2119,22 @@ export class AppDatabase {
     for (const [qId, att] of latestAttemptByQ.entries()) {
       if (att.result === "unanswered") {
         skippedIds.add(qId);
-      } else if (att.result === "wrong") {
-        wrongIds.add(qId);
-      } else if (att.result === "correct") {
-        if (att.confidence === "doubtful") {
-          doubtfulIds.add(qId);
-        } else if (att.confidence === "guess") {
-          guessIds.add(qId);
-        } else {
-          masteredIds.add(qId);
-        }
       }
+      if (att.result === "correct" && att.confidence !== "doubtful" && att.confidence !== "guess") {
+        masteredIds.add(qId);
+      }
+    }
+
+    // Cumulative historical archive: once a question is answered wrong/doubtful/guess,
+    // it remains permanently in that pool so the student can re-test past mistakes months later.
+    for (const qId of allEverWrongIds) {
+      wrongIds.add(qId);
+    }
+    for (const qId of allEverDoubtfulIds) {
+      doubtfulIds.add(qId);
+    }
+    for (const qId of allEverGuessIds) {
+      guessIds.add(qId);
     }
 
     return {
