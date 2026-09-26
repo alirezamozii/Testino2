@@ -2,6 +2,7 @@
 
 import React, { memo, useEffect, useState } from "react";
 import katex from "katex";
+import "katex/dist/katex.min.css";
 import { Image as ImageIcon, Maximize2 } from "lucide-react";
 import type { ContentBlock, InlineCell } from "@/features/questions/domain/question-schema";
 import { cn } from "@/lib/utils";

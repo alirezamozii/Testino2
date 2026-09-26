@@ -51,3 +51,5 @@ bun.lock*
 project-markdown.txt
 *.tmp
 *.temp
+.lighthouse-reports/
+lighthouse-*.json

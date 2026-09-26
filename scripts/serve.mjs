@@ -1,6 +1,7 @@
 import http from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 
 const root = path.resolve("out");
 const types = {
@@ -59,7 +60,6 @@ const server = http.createServer(async (req, res) => {
         try {
           const dir = path.dirname(file);
           const name = path.basename(file);
-          // e.g. __next.review.run.__PAGE__.txt -> __next.review/run/__PAGE__.txt
           const converted = path.join(dir, name.replace(/__next\.([^.]+)\.([^.]+)\.__PAGE__\.txt/, "__next.$1/$2/__PAGE__.txt"));
           await stat(converted);
           file = converted;
@@ -77,17 +77,30 @@ const server = http.createServer(async (req, res) => {
 
     const body = await readFile(file);
     const ext = path.extname(file).toLowerCase();
+    const isImmutable = pathname.startsWith("/_next/static/") || ext === ".wasm" || ext === ".woff2";
     const headers = {
       "Content-Type": types[ext] || "application/octet-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": isImmutable
+        ? "public, max-age=31536000, immutable"
+        : ext === ".html"
+        ? "no-cache"
+        : "public, max-age=86400",
     };
     if (ext === ".pdf") {
       headers["Content-Disposition"] = "inline";
     }
 
+    let responseBody = body;
+    const acceptEncoding = req.headers["accept-encoding"] || "";
+    const isCompressible = [".html", ".js", ".css", ".json", ".wasm", ".svg"].includes(ext);
+    if (isCompressible && acceptEncoding.includes("gzip") && body.length > 512) {
+      headers["Content-Encoding"] = "gzip";
+      responseBody = gzipSync(body);
+    }
+
     if (!res.headersSent) {
       res.writeHead(200, headers);
-      res.end(body);
+      res.end(responseBody);
     }
   } catch {
     if (!res.headersSent) {
