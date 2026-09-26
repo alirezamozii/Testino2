@@ -28,6 +28,7 @@ export interface ExamActiveQuestionProps {
   options: Array<{ id: string; content: ContentBlock[] }>;
   isCurrentRevealed: boolean;
   displayExplanation?: ContentBlock[];
+  isPaused?: boolean;
   onSaveAnswer: (optionId: string | null, confidence: "sure" | "doubtful" | "guess" | null) => void;
 }
 
@@ -41,6 +42,7 @@ export function ExamActiveQuestion({
   options,
   isCurrentRevealed,
   displayExplanation,
+  isPaused = false,
   onSaveAnswer,
 }: ExamActiveQuestionProps) {
   return (
@@ -77,9 +79,14 @@ export function ExamActiveQuestion({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => onToggleFlag(index)}
+              disabled={isPaused}
+              onClick={() => {
+                if (isPaused) return;
+                onToggleFlag(index);
+              }}
               className={cn(
                 "p-2 rounded-xl border-2 transition-all cursor-pointer",
+                isPaused && "opacity-50 pointer-events-none cursor-not-allowed",
                 isFlagged
                   ? "bg-[var(--pastel-yellow)] text-[var(--ink-on-color)] border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)]"
                   : "bg-[var(--surface)] text-[var(--muted)] border-[var(--line)] hover:border-[var(--line-strong)]"
@@ -176,7 +183,9 @@ export function ExamActiveQuestion({
             <button
               key={option.id}
               type="button"
+              disabled={isPaused}
               onClick={() => {
+                if (isPaused) return;
                 if (isSelected) {
                   onSaveAnswer(null, null);
                 } else {
@@ -186,6 +195,7 @@ export function ExamActiveQuestion({
               }}
               className={cn(
                 "w-full p-3.5 sm:p-4 rounded-2xl border-2 text-right transition-colors flex items-center gap-3 sm:gap-3.5 cursor-pointer active:scale-[0.99]",
+                isPaused && "opacity-40 pointer-events-none cursor-not-allowed select-none",
                 isSelected
                   ? "border-[var(--line-strong)] bg-[var(--pastel-blue-soft)] shadow-[3px_3px_0px_var(--neo-shadow)]"
                   : "border-[var(--line)] bg-[var(--surface)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-cream)]"
@@ -285,12 +295,15 @@ export function ExamActiveQuestion({
           {/* 1. شک دارم */}
           <button
             type="button"
+            disabled={isPaused}
             onClick={() => {
+              if (isPaused) return;
               const nextConf = current.confidence === "doubtful" ? (current.selectedOptionId ? "sure" : null) : "doubtful";
               onSaveAnswer(current.selectedOptionId ?? null, nextConf);
             }}
             className={cn(
               "w-full py-2.5 sm:py-3 px-3.5 sm:px-4 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-2 text-xs sm:text-sm font-black transition-all cursor-pointer active:scale-[0.98]",
+              isPaused && "opacity-40 pointer-events-none cursor-not-allowed select-none",
               current.confidence === "doubtful"
                 ? "bg-amber-100 dark:bg-amber-950/70 text-amber-950 dark:text-amber-200 border-amber-500 shadow-[2px_2px_0px_#f59e0b]"
                 : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
@@ -304,12 +317,15 @@ export function ExamActiveQuestion({
           {/* 2. حدس زدم */}
           <button
             type="button"
+            disabled={isPaused}
             onClick={() => {
+              if (isPaused) return;
               const nextConf = current.confidence === "guess" ? (current.selectedOptionId ? "sure" : null) : "guess";
               onSaveAnswer(current.selectedOptionId ?? null, nextConf);
             }}
             className={cn(
               "w-full py-2.5 sm:py-3 px-3.5 sm:px-4 rounded-2xl border-2 border-[var(--line-strong)] shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-2 text-xs sm:text-sm font-black transition-all cursor-pointer active:scale-[0.98]",
+              isPaused && "opacity-40 pointer-events-none cursor-not-allowed select-none",
               current.confidence === "guess"
                 ? "bg-purple-100 dark:bg-purple-950/70 text-purple-950 dark:text-purple-200 border-purple-500 shadow-[2px_2px_0px_#a855f7]"
                 : "bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--surface-2)]"
@@ -324,8 +340,15 @@ export function ExamActiveQuestion({
           {current.selectedOptionId ? (
             <button
               type="button"
-              onClick={() => onSaveAnswer(null, null)}
-              className="col-span-2 sm:col-span-1 w-full py-2.5 sm:py-3 px-3.5 sm:px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-rose-600 shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-1.5 text-xs sm:text-sm font-bold transition-all shrink-0 cursor-pointer active:scale-[0.98]"
+              disabled={isPaused}
+              onClick={() => {
+                if (isPaused) return;
+                onSaveAnswer(null, null);
+              }}
+              className={cn(
+                "col-span-2 sm:col-span-1 w-full py-2.5 sm:py-3 px-3.5 sm:px-4 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-rose-600 shadow-[2px_2px_0px_var(--neo-shadow)] flex items-center justify-center gap-1.5 text-xs sm:text-sm font-bold transition-all shrink-0 cursor-pointer active:scale-[0.98]",
+                isPaused && "opacity-40 pointer-events-none cursor-not-allowed select-none"
+              )}
               title="پاک کردن انتخاب گزینه"
             >
               <RotateCcw size={15} />

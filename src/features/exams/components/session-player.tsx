@@ -549,7 +549,11 @@ export function SessionPlayer() {
             options={options}
             isCurrentRevealed={isCurrentRevealed}
             displayExplanation={displayExplanation}
-            onSaveAnswer={(optionId, confidence) => save(optionId, confidence, index)}
+            isPaused={sData.state === "PAUSED" || gapNotice}
+            onSaveAnswer={(optionId, confidence) => {
+              if (sData.state === "PAUSED" || gapNotice) return;
+              save(optionId, confidence, index);
+            }}
           />
           {(sData.state === "PAUSED" || gapNotice) && (
             <div
@@ -557,8 +561,17 @@ export function SessionPlayer() {
               role="button"
               tabIndex={0}
               aria-label="زمان‌سنج متوقف است. کلیک کنید تا آزمون ادامه یابد."
-              className="absolute inset-0 z-30 bg-black/25 dark:bg-black/45 backdrop-blur-[2px] rounded-3xl flex items-center justify-center pointer-events-auto cursor-pointer select-none transition-all"
+              className="absolute inset-0 z-30 bg-black/50 dark:bg-black/80 backdrop-blur-md rounded-3xl flex items-center justify-center pointer-events-auto cursor-pointer select-none transition-all p-4"
               onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setGapNotice(false);
+                void begin();
+              }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+              onTouchEnd={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 setGapNotice(false);
@@ -573,10 +586,15 @@ export function SessionPlayer() {
                 }
               }}
             >
-              <div className="card-neo px-5 py-3 bg-[var(--surface)] text-center shadow-[4px_4px_0px_var(--neo-shadow)] flex items-center gap-2.5 hover:scale-105 active:scale-95 transition-transform border-2 border-[var(--line-strong)]">
-                <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                <span className="text-xs sm:text-sm font-black text-[var(--ink)]">
-                  زمان‌سنج متوقف است (کلیک برای ادامه آزمون)
+              <div className="card-neo px-6 py-4 bg-[var(--surface)] text-center shadow-[6px_6px_0px_var(--neo-shadow)] flex flex-col items-center gap-2 hover:scale-105 active:scale-95 transition-transform border-2 border-[var(--line-strong)]">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-3.5 h-3.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                  <span className="text-sm sm:text-base font-black text-[var(--ink)]">
+                    زمان‌سنج آزمون متوقف است
+                  </span>
+                </div>
+                <span className="text-xs text-[var(--muted)] font-bold">
+                  گزینه‌ها قفل شده‌اند • برای ادامه آزمون اینجا کلیک کنید
                 </span>
               </div>
             </div>

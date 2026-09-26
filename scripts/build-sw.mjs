@@ -22,5 +22,10 @@ async function walk(directory) {
 
 await walk(root);
 assets.sort();
+const pkg = JSON.parse(await readFile("package.json", "utf8"));
+const cacheName = `testino-shell-v${pkg.version}-${Date.now()}`;
 const template = await readFile("scripts/sw-template.js", "utf8");
-await writeFile(path.join(root, "sw.js"), template.replace("__PRECACHE__", JSON.stringify(assets)));
+const swContent = template
+  .replace("__PRECACHE__", JSON.stringify(assets))
+  .replace('const CACHE = "testino-shell-v2";', `const CACHE = "${cacheName}";`);
+await writeFile(path.join(root, "sw.js"), swContent);

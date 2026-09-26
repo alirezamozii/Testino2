@@ -34,7 +34,11 @@ export const ExamTimerChip = memo(function ExamTimerChip({
   const prevSessionIdRef = useRef(sessionId);
   const onGapDetectedRef = useRef(onGapDetected);
   const onAutoPauseRef = useRef(onAutoPause);
-  const lastTickRef = useRef<number | null>(null);
+
+  // Precision reference timestamps
+  const startTimestampRef = useRef<number | null>(null);
+  const startSecondsRef = useRef<number>(persistedSeconds);
+  const lastWallCheckRef = useRef<number>(Date.now());
 
   onGapDetectedRef.current = onGapDetected;
   onAutoPauseRef.current = onAutoPause;
@@ -44,53 +48,76 @@ export const ExamTimerChip = memo(function ExamTimerChip({
     if (sessionId !== prevSessionIdRef.current) {
       prevSessionIdRef.current = sessionId;
       setTotalSeconds(persistedSeconds);
-      lastTickRef.current = null;
+      startSecondsRef.current = persistedSeconds;
+      startTimestampRef.current = isRunning ? performance.now() : null;
+      lastWallCheckRef.current = Date.now();
     }
-  }, [sessionId, persistedSeconds]);
+  }, [sessionId, persistedSeconds, isRunning]);
 
   // Keep totalSeconds smoothly ratcheting upward if database has higher persisted count
   useEffect(() => {
-    setTotalSeconds((prev) => Math.max(prev, persistedSeconds));
-  }, [persistedSeconds]);
+    if (persistedSeconds === 0) {
+      setTotalSeconds(0);
+      startSecondsRef.current = 0;
+      startTimestampRef.current = isRunning ? performance.now() : null;
+    } else {
+      setTotalSeconds((prev) => {
+        const next = Math.max(prev, persistedSeconds);
+        if (next > prev) {
+          startSecondsRef.current = next;
+          startTimestampRef.current = isRunning ? performance.now() : null;
+        }
+        return next;
+      });
+    }
+  }, [persistedSeconds, isRunning]);
 
-  // High-efficiency, stable 1-second monotonic tick (1 Hz, near-zero CPU)
+  const totalSecondsRef = useRef(totalSeconds);
+  totalSecondsRef.current = totalSeconds;
+
+  // Stable, high-precision 250ms polling (updates sharply on exact 1000ms boundaries, never skips or groups by 2s)
   useEffect(() => {
     if (!isRunning) {
-      lastTickRef.current = null;
+      startTimestampRef.current = null;
       return;
     }
 
-    lastTickRef.current = performance.now();
+    // Anchor start
+    startTimestampRef.current = performance.now();
+    startSecondsRef.current = totalSecondsRef.current;
+    lastWallCheckRef.current = Date.now();
 
     const interval = setInterval(() => {
       const now = performance.now();
-      const last = lastTickRef.current ?? now;
-      const deltaMs = now - last;
-      lastTickRef.current = now;
+      const wallNow = Date.now();
 
-      // Only if device was suspended or in deep sleep for > 90 seconds
-      if (deltaMs > 90_000) {
+      // Check for device sleep/inactivity gap (> 90 seconds)
+      const wallDelta = wallNow - lastWallCheckRef.current;
+      lastWallCheckRef.current = wallNow;
+      if (wallDelta > 90_000) {
         onGapDetectedRef.current?.();
         onAutoPauseRef.current?.();
         return;
       }
 
-      // Normal tick: increment by elapsed seconds (typically 1s)
-      const secDelta = Math.max(1, Math.round(deltaMs / 1000));
-      setTotalSeconds((prev) => prev + secDelta);
-    }, 1000);
+      if (startTimestampRef.current !== null) {
+        const elapsedSec = Math.floor((now - startTimestampRef.current) / 1000);
+        setTotalSeconds(startSecondsRef.current + elapsedSec);
+      }
+    }, 250);
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && lastTickRef.current !== null) {
-        const now = performance.now();
-        const deltaMs = now - lastTickRef.current;
-        lastTickRef.current = now;
-        if (deltaMs > 90_000) {
+      if (document.visibilityState === "visible") {
+        const wallNow = Date.now();
+        const wallDelta = wallNow - lastWallCheckRef.current;
+        lastWallCheckRef.current = wallNow;
+        if (wallDelta > 90_000) {
           onGapDetectedRef.current?.();
           onAutoPauseRef.current?.();
-        } else if (deltaMs >= 1000) {
-          const secDelta = Math.round(deltaMs / 1000);
-          setTotalSeconds((prev) => prev + secDelta);
+        } else if (startTimestampRef.current !== null) {
+          const now = performance.now();
+          const elapsedSec = Math.floor((now - startTimestampRef.current) / 1000);
+          setTotalSeconds(startSecondsRef.current + elapsedSec);
         }
       }
     };
@@ -118,7 +145,7 @@ export const ExamTimerChip = memo(function ExamTimerChip({
       )}
     >
       <Clock size={13} className={isTimeLow ? "text-red-600" : "text-[var(--brand-orange)]"} />
-      <span>
+      <span className="font-mono tabular-nums">
         {remainingSeconds !== null
           ? formatTimer(remainingSeconds)
           : formatTimer(totalSeconds)}
