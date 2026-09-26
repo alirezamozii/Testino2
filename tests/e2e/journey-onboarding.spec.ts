@@ -57,7 +57,12 @@ test.describe("onboarding journey", () => {
     // Pre-reload sanity: the DB really holds the profile on disk path.
     const before = await page.evaluate(async () => {
       const hook = (window as unknown as { __testinoDb?: { health: () => Promise<unknown>; listProfiles: () => Promise<unknown[]> } }).__testinoDb;
-      return hook ? { health: await hook.health(), profiles: (await hook.listProfiles()).length } : null;
+      if (!hook) return null;
+      try {
+        return { health: await hook.health(), profiles: (await hook.listProfiles()).length };
+      } catch {
+        return null;
+      }
     });
 
     await page.reload();

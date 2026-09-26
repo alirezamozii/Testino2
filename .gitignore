@@ -8,6 +8,7 @@ releases/
 release-files/
 artifacts/
 test-results/
+playwright-report/
 structure.txt
 .env.local
 .env

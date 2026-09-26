@@ -88,7 +88,7 @@ export function FinishConfirmModal({
             </div>
             <div className="flex-1 min-w-0">
               <strong className="block text-xs font-black text-white">
-                پایان قطعی و مشاهده کارنامه
+                تحویل آزمون و مشاهده کارنامه
               </strong>
               <span className="text-[11px] text-white/90 font-medium leading-relaxed block mt-0.5 text-pretty">
                 درصد و ترازت بلافاصله محاسبه و در کارنامه ثبت می‌شود.

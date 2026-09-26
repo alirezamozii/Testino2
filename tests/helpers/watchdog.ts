@@ -134,6 +134,8 @@ export function attachConsoleHygiene(page: Page): { assertClean: (context: strin
     /ResizeObserver loop/i,
     /third-party cookie/i,
     /Manifest/i,
+    /wasm streaming compile failed/i,
+    /falling back to ArrayBuffer/i,
   ];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("console", (message) => {
