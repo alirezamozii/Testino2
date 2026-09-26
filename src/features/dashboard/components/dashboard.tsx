@@ -58,7 +58,39 @@ export function Dashboard() {
   }, [database.status, profiles.isLoading, profiles.isFetching, profile, router]);
 
   if (database.status === "loading" || profiles.isLoading) {
-    return <LoadingState label="در حال آماده‌سازی فضای مطالعه…" />;
+    return (
+      <div className="space-y-6 max-w-6xl mx-auto pb-10">
+        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl border-2 border-[var(--line-strong)] bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--neo-shadow)] shrink-0 animate-pulse" />
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-black text-[var(--ink)]">
+                سلام کاربر گرامی!
+              </h1>
+              <p className="text-xs sm:text-sm font-bold text-[var(--muted)] flex items-center gap-1.5 mt-1">
+                <span>امروز یک قدم به هدفت نزدیک‌تر شو</span>
+                <Sprout size={16} className="text-[var(--brand-green)]" />
+              </p>
+            </div>
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="lg:col-span-7 space-y-6">
+            <div className="card-neo p-6 rounded-3xl bg-[var(--surface)] border-2 border-[var(--line-strong)] shadow-[4px_4px_0px_var(--neo-shadow)] space-y-4 animate-pulse">
+              <div className="h-6 w-48 bg-[var(--surface-2)] rounded-lg" />
+              <div className="h-24 bg-[var(--surface-2)] rounded-2xl" />
+            </div>
+          </div>
+          <div className="lg:col-span-5 space-y-6">
+            <div className="card-neo p-5 rounded-3xl bg-[var(--surface)] border-2 border-[var(--line-strong)] shadow-[3px_3px_0px_var(--neo-shadow)] space-y-3 animate-pulse">
+              <div className="h-6 w-32 bg-[var(--surface-2)] rounded-lg" />
+              <div className="h-28 bg-[var(--surface-2)] rounded-2xl" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (profiles.isError) {
