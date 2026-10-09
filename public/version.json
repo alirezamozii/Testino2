@@ -1,7 +1,7 @@
 {
   "version": "2.0.11",
   "build": 79,
-  "releaseDate": "2026-09-26",
+  "releaseDate": "2026-10-09",
   "changelog": [
     "fix(update): enable mobile update popups, bypass SW version cache, and add Iran CDN fallback",
     "fix(ui,spacing): prevent card collisions and breathing room in exam and review players",
