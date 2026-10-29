@@ -1,12 +1,11 @@
 {
   "version": "2.0.11",
   "build": 79,
-  "releaseDate": "2026-10-09",
+  "releaseDate": "2026-10-29",
   "changelog": [
     "build: sync release date and refresh production builds",
     "fix(update): enable mobile update popups, bypass SW version cache, and add Iran CDN fallback",
-    "fix(ui,spacing): prevent card collisions and breathing room in exam and review players",
-    "fix(exams): precision 1s monotonic timer, lock option buttons during pause, and bust SW cache"
+    "fix(ui,spacing): prevent card collisions and breathing room in exam and review players"
   ],
   "downloadUrls": {
     "windows": "https://github.com/alirezamozii/Testino2/releases/latest/download/Testino-Setup-x64.exe",
